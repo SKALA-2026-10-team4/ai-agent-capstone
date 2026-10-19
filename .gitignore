@@ -1,0 +1,82 @@
+# ===== 환경 변수·비밀 (절대 커밋 금지) =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== IDE / 편집기 =====
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.iml
+*.swp
+*.swo
+
+# ===== Python (agent, business_mcp, rag_mcp, rag_pipeline) =====
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# ===== Java / Spring Boot (backend) =====
+backend/build/
+backend/.gradle/
+backend/target/
+.gradle/
+build/
+target/
+out/
+*.class
+*.jar
+*.war
+!gradle/wrapper/gradle-wrapper.jar
+HELP.md
+
+# ===== Node / Vue (frontend) =====
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.local
+
+# ===== Docker / 로컬 데이터 =====
+docker-compose.override.yml
+postgres_data/
+pgdata/
+vectordb_data/
+chroma_data/
+chroma/
+.data/
+
+# ===== RAG / 로컬 산출물 =====
+*.sqlite3
+*.db
+!docs/**/*.db
+
+# ===== 로그·임시 파일 =====
+*.log
+logs/
+tmp/
+.tmp/
+
+# ===== LangGraph / LangSmith 로컬 상태 =====
+.langgraph_api/
