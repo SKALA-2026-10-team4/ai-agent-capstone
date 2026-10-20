@@ -45,10 +45,12 @@ public class ScenarioRunner {
         List<Check> checks = extraChecks == null ? List.of() : extraChecks.stream().map(Check::parse).toList();
         Map<String, WorkspaceSkill> skills = workspaces.skillsOf(workspaceId);
         List<Scenario> scenarios = scenarioIds.stream().map(catalog::get).toList();
+        List<Expectation> expectations = scenarios.stream().map(ScenarioRunner::expectationOf).toList();
 
         List<ScenarioRunReport.ScenarioResult> results = new ArrayList<>();
-        for (Scenario scenario : scenarios) {
-            Expectation expectation = Expectation.of(scenario.expect());
+        for (int s = 0; s < scenarios.size(); s++) {
+            Scenario scenario = scenarios.get(s);
+            Expectation expectation = expectations.get(s);
             List<String> runIds = new ArrayList<>();
             List<ScenarioRunReport.Failure> failures = new ArrayList<>();
             for (int i = 0; i < times; i++) {
@@ -66,5 +68,14 @@ public class ScenarioRunner {
         }
         boolean allPassed = results.stream().allMatch(ScenarioRunReport.ScenarioResult::passed);
         return new ScenarioRunReport(workspaceId, allPassed, List.copyOf(results));
+    }
+
+    /** 시험 주문 파일의 확인 조건이 잘못됐으면 어느 파일인지 밝힌다. Agent 의 extra_checks 오류와 헷갈리지 않게 하려는 것이다. */
+    private static Expectation expectationOf(Scenario scenario) {
+        try {
+            return Expectation.of(scenario.expect());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("시험 주문 " + scenario.id() + " 파일의 " + e.getMessage(), e);
+        }
     }
 }

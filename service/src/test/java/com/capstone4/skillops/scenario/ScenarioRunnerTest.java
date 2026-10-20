@@ -5,11 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.capstone4.skillops.workspace.WorkspaceService;
 
@@ -84,6 +87,25 @@ class ScenarioRunnerTest {
                 .hasMessage("repeat 는 1~5 사이여야 합니다 (받은 값 0)");
         assertThatThrownBy(() -> runner.run("w_ok", List.of("g-01"), null, 6))
                 .hasMessage("repeat 는 1~5 사이여야 합니다 (받은 값 6)");
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void rejectsBadScenarioFileCheckBeforeRunningAnyScenario(@TempDir Path dir) throws Exception {
+        Path golden = Files.createDirectories(dir.resolve("golden"));
+        String g01 = Files.readString(Path.of("../scenarios/golden/g-01.json"));
+        Files.writeString(golden.resolve("g-01.json"), g01);
+        Files.writeString(golden.resolve("g-02.json"), g01.replace("\"g-01\"", "\"g-02\"")
+                .replace("payment.status == 'PAID'", "payment.status = 'PAID'"));
+        FlowRunner counting = req -> {
+            calls.incrementAndGet();
+            return new ContractOnlyFlowRunner().runDryRun(req);
+        };
+        var withBadFile = new ScenarioRunner(workspaces, new ScenarioCatalog(dir.toString(), TestFixtures.JSON),
+                counting, new ScenarioGrader());
+
+        assertThatThrownBy(() -> withBadFile.run("w_ok", List.of("g-01", "g-02"), null, 2))
+                .hasMessageStartingWith("시험 주문 g-02 파일의 확인 조건을 읽을 수 없습니다: payment.status = 'PAID'");
         assertThat(calls).hasValue(0);
     }
 }
