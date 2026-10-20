@@ -167,20 +167,40 @@ class StubMCPTools:
         ]
 
     async def get_trace(self, run_id: str) -> dict:
+        # 원본 실패 트레이스 (F1 시나리오)
+        if run_id == "r_stub_F1":
+            return {
+                "run_id": run_id,
+                "order_id": "ord_001",
+                "mode": "live",
+                "workspace": None,
+                "scenario_id": None,
+                "started_at": "2026-10-20T09:00:00Z",
+                "skill_versions": {"order-flow": 1, "order-intake": 2, "inventory-check": 5, "payment": 4, "shipping-reserve": 3, "notify": 2},
+                "steps": [
+                    {"skill": "order-intake",    "version": 2, "input": {"order.id": "ord_001"}, "output": {"order.id": "ord_001", "order.total": 50000}, "tools_called": [], "status": "ok",    "error": None, "ms": 120},
+                    {"skill": "inventory-check", "version": 5, "input": {"order.id": "ord_001"}, "output": {"inventory.예약가능수량": True},               "tools_called": ["check_inventory"], "status": "ok", "error": None, "ms": 200},
+                    {"skill": "payment",         "version": 4, "input": {"order.id": "ord_001", "order.total": 50000}, "output": {},                       "tools_called": [], "status": "error", "error": "required input inventory.reserved not found", "ms": 50},
+                ],
+                "final_status": "FAILED",
+            }
+        # workspace 시나리오 실행 결과 — 수정 후 통과 트레이스
         return {
             "run_id": run_id,
             "order_id": "ord_001",
-            "mode": "live",
-            "workspace": None,
-            "scenario_id": None,
+            "mode": "sandbox",
+            "workspace": "ws_stub",
+            "scenario_id": run_id,
             "started_at": "2026-10-20T09:00:00Z",
-            "skill_versions": {"order-flow": 1, "order-intake": 2, "inventory-check": 5, "payment": 4, "shipping-reserve": 3, "notify": 2},
+            "skill_versions": {"order-flow": 1, "order-intake": 2, "inventory-check": 6, "payment": 4, "shipping-reserve": 3, "notify": 2},
             "steps": [
-                {"skill": "order-intake",     "version": 2, "input": {"order.id": "ord_001"}, "output": {"order.id": "ord_001", "order.total": 50000}, "tools_called": [],                 "status": "ok",    "error": None, "ms": 120},
-                {"skill": "inventory-check",  "version": 5, "input": {"order.id": "ord_001"}, "output": {"inventory.예약가능수량": True},               "tools_called": ["check_inventory"], "status": "ok",    "error": None, "ms": 200},
-                {"skill": "payment",          "version": 4, "input": {"order.id": "ord_001", "order.total": 50000}, "output": {},                       "tools_called": [],                 "status": "error", "error": "required input inventory.reserved not found", "ms": 50},
+                {"skill": "order-intake",      "version": 2, "input": {"order.id": "ord_001"}, "output": {"order.id": "ord_001", "order.total": 50000}, "tools_called": [], "status": "ok", "error": None, "ms": 110},
+                {"skill": "inventory-check",   "version": 6, "input": {"order.id": "ord_001"}, "output": {"inventory.reserved": True},                  "tools_called": ["check_inventory"], "status": "ok", "error": None, "ms": 180},
+                {"skill": "payment",           "version": 4, "input": {"order.id": "ord_001", "order.total": 50000, "inventory.reserved": True}, "output": {"payment.id": "pay_001", "payment.status": "PAID"}, "tools_called": [], "status": "ok", "error": None, "ms": 90},
+                {"skill": "shipping-reserve",  "version": 3, "input": {"order.id": "ord_001", "payment.id": "pay_001"}, "output": {"shipping.id": "shp_001"}, "tools_called": [], "status": "ok", "error": None, "ms": 95},
+                {"skill": "notify",            "version": 2, "input": {"order.id": "ord_001", "payment.status": "PAID"}, "output": {}, "tools_called": [], "status": "ok", "error": None, "ms": 40},
             ],
-            "final_status": "FAILED",
+            "final_status": "SHIPPED",
         }
 
     async def create_workspace(self, base: dict | None = None) -> dict:
