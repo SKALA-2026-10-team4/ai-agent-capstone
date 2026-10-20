@@ -1,0 +1,75 @@
+name: order-agent
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: order_demo
+      POSTGRES_USER: ${ORDER_DEMO_DB_USER:-order_demo}
+      POSTGRES_PASSWORD: ${ORDER_DEMO_DB_PASSWORD:-order_demo_local}
+    volumes:
+      - order_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      ORDER_AGENT_SKILLS_ROOT: /app/skills
+      ORDER_AGENT_DEMO_ENABLED: ${ORDER_AGENT_DEMO_ENABLED:-true}
+      ORDER_AGENT_MAX_API_CALLS: ${ORDER_AGENT_MAX_API_CALLS:-12}
+      ORDER_AGENT_MAX_TOKENS: ${ORDER_AGENT_MAX_TOKENS:-10000}
+      ORDER_AGENT_TIMEOUT_MS: ${ORDER_AGENT_TIMEOUT_MS:-45000}
+      ORDER_AGENT_CALL_TIMEOUT_MS: ${ORDER_AGENT_CALL_TIMEOUT_MS:-10000}
+      ORDER_AGENT_MODEL_MODE: ${ORDER_AGENT_MODEL_MODE:-fixed}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-not-set}
+      SKILLOPS_MODEL: ${SKILLOPS_MODEL:-gpt-4.1-mini}
+      ORDER_DEMO_DB_URL: jdbc:postgresql://db:5432/order_demo
+      ORDER_DEMO_DB_USER: ${ORDER_DEMO_DB_USER:-order_demo}
+      ORDER_DEMO_DB_PASSWORD: ${ORDER_DEMO_DB_PASSWORD:-order_demo_local}
+    ports:
+      - '127.0.0.1:8081:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:8080/api/health]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 20
+  frontend:
+    build: ./frontend
+    environment:
+      API_PROXY_TARGET: http://backend:8080
+    ports:
+      - '127.0.0.1:5174:5173'
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:5173').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  db-test:
+    image: postgres:17
+    profiles: [test]
+    environment:
+      POSTGRES_DB: order_agent_test
+      POSTGRES_USER: order_test
+      POSTGRES_PASSWORD: order_test_local
+    ports:
+      - '127.0.0.1:5434:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U order_test -d order_agent_test]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+volumes:
+  order_data:

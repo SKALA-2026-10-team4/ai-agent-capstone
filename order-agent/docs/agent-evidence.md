@@ -1,0 +1,115 @@
+# 주문 Agent · snapshot · trace 구현
+
+2026-10-20 / 1차 주문 MVP 이후 확장. 기존 주문 API와 DB 데이터를 보존하며 추가했다.
+
+## 실제 실행 경로
+
+주문 API → OrderService → OrderProcessingService → OrderHarness → 고정된 snapshot → 엔트리 선택 → order-flow.steps 검증 → 각 단계 Skill 실제 로드 → 입력·도구 요청 검증 → 기존 업무 Mock 실행 → 결과 전달 → 주문·trace 저장.
+
+별도 Agent 서버는 없다. Spring Boot 안의 Harness가 실행을 관리한다. 기본 `fixed`는 모델 응답을 고정 정책으로 대체하며, 파일 로드·계약 검사·업무 도구·DB·trace는 실제로 실행한다. `openai`는 같은 포트에서 Spring AI 2.0.0을 사용한다. 고정 모드가 자연어 Skill 본문의 정책 해석까지 검증하는 것은 아니다.
+
+정상 주문은 order-flow와 단계 5개를 실제 로드한다. steps는 로드한 flow에서 읽으며 모델이 임의로 순서를 다시 만들지 않는다. 모델이 반환한 결과가 재고·결제 상태를 직접 바꾸지 않는다. 도구가 반환한 실제 출력 중 Skill에 선언된 값을 다음 단계에 전달한다.
+
+## 화면에서 확인
+
+http://localhost:5174 아래의 **Trace · Snapshot** 영역을 사용한다.
+
+1. 새 주문을 실행한다. 기존 MVP 주문에는 기록을 소급 생성하지 않는다.
+2. 최근 실행을 선택하거나 현재 주문의 실행이 자동 선택되는 것을 확인한다.
+3. **Trace 보기**: 제공 후보·원래 선택·이름 해석·실제 로드·도구 인자/결과·오류·최종 상태를 펼쳐본다.
+4. **Snapshot 보기**: 실행 당시 파일 목록, 전체/파일별 SHA-256, Skill 본문과 관련 파일을 조회한다.
+5. 페이지를 새로고침해도 최근 실행을 다시 조회할 수 있다. 읽기 전용 확인은 `python3 order-agent/scripts/check-evidence.py`(저장소 루트)로 수행할 수 있다. 요청 키/본문의 자동 주문 복구와는 별개다.
+
+trace는 실행별, snapshot은 후보 파일 세트별이다. 하나의 snapshot으로 여러 주문을 실행할 수 있지만 각 execution_id와 trace는 별개다. run_id는 기존 계약용 별칭이며 execution UUID에서 파생한다.
+
+## 시연 후보와 SkillOps를 구분
+
+개발 패널의 정상본·결함본·수정본은 **개발자가 미리 준비한 fixture**다. SkillOps가 실행 전에 자동 진단하거나 수정한 결과가 아니다. 진단 Agent·MCP 서버·승인/PR을 이 앱에서 구현하지 않았다.
+
+- baseline: 정상 게시 Skill 세트.
+- broken-contract: inventory.reserved 출력 선언을 제거한 후보. 계약 검사에서 FAILED가 되고 업무 도구는 실행하지 않는다. 실패 trace는 남긴다.
+- repaired: 예약 가능 수량 필드와 reserved 선언을 함께 유지한 별도 후보. 원래 snapshot을 덮지 않고 새 snapshot으로 실행한다.
+
+입력을 먼저 채우고 후보 고정 버튼을 누른 뒤 주문을 실행한다. 주문 preset이나 새 주문 작성은 입력을 초기화하므로 후보를 다시 고정한다. 정상·결제 거절 시연에는 재고가 필요하다.
+
+나중에 B 담당 진단 Agent가 실패 trace를 조사하고 후보를 만들면, C-2의 SEALED workspace/버전 참조를 이 실행 경계로 전달한다. 현재 static 검사에서 차단되는 것은 주문 실행 안전장치이며 SkillOps를 호출했다는 뜻이 아니다.
+
+## snapshot 저장과 게시
+
+독립 앱의 Skill 원본은 order-agent/skills다. Docker는 이 완성된 번들을 backend 이미지에 포함한다. bundle.json이 파일 목록과 해시를 고정하며, 누락·추가·편집 중 파일·심볼릭 링크를 거절한다.
+
+```bash
+# 저장소 루트: Skill 수정 완료 후 manifest 갱신
+python3 order-agent/scripts/publish-skills.py
+# 새 게시본을 이미지에 반영
+cd order-agent
+docker compose up --build -d --wait
+```
+
+실행 전에 파일 원본 바이트·경로·해시와 후보 메타데이터를 독립 DB의 skill_snapshots/snapshot_files에 하나의 트랜잭션으로 저장한다. 기존 문서의 파일 저장 제안 대신 이 방식을 선택해 파일/메타데이터의 부분 발행과 이중 쓰기 문제를 줄였다. 관련 파일도 보존한다. 읽을 때 파일별·전체 해시를 다시 검사하며 수정/삭제 API는 없다.
+
+이 저장소는 C의 버전 저장소를 중복 운영하기 위한 공용 구현이 아니다. 독립 앱을 실행·검증하기 위한 저장소이며 공용 저장소 제공 시 TODO 경계에서 연결한다.
+
+## 추가 API
+
+| API | 내용 |
+|---|---|
+| GET /api/executions | 최근 실행 최대 20개, snapshot·상태·비용 참조 |
+| GET /api/executions/{execution_id}/trace | 실행 상세와 시간 순서 이벤트 |
+| GET /api/traces/{run_id} | r_ 접두 별칭으로 같은 trace 조회 |
+| GET /api/snapshots/{snapshot_id} | 메타데이터·전체 해시·파일 manifest |
+| GET /api/snapshots/{snapshot_id}/files?path=skills/... | snapshot 내부 파일 원본, UTF-8 또는 base64 |
+| POST /api/snapshots | 개발용 {"fixture":"baseline/broken-contract/repaired"} 후보 고정 |
+
+POST /api/orders는 선택적 snapshot_id(UUID)를 받는다. 미지정이면 현재 게시본을 새 snapshot으로 고정한다. 응답에 execution_id·trace_url이 추가되며, 과거 MVP 주문은 null이다. 같은 키의 멱등 비교에는 명시한 snapshot_id도 포함한다. 없는/변조된 snapshot은 주문 접수 전에 거절한다.
+
+실행 mode는 live, model_mode는 fixed/openai다. 고정 응답은 api_calls=0, 토큰은 미관측 null이다. 실패한 API 시도·일시 오류 재시도도 호출 수에 포함하며 인증·형식·오선택은 재시도하지 않는다. timeout 후 늦은 응답은 도구 실행을 할 수 없다.
+
+## 트랜잭션 변경
+
+모델 요청 동안 재고 잠금을 유지하지 않도록 도구별 짧은 트랜잭션으로 변경했다. 각 도구 결과·멱등 operation·실제 결과 이벤트는 업무 효과와 함께 커밋한다. trace 요청 기록은 호출 전에 저장한다.
+
+- 재고 부족: REJECTED, 후속 도구 미실행.
+- 결제 거절: 예약 해제·HOLD, 배송·성공 알림 미실행.
+- 결제 전 실행 오류: 이미 예약됐다면 해제하고 FAILED.
+- 결제 후 실행 오류: 이미 승인된 결제·배송/알림 결과를 보존하고 FAILED. 자동 환불하지 않는다.
+- flow가 필수 단계를 마치지 않았거나 선언 출력이 없으면 성공 처리하지 않는다.
+- 모든 단계 결과를 확인한 뒤 주문 SHIPPED와 실행 완료 기록을 같은 트랜잭션으로 확정한다.
+- 재시작 중단 복구: 미결제 예약만 해제, 확정 결과 보존, trace INTERRUPTED.
+
+따라서 MVP 문서의 “모든 Mock 변경을 한 번에 롤백” 설명은 이 확장부터 적용하지 않는다.
+
+## 실제 모델 모드
+
+order-agent/.env에서 ORDER_AGENT_MODEL_MODE=openai, OPENAI_API_KEY, SKILLOPS_MODEL을 설정하고 backend를 재생성한다. 키 값을 이미지·문서·로그에 넣지 않는다. 기본은 fixed다. OPENAI_API_KEY가 없는 상태의 실제 유료 모델 응답은 검증하지 않았다.
+
+이 구현은 [공식 JSON 출력 가이드](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat)의 JSON mode와 Spring AI 설치 소스를 참고했다. JSON 형태만으로 실행을 신뢰하지 않고 이름·도구·인자·입출력 계약을 서버에서 검증한다. 모델 질문에는 Judge 정답·기대 도구 목록을 넣지 않는다.
+
+환경 변수: ORDER_AGENT_MODEL_MODE, SKILLOPS_MODEL, OPENAI_API_KEY, ORDER_AGENT_MAX_API_CALLS, ORDER_AGENT_MAX_TOKENS(관측 토큰 상한), ORDER_AGENT_TIMEOUT_MS, ORDER_AGENT_CALL_TIMEOUT_MS, ORDER_AGENT_DEMO_ENABLED. 실제 과금의 절대 상한이나 timeout된 원격 요청의 과금 취소를 보장하지 않는다.
+
+## 담당자 연결 TODO
+
+| 담당 | 코드 위치 | 나중에 연결할 것 |
+|---|---|---|
+| A | harness/OrderHarness, SkillLoader | 공용 Harness·Registry 타입과 로더 구현 |
+| C-1 | trace/TraceService, workspace/SnapshotService | get_trace/run_id, immutable 파일·버전 저장소 계약 |
+| C-2 | OrderHarness, OrderService 실패 처리 | 동일 Harness를 호출하는 TargetAdapter/Runner, 실패 이벤트 전송·중복 제거 |
+| B/C-2 | controller/EvidenceController | 진단 Agent의 실제 후보를 SEALED workspace 참조로 수신 |
+| A/C-1 | frontend/src/api/evidence.js | 공용 trace/snapshot API의 경로·DTO 변환 |
+
+위 위치에는 담당과 보존할 계약을 적은 TODO 주석을 남겼다. “이미 구현한 로직을 다시 만들라”는 의미가 아니다. Runner·Judge·MCP·진단·승인 기능은 현재 이 확장에도 구현하지 않았다.
+
+## 계약 오류 상세
+
+새 실행의 EXECUTION_ERROR에는 category뿐 아니라 skill_id, phase, missing_inputs, missing_dependencies, message를 기록한다. 이벤트 자체의 skill_id도 실패 Skill로 설정한다. 정적 검사 단계는 static_validation, 실제 단계 입력 검사는 runtime_validation이다. 예전 실행은 당시 증거이므로 소급 수정하지 않는다.
+
+```json
+{
+  "category": "CONTRACT_VIOLATION",
+  "skill_id": "payment",
+  "phase": "static_validation",
+  "missing_inputs": ["inventory.reserved"],
+  "missing_dependencies": [],
+  "message": "Skill에 필요한 입력 또는 선행 단계가 충족되지 않았습니다."
+}
+```
