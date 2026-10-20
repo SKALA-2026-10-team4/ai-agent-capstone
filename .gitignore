@@ -35,6 +35,7 @@ dist/
 build/
 
 # ===== Java / Spring Boot (backend) =====
+service/bin/
 backend/build/
 backend/.gradle/
 backend/target/
