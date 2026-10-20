@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://capstone4.local/skillops/proposal.schema.json",
+  "title": "Proposal",
+  "description": "계약 4 · SkillOps Agent 의 수정안. v0 (초안). W3 가 만들고 save_proposal 로 저장, W4 가 비교·승인 화면에 그린다. evidence 가 비면 서비스가 저장을 거부한다.",
+  "type": "object",
+  "required": ["id", "created_at", "trigger", "root_cause", "intent", "candidates", "recommended"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^p_[A-Za-z0-9]+$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["proposed", "approved", "applied", "rolled_back", "no_valid_fix"], "default": "proposed" },
+    "trigger": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["failure", "skill_saved"] },
+        "run_id": { "type": ["string", "null"] },
+        "skill": { "type": ["string", "null"] },
+        "version": { "type": ["integer", "null"] }
+      }
+    },
+    "root_cause": {
+      "type": "object",
+      "required": ["skill", "from_version", "to_version", "hunk", "summary", "confirmed_by"],
+      "properties": {
+        "skill": { "type": "string" },
+        "from_version": { "type": "integer" },
+        "to_version": { "type": "integer" },
+        "hunk": { "type": "integer", "description": "diff_skill 이 돌려준 hunk 번호. ablation 으로 확정된 것" },
+        "summary": { "type": "string" },
+        "confirmed_by": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "ablation 실행의 run_id 들" }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "required": ["text", "assertions", "confirmed"],
+      "properties": {
+        "text": { "type": "string", "description": "담당자가 이 변경으로 바꾸려던 업무 규칙. 승인 화면에서 담당자가 확인" },
+        "assertions": { "type": "array", "items": { "type": "string" }, "description": "scenario.expect.assertions 형식" },
+        "confirmed": { "type": ["boolean", "null"] }
+      }
+    },
+    "candidates": {
+      "type": "array", "minItems": 1,
+      "items": { "$ref": "#/$defs/candidate" }
+    },
+    "recommended": { "type": ["integer", "null"], "description": "candidates 인덱스. 유효 후보가 없으면 null + status=no_valid_fix" }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "required": ["id", "kind", "patches", "results", "evidence", "rank", "explanation"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["local", "contract", "flow"], "description": "국소 수정 · 계약 전파 · 흐름 재구성" },
+        "workspace": { "type": "string", "description": "검증에 쓴 ws_id. promote 대상" },
+        "patches": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["skill", "base_version", "diff"],
+            "properties": { "skill": { "type": "string" }, "base_version": { "type": "integer" }, "diff": { "type": "string", "description": "unified diff" } }
+          }
+        },
+        "results": {
+          "type": "object",
+          "required": ["functional", "regression", "intent", "contract", "footprint"],
+          "properties": {
+            "functional": { "type": "boolean", "description": "기준 1" },
+            "regression": { "type": "object", "required": ["passed", "total"], "properties": { "passed": { "type": "integer" }, "total": { "type": "integer" } }, "description": "기준 2" },
+            "intent": { "type": "boolean", "description": "기준 3" },
+            "contract": { "type": "boolean", "description": "기준 4" },
+            "footprint": { "type": "integer", "description": "기준 5 · 수정한 skill 수" }
+          }
+        },
+        "valid": { "type": "boolean", "description": "functional && regression.passed==total && intent" },
+        "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "검증 실행 run_id / 시나리오 id. 설명은 이것만 인용한다" },
+        "rank": { "type": "integer", "minimum": 1 },
+        "explanation": { "type": "string" }
+      }
+    }
+  }
+}
