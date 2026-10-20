@@ -1,0 +1,11 @@
+**/node_modules
+**/build
+**/.gradle
+**/bin
+**/dist
+**/test-results
+**/playwright-report
+**/.env*
+.git
+frontend
+docs

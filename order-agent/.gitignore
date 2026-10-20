@@ -1,0 +1,10 @@
+**/bin/
+**/build/
+**/.gradle/
+**/node_modules/
+**/dist/
+**/.vite/
+.env
+playwright-report/
+test-results/
+!backend/gradle/wrapper/gradle-wrapper.jar
