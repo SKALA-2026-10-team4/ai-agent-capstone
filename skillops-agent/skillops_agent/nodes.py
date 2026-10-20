@@ -541,23 +541,32 @@ async def save_proposal(state: AgentState) -> dict:
     root_cause = state.get("root_cause") or {}
     intent = state.get("intent") or {}
     recommended = state.get("recommended")
-    status = "proposed" if any(c.get("valid") for c in state["candidates"]) else "no_valid_fix"
+    candidates = state.get("candidates", [])
+    valid_candidates = [c for c in candidates if c.get("valid")]
+
+    # 유효 후보 중 evidence 가 비어 있으면 400 거부로 간주하고 오류 기록 후 종료
+    empty_evidence_ids = [c["id"] for c in valid_candidates if not c.get("evidence")]
+    if empty_evidence_ids:
+        base = _tick(state, "save_proposal", f"evidence 없음(400): {empty_evidence_ids}")
+        base["error"] = f"save_proposal 400: evidence 없는 후보 {empty_evidence_ids}"
+        return base
+
+    status = "proposed" if valid_candidates else "no_valid_fix"
 
     proposal = {
         "trigger": state["trigger"],
         "root_cause": root_cause,
         "intent": intent,
-        "candidates": state["candidates"],
+        "candidates": candidates,
         "recommended": recommended,
         "status": status,
     }
 
     async with get_tools() as t:
-        # evidence 없는 후보가 있으면 경고만 (stub 은 항상 저장)
         saved = await t.save_proposal(proposal)
 
     full_proposal = {**proposal, "id": saved.get("id", "p_unknown")}
-    base = _tick(state, "save_proposal", f"proposal 저장: {full_proposal['id']}")
+    base = _tick(state, "save_proposal", f"proposal 저장: {full_proposal['id']} (status={status})")
     base["proposal"] = full_proposal
     return base
 
