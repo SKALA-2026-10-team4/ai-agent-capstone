@@ -15,13 +15,12 @@ spring:
 
   ai:
     model:
-      chat: anthropic
-    anthropic:
+      chat: openai
+    openai:
       # 키가 없어도 부팅은 되어야 한다(빌드·MCP ping 확인용). 실제 호출 시 401.
-      api-key: ${ANTHROPIC_API_KEY:not-set}
+      api-key: ${OPENAI_API_KEY:not-set}
       chat:
-        options:
-          model: claude-opus-5-5
+        model: ${SKILLOPS_MODEL:gpt-4o-mini}
     mcp:
       server:
         name: skillops-service

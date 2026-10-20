@@ -6,6 +6,6 @@ from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(usecwd=True))
 
-MODEL = os.getenv("SKILLOPS_MODEL", "claude-opus-5-5")
+MODEL = os.getenv("SKILLOPS_MODEL", "gpt-4.1-mini")
 SERVICE_URL = os.getenv("SKILLOPS_SERVICE_URL", "http://localhost:8080")
 MCP_URL = os.getenv("SKILLOPS_MCP_URL", f"{SERVICE_URL}/mcp")
