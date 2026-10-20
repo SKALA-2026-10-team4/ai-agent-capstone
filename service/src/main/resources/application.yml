@@ -31,6 +31,10 @@ spring:
         annotation-scanner:
           enabled: true
 
+skillops:
+  # live SKILL.md 폴더. bootRun 은 service/ 에서 돌기 때문에 저장소 루트의 skills/ 를 가리킨다.
+  skills-dir: ${SKILLOPS_SKILLS_DIR:../skills}
+
 server:
   port: 8080
 
