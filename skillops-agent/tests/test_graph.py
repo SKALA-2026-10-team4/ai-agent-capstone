@@ -91,7 +91,7 @@ def test_agent_state_has_all_fields():
         "trigger", "trace", "diff", "skill_versions",
         "hypotheses", "ablation_runs", "root_cause", "hypothesis_retry",
         "intent", "candidates", "candidate_retry", "recommended",
-        "proposal", "approval_status", "approval_token",
+        "proposal", "approval_status", "approval_token", "smoke_passed",
         "step_count", "max_steps", "events", "error",
     }
     assert required.issubset(AgentState.__annotations__.keys())
@@ -264,3 +264,37 @@ async def test_candidate_exhaustion_saves_no_valid_fix_proposal(monkeypatch):
     assert result.get("candidate_retry") == 3
     node_names = [e["node"] for e in result.get("events", [])]
     assert "save_proposal" in node_names
+
+
+# ── PB-005: smoke 실패 → rollback 경로 ───────────────────────────────────────
+
+
+class _SmokeFailStub(StubMCPTools):
+    """ablation/verify 는 통과, smoke_check 에서 사용하는 ws_id='live' 실행은 실패."""
+
+    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
+        if ws_id == "live":
+            return [{"scenario_id": sid, "passed": False, "runs": [], "failures": ["스모크 실패"]} for sid in scenario_ids]
+        return await StubMCPTools.run_scenarios(self, ws_id, scenario_ids, k)
+
+
+@pytest.mark.asyncio
+async def test_smoke_failure_triggers_rollback(monkeypatch):
+    """promote 후 smoke 실패 시 rollback 노드가 실행된다."""
+    stub = _SmokeFailStub()
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
+    config = {"configurable": {"thread_id": "test-smoke-fail-pb005-1"}}
+
+    # interrupt 까지 실행
+    await graph.ainvoke(_initial_state(), config=config)
+
+    # 승인으로 재개
+    final = await graph.ainvoke(
+        Command(resume={"status": "approved", "token": "tok_smoke_test"}),
+        config=config,
+    )
+
+    node_names = [e["node"] for e in final.get("events", [])]
+    assert "smoke_check" in node_names
+    assert "rollback" in node_names
+    assert "promote_workspace" in node_names

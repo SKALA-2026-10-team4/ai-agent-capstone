@@ -91,6 +91,7 @@ class AgentState(TypedDict):
     proposal: dict | None
     approval_status: Literal["pending", "approved", "rejected"] | None
     approval_token: str | None
+    smoke_passed: bool | None              # smoke_check 결과
 
     # ── 제어 (PB-006) ─────────────────────────────────────────────
     step_count: int
