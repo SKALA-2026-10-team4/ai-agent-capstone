@@ -114,6 +114,10 @@ def _tick(state: AgentState, node: str, msg: str, run_id: str | None = None) -> 
     }
 
 
+def _is_limit_exceeded(state: AgentState) -> bool:
+    return state.get("step_count", 0) >= state.get("max_steps", MAX_STEPS_DEFAULT)
+
+
 MAX_STEPS_DEFAULT = 40
 
 
@@ -139,6 +143,7 @@ def init(state: AgentState) -> dict:
         "proposal": None,
         "approval_status": None,
         "approval_token": None,
+        "smoke_passed": None,
         "error": None,
     }
 
@@ -317,6 +322,8 @@ def route_ablation(state: AgentState) -> str:
         return "confirmed"
     if state["hypothesis_retry"] >= 3:
         return "escalate"
+    if _is_limit_exceeded(state):
+        return "limit_exceeded"
     return "retry"
 
 
@@ -489,6 +496,8 @@ def route_valid(state: AgentState) -> str:
     if any(c.get("valid") for c in state["candidates"]):
         return "has_valid"
     if state["candidate_retry"] >= 3:
+        return "no_valid_fix"
+    if _is_limit_exceeded(state):
         return "no_valid_fix"
     return "retry"
 

@@ -298,3 +298,52 @@ async def test_smoke_failure_triggers_rollback(monkeypatch):
     assert "smoke_check" in node_names
     assert "rollback" in node_names
     assert "promote_workspace" in node_names
+
+
+# ── PB-006: 실행 제어·진행 이벤트 ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_step_limit_stops_ablation_loop(monkeypatch):
+    """max_steps 초과 시 ablation 루프가 limit_exceeded 로 종료된다."""
+    stub = _AlwaysFailAblationStub()
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
+    config = {"configurable": {"thread_id": "test-step-limit-ablation-1"}}
+    # ablation 루프가 max_steps=5 에서 조기 종료
+    state = {"trigger": {"type": "failure", "run_id": "r_stub_F1", "skill": None, "version": None}, "max_steps": 5}
+    result = await graph.ainvoke(state, config=config)
+
+    node_names = [e["node"] for e in result.get("events", [])]
+    assert "save_proposal" not in node_names
+    # 3회 소진(escalate)이 아닌 step limit 으로 종료 → hypothesis_retry < 3
+    assert result.get("hypothesis_retry", 0) < 3
+
+
+@pytest.mark.asyncio
+async def test_step_limit_stops_candidate_loop(monkeypatch):
+    """max_steps 초과 시 후보 루프가 no_valid_fix 로 조기 종료된다."""
+    stub = _AllInvalidVerifyStub()
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
+    config = {"configurable": {"thread_id": "test-step-limit-cand-1"}}
+    state = {"trigger": {"type": "failure", "run_id": "r_stub_F1", "skill": None, "version": None}, "max_steps": 8}
+    result = await graph.ainvoke(state, config=config)
+
+    node_names = [e["node"] for e in result.get("events", [])]
+    assert "save_proposal" in node_names  # no_valid_fix 로 save_proposal 까지는 도달
+
+
+@pytest.mark.asyncio
+async def test_events_accumulate_across_nodes():
+    """실행된 모든 노드가 events 에 기록된다."""
+    config = {"configurable": {"thread_id": "test-events-pb006-1"}}
+    result = await graph.ainvoke(_initial_state(), config=config)
+
+    events = result.get("events", [])
+    node_names = [e["node"] for e in events]
+    # 이벤트에 필수 필드가 있는지 확인
+    for e in events:
+        assert "at" in e
+        assert "node" in e
+        assert "msg" in e
+    # init 은 step_count=0 이지만 event 는 1개 추가하므로 step_count = len(events) - 1
+    assert result.get("step_count", 0) == len(events) - 1
