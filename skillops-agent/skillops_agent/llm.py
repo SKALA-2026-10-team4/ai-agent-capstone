@@ -1,16 +1,15 @@
-"""Anthropic 클라이언트 팩토리.
+"""OpenAI 클라이언트 팩토리.
 
-키는 코드에 넣지 않는다. anthropic.Anthropic() 이 ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
-또는 `ant auth login` 프로필 순서로 자격을 찾는다.
+키는 코드에 넣지 않는다. OpenAI() 가 OPENAI_API_KEY 환경 변수를 읽는다.
 """
 
-import anthropic
+from openai import OpenAI
 
 from .config import MODEL
 
 
-def make_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic()
+def make_client() -> OpenAI:
+    return OpenAI()
 
 
 __all__ = ["MODEL", "make_client"]

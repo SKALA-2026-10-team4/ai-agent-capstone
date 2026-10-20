@@ -17,7 +17,7 @@
 ## 처음 한 번
 
 ```bash
-cp .env.example .env            # ANTHROPIC_API_KEY 채우기 (없어도 빌드·부팅·MCP ping 은 된다)
+cp .env.example .env            # OPENAI_API_KEY 채우기 (없어도 빌드·부팅·MCP ping 은 된다)
 docker compose up -d --wait     # postgres 17
 ```
 
