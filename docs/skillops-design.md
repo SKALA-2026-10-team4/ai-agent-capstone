@@ -117,6 +117,8 @@ flowchart LR
 
 ## 4. 5인 분업
 
+> **2026-10-20 재편.** 팀이 역할을 A(Spring AI·Boot·Vue) / B(Agent 껍데기) / C-1·C-2(MCP 구성 2인) / D(현업 서비스)로 다시 묶었다. **최신 분업·담당 폴더·연결부는 `docs/roles/`** 를 따른다. 아래 W1~W5 는 업무 묶음 설명으로만 남긴다 (A = W1 harness·api + W4, B = W3, C-1·C-2 = W2 + W1 trace, D = W5 + W1 도메인·어댑터).
+
 각 흐름은 1일차 09시에 동결한 계약 5개(6절)에 맞춰 독립적으로 만든다.
 
 ### W1 · 주문 서비스 & Harness — Java · Spring Boot · Spring AI
