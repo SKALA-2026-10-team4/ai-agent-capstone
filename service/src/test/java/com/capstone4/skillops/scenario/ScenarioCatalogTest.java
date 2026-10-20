@@ -3,13 +3,11 @@ package com.capstone4.skillops.scenario;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.nio.file.Path;
-
 import org.junit.jupiter.api.Test;
 
 class ScenarioCatalogTest {
 
-    ScenarioCatalog catalog = new ScenarioCatalog(Path.of("../scenarios"), TestFixtures.JSON);
+    ScenarioCatalog catalog = new ScenarioCatalog("../scenarios", TestFixtures.JSON);
 
     @Test
     void loadsG01() {

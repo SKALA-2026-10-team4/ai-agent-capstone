@@ -25,8 +25,9 @@ public class LiveFolderSkillVersionStore implements SkillVersionStore {
 
     private final Path skillsDir;
 
-    public LiveFolderSkillVersionStore(@Value("${skillops.skills-dir}") Path skillsDir) {
-        this.skillsDir = skillsDir;
+    /** 경로는 글자로 받는다. Path 로 바로 받으면 Spring 이 상대 경로를 웹 리소스로 해석해 Tomcat 에서 거부된다. */
+    public LiveFolderSkillVersionStore(@Value("${skillops.skills-dir}") String skillsDir) {
+        this.skillsDir = Path.of(skillsDir);
     }
 
     @Override

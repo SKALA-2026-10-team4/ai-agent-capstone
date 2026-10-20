@@ -22,7 +22,7 @@ class LiveFolderSkillVersionStoreTest {
     void setUp() throws Exception {
         Files.createDirectories(dir.resolve("a"));
         Files.writeString(dir.resolve("a/SKILL.md"), "---\nname: a\noutputs: [a.x]\nversion: 3\n---\n본문\n");
-        store = new LiveFolderSkillVersionStore(dir);
+        store = new LiveFolderSkillVersionStore(dir.toString());
     }
 
     @Test

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -29,7 +28,7 @@ class ScenarioRunnerTest {
             calls.incrementAndGet();
             return real.runDryRun(req);
         };
-        runner = new ScenarioRunner(workspaces, new ScenarioCatalog(Path.of("../scenarios"), TestFixtures.JSON),
+        runner = new ScenarioRunner(workspaces, new ScenarioCatalog("../scenarios", TestFixtures.JSON),
                 counting, new ScenarioGrader());
     }
 

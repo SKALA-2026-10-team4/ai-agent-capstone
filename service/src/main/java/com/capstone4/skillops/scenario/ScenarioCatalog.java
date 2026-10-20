@@ -24,8 +24,9 @@ public class ScenarioCatalog {
 
     private final Map<String, Scenario> scenarios = new TreeMap<>();
 
-    public ScenarioCatalog(@Value("${skillops.scenarios-dir}") Path scenariosDir, JsonMapper mapper) {
-        Path golden = scenariosDir.resolve("golden");
+    /** 경로는 글자로 받는다. Path 로 바로 받으면 Spring 이 상대 경로를 웹 리소스로 해석해 Tomcat 에서 거부된다. */
+    public ScenarioCatalog(@Value("${skillops.scenarios-dir}") String scenariosDir, JsonMapper mapper) {
+        Path golden = Path.of(scenariosDir).resolve("golden");
         if (!Files.isDirectory(golden)) {
             throw new IllegalStateException("시험 주문 폴더를 찾을 수 없습니다: " + golden.toAbsolutePath()
                     + ". skillops.scenarios-dir 설정을 확인하세요");
