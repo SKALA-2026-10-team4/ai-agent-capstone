@@ -11,3 +11,5 @@
 | 5 | MCP tool 12개 + REST + webhook | `mcp-tools-and-rest.md` | W2(서버) ↔ W3(클라이언트), W1(REST) ↔ W4(화면) |
 
 변경 이력은 각 파일 상단의 `버전` 줄에 적는다.
+
+계약 5의 v1 제안(도구별 입출력 JSON, 필드 설명, 읽고 쓰는 저장 공간)은 `mcp-tools-input-output.md`에 있다. 동결 회의에서 확정되면 `mcp-tools-and-rest.md`와 스키마 파일에 반영한다.
