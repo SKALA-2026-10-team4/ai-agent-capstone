@@ -56,6 +56,16 @@ public class OrderAgentClient {
                 .body(SnapshotFile.class));
     }
 
+    /** SKILL.md 처럼 글이어야 하는 파일의 내용. base64(바이너리)로 오면 오류로 올린다. */
+    public String readText(String snapshotId, String path) {
+        SnapshotFile file = readFile(snapshotId, path);
+        if (!"utf-8".equalsIgnoreCase(file.encoding())) {
+            throw new OrderAgentException("SKILL_FILE_NOT_TEXT", path + " 가 UTF-8 글이 아닙니다(" + file.encoding() + ").",
+                    false, null, snapshotId);
+        }
+        return file.content();
+    }
+
     private <T> T call(String snapshotId, Supplier<T> request) {
         for (int attempt = 1; ; attempt++) {
             try {

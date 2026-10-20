@@ -1,28 +1,18 @@
 package com.capstone4.skillops.mcp;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.stereotype.Component;
 
-import com.capstone4.skillops.snapshot.OrderAgentException;
 import com.capstone4.skillops.snapshot.SkillDiffService;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import tools.jackson.databind.json.JsonMapper;
 
-/**
- * C-1 MCP 도구 diff_skill. 주문 Agent snapshot 두 개에서 같은 skill 을 비교한다.
- * 결과·오류를 직접 CallToolResult 로 만든다. 예외를 그대로 던지면 SDK 가 메시지를 글로 이어 붙여
- * 진단 Agent 가 code·retryable 을 읽을 수 없기 때문이다.
- */
+/** C-1 MCP 도구 diff_skill. 주문 Agent snapshot 두 개에서 같은 skill 을 비교한다. */
 @Component
 public class SkillDiffTools {
 
     private final SkillDiffService diffService;
-    private final JsonMapper json = JsonMapper.builder().build();
 
     public SkillDiffTools(SkillDiffService diffService) {
         this.diffService = diffService;
@@ -44,20 +34,6 @@ public class SkillDiffTools {
             String skill_id,
             @McpToolParam(description = "기준(정상) snapshot UUID") String before_snapshot_id,
             @McpToolParam(description = "비교 대상(실패) snapshot UUID") String after_snapshot_id) {
-        try {
-            return CallToolResult.builder()
-                    .isError(false)
-                    .addTextContent(json.writeValueAsString(
-                            diffService.diffSkill(skill_id, before_snapshot_id, after_snapshot_id)))
-                    .build();
-        } catch (OrderAgentException e) {
-            Map<String, Object> error = new LinkedHashMap<>();
-            error.put("code", e.code());
-            error.put("message", e.getMessage());
-            error.put("retryable", e.retryable());
-            error.put("upstream_status", e.upstreamStatus());
-            error.put("snapshot_id", e.snapshotId());
-            return CallToolResult.builder().isError(true).addTextContent(json.writeValueAsString(error)).build();
-        }
+        return ToolResults.run(() -> diffService.diffSkill(skill_id, before_snapshot_id, after_snapshot_id));
     }
 }

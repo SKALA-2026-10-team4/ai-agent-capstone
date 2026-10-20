@@ -48,8 +48,8 @@ public class SkillDiffService {
         SkillFileDiff diff = Objects.equals(beforeHash, afterHash)
                 ? new SkillFileDiff("unchanged", List.of(), List.of(), null)
                 : SkillDiffer.diff(skillMd,
-                        beforeHash == null ? null : text(beforeSnapshotId, skillMd),
-                        afterHash == null ? null : text(afterSnapshotId, skillMd),
+                        beforeHash == null ? null : orderAgent.readText(beforeSnapshotId, skillMd),
+                        afterHash == null ? null : orderAgent.readText(afterSnapshotId, skillMd),
                         beforeHash, afterHash);
 
         return new DiffSkillResult(skillId,
@@ -57,15 +57,6 @@ public class SkillDiffService {
                 side(after, afterHash == null ? null : skillMd, afterHash),
                 diff.status(), diff.frontmatterChanges(), diff.hunks(), diff.frontmatterParseError(),
                 relatedFiles(beforeFiles, afterFiles, skillMd));
-    }
-
-    private String text(String snapshotId, String path) {
-        SnapshotFile file = orderAgent.readFile(snapshotId, path);
-        if (!"utf-8".equalsIgnoreCase(file.encoding())) {
-            throw new OrderAgentException("SKILL_FILE_NOT_TEXT", path + " 가 UTF-8 글이 아닙니다(" + file.encoding() + ").",
-                    false, null, snapshotId);
-        }
-        return file.content();
     }
 
     private static Map<String, String> filesUnder(SnapshotManifest manifest, String dir) {

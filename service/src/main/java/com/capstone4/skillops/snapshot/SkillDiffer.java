@@ -5,7 +5,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -14,7 +13,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.error.YAMLException;
 
 import com.github.difflib.DiffUtils;
@@ -27,7 +25,6 @@ import com.github.difflib.UnifiedDiffUtils;
 public final class SkillDiffer {
 
     private static final int CONTEXT_LINES = 3;
-    private static final Pattern FRONTMATTER = Pattern.compile("\\A---\\R(.*?)\\R---(\\R|\\z)", Pattern.DOTALL);
     private static final Pattern HEADER = Pattern.compile("^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@");
 
     private SkillDiffer() {
@@ -133,8 +130,8 @@ public final class SkillDiffer {
     }
 
     private static List<SkillFileDiff.FrontmatterChange> frontmatterChanges(String before, String after) {
-        Map<String, Object> a = frontmatter(before);
-        Map<String, Object> b = frontmatter(after);
+        Map<String, Object> a = Frontmatter.parse(before);
+        Map<String, Object> b = Frontmatter.parse(after);
         Set<String> keys = new LinkedHashSet<>(a.keySet());
         keys.addAll(b.keySet());
         List<SkillFileDiff.FrontmatterChange> changes = new ArrayList<>();
@@ -146,23 +143,6 @@ public final class SkillDiffer {
             }
         }
         return changes;
-    }
-
-    private static Map<String, Object> frontmatter(String text) {
-        if (text == null) {
-            return Map.of();
-        }
-        Matcher m = FRONTMATTER.matcher(text);
-        if (!m.find()) {
-            return Map.of();
-        }
-        Object loaded = new Yaml().load(m.group(1));
-        if (!(loaded instanceof Map<?, ?> map)) {
-            return Map.of();
-        }
-        Map<String, Object> result = new LinkedHashMap<>();
-        map.forEach((k, v) -> result.put(String.valueOf(k), v));
-        return result;
     }
 
     /** 목록 값일 때 left 에만 있는 항목. 목록이 아니면 빈 목록. */
