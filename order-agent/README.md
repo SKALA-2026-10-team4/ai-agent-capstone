@@ -12,6 +12,8 @@
 
 팀 공유용 [주문 실패·SkillOps 연계 시나리오](docs/team-scenarios.md)에 정상 업무 거절과 Skill 결함, 현재 재현 범위, 진단할 증거와 수정 후 확인 기준을 정리했다.
 
+담당자 협의용 [MCP 도구·주문 Agent API 매핑 초안](docs/mcp-order-api-draft.md)에 도구 6개 매핑, 실패 전달 스키마, Runner 역할과 네트워크·오류 처리 협의 사항을 정리했다.
+
 ## Docker로 실행
 
 Docker Desktop을 실행한 뒤 저장소 루트에서:
