@@ -1,12 +1,67 @@
-"""PB-002 인수 조건: 문서의 Node·분기·State 가 일치하고 한 바퀴 돈다."""
+"""PB-002/003 인수 조건: 문서의 Node·분기·State 가 일치하고 한 바퀴 돈다."""
 
-import asyncio
+from types import SimpleNamespace
 
 import pytest
 from langgraph.types import Command
 
 from skillops_agent.graph import graph
 from skillops_agent.state import AgentState
+from skillops_agent.tools import StubMCPTools
+
+
+# ── FakeLLM: 실제 API 없이 구조화 출력을 돌려준다 ────────────────────────────
+
+class _FakeChain:
+    def __init__(self, val):
+        self._val = val
+
+    async def ainvoke(self, *args, **kwargs):
+        return self._val
+
+
+def _fake_structured_llm(schema):
+    name = schema.__name__
+    if "Hypothes" in name:
+        val = SimpleNamespace(hypotheses=[
+            SimpleNamespace(hunk_index=0, summary="inventory-check 출력 필드명 변경", confidence=0.95),
+        ])
+    elif "Intent" in name:
+        val = SimpleNamespace(
+            text="결제 서비스가 inventory.reserved 필드를 필요로 함",
+            assertions=["payment.status == 'PAID'"],
+        )
+    else:
+        val = SimpleNamespace()
+    return _FakeChain(val)
+
+
+@pytest.fixture(autouse=True)
+def patch_llm(monkeypatch):
+    monkeypatch.setattr("skillops_agent.nodes.make_structured_llm", _fake_structured_llm)
+
+
+# ── 재시도용 Stub: 처음 ablation 은 실패, 이후는 통과 ─────────────────────────
+
+class _OnceFailAblationStub(StubMCPTools):
+    def __init__(self):
+        super().__init__()
+        self._ablation_calls = 0
+
+    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
+        # ablation 은 scenario_id "f-01" 하나만 실행한다
+        if scenario_ids == ["f-01"]:
+            self._ablation_calls += 1
+            if self._ablation_calls == 1:
+                return [{"scenario_id": "f-01", "passed": False, "runs": [], "failures": ["첫 ablation 실패"]}]
+        return await StubMCPTools.run_scenarios(self, ws_id, scenario_ids, k)
+
+
+class _AlwaysFailAblationStub(StubMCPTools):
+    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
+        if scenario_ids == ["f-01"]:
+            return [{"scenario_id": "f-01", "passed": False, "runs": [], "failures": ["ablation 항상 실패"]}]
+        return await StubMCPTools.run_scenarios(self, ws_id, scenario_ids, k)
 
 
 def _initial_state(run_id: str = "r_stub_F1") -> dict:
@@ -124,3 +179,34 @@ async def test_graph_handles_skill_saved_trigger():
     result = await graph.ainvoke(state, config=config)
     events = result.get("events", [])
     assert len(events) > 0
+
+
+# ── PB-003: 재시도·소진 경로 ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_hypothesis_retries_after_ablation_failure(monkeypatch):
+    """ablation 이 한 번 기각되면 hypothesis_retry 가 증가하고 hypothesize 가 재실행된다."""
+    stub = _OnceFailAblationStub()
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
+    config = {"configurable": {"thread_id": "test-retry-pb003-1"}}
+    result = await graph.ainvoke(_initial_state(), config=config)
+
+    node_names = [e["node"] for e in result.get("events", [])]
+    # 재시도가 발생했으므로 hypothesize 가 2회 이상 실행되어야 한다
+    assert node_names.count("hypothesize") >= 2
+    # 두 번째 ablation 은 통과하므로 root_cause 가 확정되어야 한다
+    assert result.get("root_cause") is not None
+
+
+@pytest.mark.asyncio
+async def test_hypothesis_exhaustion_escalates_to_end(monkeypatch):
+    """3회 재시도 소진 시 escalate(END) 로 종료되고 proposal 이 저장되지 않는다."""
+    stub = _AlwaysFailAblationStub()
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
+    config = {"configurable": {"thread_id": "test-exhaustion-pb003-1"}}
+    result = await graph.ainvoke(_initial_state(), config=config)
+
+    assert result.get("hypothesis_retry") == 3
+    node_names = [e["node"] for e in result.get("events", [])]
+    assert "save_proposal" not in node_names

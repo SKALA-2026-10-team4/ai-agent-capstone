@@ -6,12 +6,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 import skillops_agent.config as cfg
+import skillops_agent.main as _main_module
 from skillops_agent.llm import make_llm, make_structured_llm
 from skillops_agent.main import app
 from skillops_agent.prompts import load as load_prompt
 from skillops_agent.tools import StubMCPTools, get_tools
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def patch_pipeline(monkeypatch):
+    """HTTP 응답 코드 테스트에서 실제 파이프라인 실행을 방지한다."""
+    async def _noop(req):
+        pass
+    monkeypatch.setattr(_main_module, "_run_pipeline", _noop)
 
 
 # ── LLM 래퍼 ──────────────────────────────────────────────────────────────────

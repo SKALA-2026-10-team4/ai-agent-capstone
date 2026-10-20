@@ -1,4 +1,4 @@
-"""LangGraph Node 함수 15개. PB-003~005 에서 내용을 채운다.
+"""LangGraph Node 함수 15개.
 
 각 Node:
 - step_count 를 1 증가시킨다 (PB-006 한도 체크 포함).
@@ -9,7 +9,10 @@
 from datetime import datetime, timezone
 
 from langgraph.types import interrupt
+from pydantic import BaseModel as _PydanticModel
 
+from .llm import make_structured_llm
+from .prompts import load as load_prompt
 from .state import (
     AgentState,
     AblationRun,
@@ -22,6 +25,22 @@ from .state import (
     RootCause,
 )
 from .tools import get_tools
+
+
+# ── LLM 출력 스키마 ────────────────────────────────────────────────────────────
+
+class _HypothesisItem(_PydanticModel):
+    hunk_index: int
+    summary: str
+    confidence: float
+
+class _HypothesesOutput(_PydanticModel):
+    hypotheses: list[_HypothesisItem]
+
+class _IntentOutput(_PydanticModel):
+    text: str
+    assertions: list[str]
+
 
 # ── 공통 헬퍼 ──────────────────────────────────────────────────────────────────
 
@@ -80,13 +99,16 @@ async def fetch_evidence(state: AgentState) -> dict:
     async with get_tools() as t:
         trace = None
         diff = None
-        skill_versions: dict = {}
+
+        # 전체 skill 목록에서 버전 맵 구성
+        skills = await t.list_skills()
+        skill_versions: dict = {s["name"]: s["version"] for s in skills}
 
         if trigger.get("run_id"):
             trace = await t.get_trace(trigger["run_id"])
-            skill_versions = trace.get("skill_versions", {})
+            # 트레이스의 실행 당시 버전으로 덮어씀 (더 정확)
+            skill_versions.update(trace.get("skill_versions", {}))
 
-            # 실패한 skill 의 직전 버전 diff
             failed_step = next(
                 (s for s in trace.get("steps", []) if s.get("status") == "error"), None
             )
@@ -114,21 +136,36 @@ async def fetch_evidence(state: AgentState) -> dict:
 # ── Node 3: hypothesize ───────────────────────────────────────────────────────
 
 
-def hypothesize(state: AgentState) -> dict:
-    """diff hunk 목록에서 가설을 생성한다. PB-003 에서 LLM 호출로 교체한다."""
+async def hypothesize(state: AgentState) -> dict:
     diff = state.get("diff") or {}
-    hunks: list[dict] = diff.get("hunks", [])
+    trace = state.get("trace") or {}
+    retry = state.get("hypothesis_retry", 0)
+
+    previous_failures = "없음"
+    if retry > 0 and state.get("ablation_runs"):
+        lines = [
+            f"hunk {r['hunk_index']}: ablation 재현 실패"
+            for r in state["ablation_runs"]
+            if not r["confirmed"]
+        ]
+        if lines:
+            previous_failures = "\n".join(lines)
+
+    prompt_text = load_prompt("hypothesize").format(
+        trace=trace,
+        diff=diff,
+        previous_failures=previous_failures,
+    )
+
+    llm = make_structured_llm(_HypothesesOutput)
+    result = await llm.ainvoke(prompt_text)
 
     hypotheses: list[Hypothesis] = [
-        Hypothesis(
-            hunk_index=h["index"],
-            summary=f"hunk {h['index']}: {h.get('before', '')} → {h.get('after', '')}",
-            confidence=0.9 - 0.1 * i,
-        )
-        for i, h in enumerate(hunks)
-    ] or [Hypothesis(hunk_index=0, summary="(diff 없음) 기본 가설", confidence=0.5)]
+        Hypothesis(hunk_index=h.hunk_index, summary=h.summary, confidence=h.confidence)
+        for h in (result.hypotheses if result else [])
+    ] or [Hypothesis(hunk_index=0, summary="(LLM 응답 없음) 기본 가설", confidence=0.5)]
 
-    base = _tick(state, "hypothesize", f"가설 {len(hypotheses)}개 생성")
+    base = _tick(state, "hypothesize", f"가설 {len(hypotheses)}개 생성 (retry={retry})")
     base["hypotheses"] = hypotheses
     return base
 
@@ -137,34 +174,46 @@ def hypothesize(state: AgentState) -> dict:
 
 
 async def ablate(state: AgentState) -> dict:
-    """각 가설의 hunk 를 되돌려 시나리오를 실행한다. confirmed=True 면 원인 확정."""
+    """각 가설의 hunk 를 되돌린 뒤 재현 시나리오를 실행한다. confirmed=True 면 원인 확정."""
     trigger = state["trigger"]
-    run_id = trigger.get("run_id", "unknown")
-    repro_scenario = {
-        "id": "f-01",
-        "name": "재현 시나리오",
-        "source_run_id": run_id,
-        "order": {"customer": "test", "items": [{"sku": "SKU-001", "qty": 1}], "payment_method": "card", "shipping": {"country": "KR"}},
-        "expect": {"skills_called": ["order-intake", "inventory-check", "payment", "shipping-reserve", "notify"], "final_status": "SHIPPED"},
-        "k": 1,
-    }
+    diff = state.get("diff") or {}
+    hunks: list[dict] = diff.get("hunks", [])
+    skill_versions = state.get("skill_versions", {})
+
+    trace = state.get("trace") or {}
+    failed_step = next(
+        (s for s in trace.get("steps", []) if s.get("status") == "error"), {}
+    )
+    skill_name = failed_step.get("skill") or trigger.get("skill") or "unknown"
+    base_v = skill_versions.get(skill_name, 1)
 
     ablation_runs: list[AblationRun] = []
     async with get_tools() as t:
         for hypo in state["hypotheses"]:
             ws = await t.create_workspace()
             ws_id = ws["ws_id"]
-            result = await t.run_scenarios(ws_id, [repro_scenario["id"]], k=1)
-            run_ids = [r for res in result for r in res.get("runs", [])]
-            confirmed = all(res.get("passed", False) for res in result)
-            ablation_runs.append(
-                AblationRun(
-                    hunk_index=hypo["hunk_index"],
-                    ws_id=ws_id,
-                    run_ids=run_ids,
-                    confirmed=confirmed,
+
+            # 해당 hunk 를 되돌리는 역방향 패치 적용 (before ↔ after 반전)
+            hunk = next((h for h in hunks if h["index"] == hypo["hunk_index"]), None)
+            if hunk:
+                reverse_diff = (
+                    f"--- a/{skill_name}/SKILL.md\n+++ b/{skill_name}/SKILL.md\n"
+                    f"@@ -1 +1 @@\n-{hunk.get('after', '')}\n+{hunk.get('before', '')}\n"
                 )
-            )
+                await t.apply_patch(ws_id, [Patch(
+                    skill=skill_name, base_version=base_v, diff=reverse_diff
+                )])
+
+            result = await t.run_scenarios(ws_id, ["f-01"], k=1)
+            run_ids = [run_id for res in result for run_id in res.get("runs", [])]
+            confirmed = all(res.get("passed", False) for res in result)
+
+            ablation_runs.append(AblationRun(
+                hunk_index=hypo["hunk_index"],
+                ws_id=ws_id,
+                run_ids=run_ids,
+                confirmed=confirmed,
+            ))
 
     base = _tick(state, "ablate", f"ablation {len(ablation_runs)}개 실행")
     base["ablation_runs"] = ablation_runs
@@ -220,16 +269,21 @@ def route_ablation(state: AgentState) -> str:
 # ── Node 6: extract_intent ────────────────────────────────────────────────────
 
 
-def extract_intent(state: AgentState) -> dict:
-    """diff 에서 담당자의 의도를 추출한다. PB-003 에서 LLM 호출로 교체한다."""
+async def extract_intent(state: AgentState) -> dict:
     diff = state.get("diff") or {}
-    hunks = diff.get("hunks", [])
     root_cause = state.get("root_cause") or {}
 
-    after = hunks[0].get("after", "") if hunks else ""
+    prompt_text = load_prompt("extract_intent").format(
+        root_cause=root_cause,
+        diff=diff,
+    )
+
+    llm = make_structured_llm(_IntentOutput)
+    result = await llm.ainvoke(prompt_text)
+
     intent = Intent(
-        text=f"담당자가 '{root_cause.get('skill', '')}' 의 출력 형식을 변경했습니다: {after}",
-        assertions=[],
+        text=result.text if result else "의도 추출 실패",
+        assertions=result.assertions if result else [],
         confirmed=None,
     )
 
