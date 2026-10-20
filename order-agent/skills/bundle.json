@@ -1,0 +1,12 @@
+{
+  "release": "camping-v1",
+  "files": {
+    "inventory-check/SKILL.md": "5c2ba1e4bc0b8f82ffcea9251ba4d365cd684f82d682d969af64ae353c647254",
+    "inventory-check/resources/policy.md": "1d856c9a84d7e2d9d614f1f51977fe99fc1163100a9ade71a5d4ee51a6ec60fc",
+    "notify/SKILL.md": "d7cb8f600de1f940207f153f2a02ce1dfb4c59f913ac8ce53d849ab8ea8ac63a",
+    "order-flow/SKILL.md": "cd7a51091e957aba3142fe2c93da71cd50c1b02db967b8e66095c8992da83eea",
+    "order-intake/SKILL.md": "f136e4f74b4e8ef7c9ba4caec36512f45f3a8484d89ca857cddf197c087c051a",
+    "payment/SKILL.md": "a7a1cb9d2838c8396ba66832529e28fa3819476677dbb45a521fcbf401fdddd6",
+    "shipping-reserve/SKILL.md": "afbd085f2c6c2b1d6aa4d3a565d8d24dd7005dcddfec87811f4824baf0c03e7f"
+  }
+}

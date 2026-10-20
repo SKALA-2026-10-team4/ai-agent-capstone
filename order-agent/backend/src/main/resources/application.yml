@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: order-agent
+  datasource:
+    url: ${ORDER_DEMO_DB_URL:jdbc:postgresql://localhost:5433/order_demo}
+    username: ${ORDER_DEMO_DB_USER:order_demo}
+    password: ${ORDER_DEMO_DB_PASSWORD:order_demo_local}
+    hikari:
+      connection-timeout: 5000
+      connection-init-sql: SET lock_timeout = '3s'
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  sql:
+    init:
+      mode: always
+  ai:
+    model:
+      chat: openai
+    openai:
+      api-key: ${OPENAI_API_KEY:not-set}
+      max-retries: 0
+      timeout: 10s
+      chat:
+        model: ${SKILLOPS_MODEL:gpt-4.1-mini}
+        max-completion-tokens: 512
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    deserialization:
+      fail-on-unknown-properties: true
+      accept-float-as-int: false
+      fail-on-null-for-primitives: true
+server:
+  port: 8080
+  error:
+    include-message: never
+
+order-agent:
+  skills-root: ${ORDER_AGENT_SKILLS_ROOT:../skills}
+  model-mode: ${ORDER_AGENT_MODEL_MODE:fixed}
+  max-api-calls: ${ORDER_AGENT_MAX_API_CALLS:12}
+  max-observed-tokens: ${ORDER_AGENT_MAX_TOKENS:10000}
+  execution-timeout-ms: ${ORDER_AGENT_TIMEOUT_MS:45000}
+  call-timeout-ms: ${ORDER_AGENT_CALL_TIMEOUT_MS:10000}
+  demo-enabled: ${ORDER_AGENT_DEMO_ENABLED:true}
