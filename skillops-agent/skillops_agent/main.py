@@ -1,11 +1,13 @@
 """FastAPI 진입점. service 가 저장·장애 이벤트를 POST /diagnose 로 보낸다."""
 
+import uuid
 from typing import Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Header
 from pydantic import BaseModel
 
 from .config import SERVICE_TOKEN
+from .graph import graph
 
 app = FastAPI(title="SkillOps Agent", version="0.1.0")
 
@@ -24,8 +26,10 @@ async def verify_token(x_service_token: str = Header(default="")) -> None:
 
 
 async def _run_pipeline(req: DiagnoseRequest) -> None:
-    # TODO(PB-002): LangGraph Graph 로 교체한다.
-    pass
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+    initial_state = {"trigger": req.model_dump(), "max_steps": 40}
+    await graph.ainvoke(initial_state, config=config)
 
 
 @app.get("/health")
