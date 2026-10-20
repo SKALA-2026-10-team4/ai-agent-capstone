@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: skillops-service
+
+  datasource:
+    # docker compose up 으로 뜨는 postgres:17. 로컬 brew PG를 쓰려면 env 로 덮어쓴다.
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:skillops}
+    username: ${POSTGRES_USER:skillops}
+    password: ${POSTGRES_PASSWORD:skillops}
+
+  jpa:
+    hibernate:
+      ddl-auto: update        # 2일 캡스톤용. 스키마 확정 후에도 그대로 둔다.
+    open-in-view: false
+
+  ai:
+    model:
+      chat: anthropic
+    anthropic:
+      # 키가 없어도 부팅은 되어야 한다(빌드·MCP ping 확인용). 실제 호출 시 401.
+      api-key: ${ANTHROPIC_API_KEY:not-set}
+      chat:
+        options:
+          model: claude-opus-5-5
+    mcp:
+      server:
+        name: skillops-service
+        version: 0.1.0
+        # 세션을 유지하는 Streamable HTTP. 엔드포인트는 기본값 POST /mcp.
+        protocol: STREAMABLE
+        type: SYNC
+        annotation-scanner:
+          enabled: true
+
+server:
+  port: 8080
+
+logging:
+  level:
+    '[org.springframework.ai]': INFO
+    '[org.springframework.ai.mcp]': DEBUG

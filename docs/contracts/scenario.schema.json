@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://capstone4.local/skillops/scenario.schema.json",
+  "title": "Scenario",
+  "description": "계약 3 · 골든(g-NN) 과 재현(f-NN, 실패 트레이스에서 생성) 시나리오 공용. v0 (초안). 기대값은 자연어가 아니라 구조화 결과에만 건다.",
+  "type": "object",
+  "required": ["id", "name", "order", "expect", "k"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^(g|f)-[0-9]{2}$" },
+    "name": { "type": "string" },
+    "source_run_id": { "type": ["string", "null"], "description": "재현 시나리오면 원본 실패 run_id" },
+    "order": {
+      "type": "object",
+      "required": ["customer", "items", "payment_method", "shipping"],
+      "properties": {
+        "customer": { "type": "string" },
+        "items": {
+          "type": "array", "minItems": 1,
+          "items": { "type": "object", "required": ["sku", "qty"], "properties": { "sku": { "type": "string" }, "qty": { "type": "integer", "minimum": 1 } } }
+        },
+        "payment_method": { "enum": ["card", "prepaid", "cod"] },
+        "shipping": { "type": "object", "required": ["country"], "properties": { "country": { "type": "string" }, "express": { "type": "boolean" } } }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "required": ["skills_called", "final_status"],
+      "properties": {
+        "skills_called": { "type": "array", "items": { "type": "string" }, "description": "status=ok 로 실행된 skill 의 순서" },
+        "final_status": { "enum": ["SHIPPED", "REJECTED", "HOLD", "FAILED"] },
+        "shipments": { "type": "integer", "minimum": 0 },
+        "assertions": {
+          "type": "array", "items": { "type": "string" },
+          "description": "'<컨텍스트 키> <op> <리터럴>' 형식. op 는 == != in 만. 예: payment.status == 'PAID'. 의도 보존(기준 3) assertion 도 여기 추가된다"
+        }
+      }
+    },
+    "k": { "type": "integer", "minimum": 1, "default": 2, "description": "k 회 모두 통과해야 pass" }
+  }
+}

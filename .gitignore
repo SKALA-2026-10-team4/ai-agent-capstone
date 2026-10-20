@@ -80,3 +80,8 @@ tmp/
 
 # ===== LangGraph / LangSmith 로컬 상태 =====
 .langgraph_api/
+
+# ===== Capstone 4조 추가 =====
+*.xlsx
+.claude/settings.local.json
+!service/gradle/wrapper/gradle-wrapper.jar
