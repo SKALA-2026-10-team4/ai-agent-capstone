@@ -538,8 +538,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
 | `skill_versions` | 읽기 | 시작 버전의 원문 |
-| `workspaces` | 쓰기 | 연습 공간 한 줄(번호, 만든 시각, 시작 버전, 상태 "사용 중") |
-| `workspace_skills` | 쓰기 | 연습 공간 안의 skill 원문(skill마다 한 줄) |
+| `workspaces` | 쓰기 | 연습 공간 한 줄(번호, 만든 시각, 상태 "사용 중", `skills` 칸에 skill별 시작 버전과 원문) |
 
 ### v0에서 바뀐 점
 
@@ -605,8 +604,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `workspaces` | 읽기 | 연습 공간이 있고 아직 사용 중인지 |
-| `workspace_skills` | 읽기·쓰기 | 고치기 전 원문을 읽고, 고친 원문을 저장 |
+| `workspaces` | 읽기·쓰기 | 연습 공간이 있고 아직 사용 중인지 확인하고, `skills` 칸의 원문을 읽어 고친 원문으로 바꿈 |
 
 ### v0에서 바뀐 점
 
@@ -684,7 +682,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `workspaces`, `workspace_skills` | 읽기 | 어떤 skill 원문으로 돌릴지 |
+| `workspaces` | 읽기 | 어떤 skill 원문으로 돌릴지(`skills` 칸) |
 | `scenarios` | 읽기·쓰기 | 기준 주문의 내용과 기대 결과를 읽고, 재현 주문을 새로 등록 |
 | `trace_run`, `orders`, `order_items` | 읽기 | 재현할 원래 실행의 주문 내용 |
 | `trace_run` | 쓰기 | 모의 실행 기록. A의 실행기가 C-1의 기록 기능(`TraceRecorder`)으로 남깁니다 |
@@ -864,7 +862,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 |---|---|---|
 | `approvals` | 읽기·쓰기 | 승인 번호 확인, 쓴 시각 기록 |
 | `proposal_candidates` | 읽기 | 승인된 후보의 연습 공간이 맞는지 |
-| `workspace_skills` | 읽기 | 반영할 원문 |
+| `workspaces` | 읽기 | 반영할 원문(`skills` 칸) |
 | `skill_versions` | 쓰기 | 새 버전 저장. 운영 원본 파일 `skills/<이름>/SKILL.md`도 함께 덮어씁니다 |
 | `trace_run`, `scenario_results` | 쓰기 | 반영 직후 점검 실행의 기록과 결과 |
 | `proposals` | 쓰기 | 상태를 "반영됨" 또는 "되돌림"으로 바꿈 |
@@ -923,7 +921,7 @@ skill 하나를 지정한 예전 버전의 내용으로 되돌립니다. 예전 
 
 ## 저장 공간 목록
 
-도구 12개가 읽고 쓰는 저장 공간(데이터베이스 테이블)은 아래 11개입니다. 실행 기록은 C-1이 `feat/#12_backend-trace-store`에서 만든 실제 구조(`trace_run` 한 테이블에 단계 기록을 묶어 저장)를 따랐습니다. "관리 담당"은 그 저장 공간의 칸 구성과 저장 기능을 책임지는 사람입니다. 다른 사람은 관리 담당이 만든 기능을 불러서 씁니다.
+도구 12개가 읽고 쓰는 저장 공간(데이터베이스 테이블)은 아래 10개입니다. 실행 기록은 C-1이 `feat/#12_backend-trace-store`에서 만든 실제 구조(`trace_run` 한 테이블에 단계 기록을 묶어 저장)를 따랐습니다. "관리 담당"은 그 저장 공간의 칸 구성과 저장 기능을 책임지는 사람입니다. 다른 사람은 관리 담당이 만든 기능을 불러서 씁니다.
 
 | 저장 공간 | 한글 이름 | 들어 있는 것 | 관리 담당 | 쓰는 때 | 읽는 도구 |
 |---|---|---|---|---|---|
@@ -933,8 +931,7 @@ skill 하나를 지정한 예전 버전의 내용으로 되돌립니다. 예전 
 | `trace_run` | 실행 기록 | 주문을 한 번 처리할 때마다 한 줄. 운영과 모의 구분, 연습 공간, 시험 주문, skill 버전, 최종 상태가 들어 있고, 단계별 기록(받은 값, 내놓은 값, 부른 기능, 결과, 오류, 걸린 시간)은 한 칸에 묶어 둡니다 | C-1 | A의 실행기가 처리를 끝낼 때 한 번에 | `list_failed_runs`, `get_trace`, `list_skills`, `run_scenarios`, `save_proposal` |
 | `scenarios` | 시험 주문 | 기준 주문 6건(D가 쓴 파일에서 불러옴)과 재현 주문. 주문 내용과 기대 결과 | C-2 | 서비스가 켜질 때(기준 주문), `run_scenarios`가 재현 주문을 만들 때 | `run_scenarios` |
 | `scenario_results` | 채점 결과 | 모의 실행 하나마다 합격 여부와 떨어진 이유 | C-2 | `run_scenarios`가 채점할 때, 반영 직후 점검 | `save_proposal` |
-| `workspaces` | 연습 공간 | 연습 공간 하나에 한 줄. 만든 시각, 시작 버전, 상태(사용 중, 반영됨, 버림) | C-2 | 만들 때, 반영할 때 | `apply_patch`, `run_scenarios`, `promote_workspace` |
-| `workspace_skills` | 연습 공간 속 skill | 연습 공간 안의 skill 원문. 수정이 들어가면 바뀝니다 | C-2 | 만들 때, 수정을 넣을 때 | `apply_patch`, `run_scenarios`, `promote_workspace` |
+| `workspaces` | 연습 공간 | 연습 공간 하나에 한 줄. 만든 시각, 상태(사용 중, 반영됨, 버림), 그리고 skill별 시작 버전과 원문을 한 칸(`skills`)에 묶어 둡니다. 수정이 들어가면 원문이 바뀝니다 | C-2 | 만들 때, 수정을 넣을 때, 반영할 때 | `apply_patch`, `run_scenarios`, `promote_workspace` |
 | `proposals` | 수정 제안서 | 제안서 하나에 한 줄. 알림, 원인, 의도, 의도 확인 여부, 추천 후보, 상태 | C-2 | 저장할 때, 승인·반영·되돌림으로 상태가 바뀔 때 | `promote_workspace`, 화면 |
 | `proposal_candidates` | 후보 수정안 | 후보 하나에 한 줄. 고치는 범위, 연습 공간, 수정 내용, 기준별 결과, 근거 실행 번호, 순위, 설명 | C-2 | 제안서를 저장할 때 | `promote_workspace`, 화면 |
 | `approvals` | 승인 기록 | 승인 한 번에 한 줄. 승인 번호, 제안서와 후보 번호, 의도 확인 여부, 승인 시각, 사용 시각 | A | 화면에서 승인할 때(A), 운영 반영이 번호를 쓸 때(C-2) | `promote_workspace` |
