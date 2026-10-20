@@ -41,6 +41,59 @@ class _IntentOutput(_PydanticModel):
     text: str
     assertions: list[str]
 
+class _PatchSpec(_PydanticModel):
+    skill: str
+    base_version: int
+    diff: str
+
+class _CandidateSpec(_PydanticModel):
+    kind: str  # local | contract | flow
+    patches: list[_PatchSpec]
+
+class _CandidatesOutput(_PydanticModel):
+    candidates: list[_CandidateSpec]
+
+class _ExplanationItem(_PydanticModel):
+    id: str
+    explanation: str
+
+class _RankExplanationsOutput(_PydanticModel):
+    explanations: list[_ExplanationItem]
+
+
+# ── assertion 평가 헬퍼 ────────────────────────────────────────────────────────
+
+def _eval_assertion(assertion: str, context: dict) -> bool:
+    """'<key> <op> <literal>' 형식을 평가한다. op: ==, !=, in."""
+    parts = assertion.split(None, 2)
+    if len(parts) != 3:
+        return True
+    key, op, literal = parts
+    value = context.get(key)
+    if value is None:
+        return False
+    clean = literal.strip("'\"")
+    if op == "==":
+        return str(value) == clean
+    if op == "!=":
+        return str(value) != clean
+    if op == "in":
+        return clean in str(value)
+    return True
+
+
+async def _check_intent(assertions: list[str], run_ids: list[str], tools) -> bool:
+    """repro 실행 run_id 의 trace 출력으로 assertion 을 검증한다."""
+    if not assertions:
+        return True
+    if not run_ids:
+        return False
+    trace = await tools.get_trace(run_ids[0])
+    context: dict = {}
+    for step in trace.get("steps", []):
+        context.update(step.get("output", {}))
+    return all(_eval_assertion(a, context) for a in assertions)
+
 
 # ── 공통 헬퍼 ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +135,7 @@ def init(state: AgentState) -> dict:
         "intent": None,
         "candidates": [],
         "candidate_retry": 0,
+        "recommended": None,
         "proposal": None,
         "approval_status": None,
         "approval_token": None,
@@ -295,21 +349,74 @@ async def extract_intent(state: AgentState) -> dict:
 # ── Node 7: generate_candidates ──────────────────────────────────────────────
 
 
-def generate_candidates(state: AgentState) -> dict:
-    """3종 후보를 생성한다. PB-004 에서 LLM 호출로 교체한다."""
+async def generate_candidates(state: AgentState) -> dict:
     root_cause = state.get("root_cause") or {}
+    intent = state.get("intent") or {}
+    diff = state.get("diff") or {}
+    retry = state.get("candidate_retry", 0)
     skill = root_cause.get("skill", "unknown")
     base_v = root_cause.get("from_version", 1)
+    skill_versions = state.get("skill_versions", {})
 
-    stub_diff = f"--- a/{skill}/SKILL.md\n+++ b/{skill}/SKILL.md\n@@ -1 +1 @@\n-stub before\n+stub after\n"
+    previous_failures = "없음"
+    if retry > 0 and state.get("candidates"):
+        lines = []
+        for c in state["candidates"]:
+            r = c.get("results") or {}
+            if not c.get("valid"):
+                lines.append(
+                    f"{c['id']}({c['kind']}): functional={r.get('functional')}, "
+                    f"regression={r.get('regression')}, intent={r.get('intent')}"
+                )
+        if lines:
+            previous_failures = "\n".join(lines)
 
-    candidates: list[Candidate] = [
-        Candidate(id="c-local-01",    kind="local",    workspace=None, patches=[Patch(skill=skill, base_version=base_v, diff=stub_diff)], results=None, valid=None, evidence=[], rank=None, explanation=None),
-        Candidate(id="c-contract-01", kind="contract", workspace=None, patches=[Patch(skill=skill, base_version=base_v, diff=stub_diff), Patch(skill="payment", base_version=4, diff=stub_diff)], results=None, valid=None, evidence=[], rank=None, explanation=None),
-        Candidate(id="c-flow-01",     kind="flow",     workspace=None, patches=[Patch(skill=skill, base_version=base_v, diff=stub_diff), Patch(skill="payment", base_version=4, diff=stub_diff), Patch(skill="notify", base_version=2, diff=stub_diff)], results=None, valid=None, evidence=[], rank=None, explanation=None),
-    ]
+    async with get_tools() as t:
+        dep_graph = await t.get_dependency_graph()
 
-    base = _tick(state, "generate_candidates", f"후보 {len(candidates)}개 생성")
+    prompt_text = load_prompt("generate_candidates").format(
+        root_cause=root_cause,
+        intent=intent,
+        diff=diff,
+        dependency_graph=dep_graph,
+        previous_failures=previous_failures,
+    )
+
+    llm = make_structured_llm(_CandidatesOutput)
+    result = await llm.ainvoke(prompt_text)
+
+    candidates: list[Candidate] = []
+    for spec in (result.candidates if result else []):
+        patches = [
+            Patch(skill=p.skill, base_version=p.base_version, diff=p.diff)
+            for p in spec.patches
+        ]
+        candidates.append(Candidate(
+            id=f"c-{spec.kind}-{retry + 1:02d}",
+            kind=spec.kind,
+            workspace=None,
+            patches=patches,
+            results=None,
+            valid=None,
+            evidence=[],
+            rank=None,
+            explanation=None,
+        ))
+
+    # LLM 응답 없을 때 fallback
+    if not candidates:
+        stub_diff = (
+            f"--- a/{skill}/SKILL.md\n+++ b/{skill}/SKILL.md\n"
+            f"@@ -1 +1 @@\n-stub before\n+stub after\n"
+        )
+        for kind in ("local", "contract", "flow"):
+            base_patches = [Patch(skill=skill, base_version=base_v, diff=stub_diff)]
+            candidates.append(Candidate(
+                id=f"c-{kind}-{retry + 1:02d}", kind=kind, workspace=None,
+                patches=base_patches, results=None, valid=None, evidence=[], rank=None, explanation=None,
+            ))
+
+    base = _tick(state, "generate_candidates", f"후보 {len(candidates)}개 생성 (retry={retry})")
     base["candidates"] = candidates
     return base
 
@@ -320,8 +427,13 @@ def generate_candidates(state: AgentState) -> dict:
 async def verify_candidates(state: AgentState) -> dict:
     """각 후보를 격리 workspace 에서 골든 + 재현 시나리오로 검증한다."""
     golden_ids = ["g-01", "g-02", "g-03", "g-04", "g-05", "g-06"]
-    repro_id = "f-01"
+
+    # 재현 시나리오는 실패 trace 에서 파생한다 (파일 저장 없음)
+    trace = state.get("trace") or {}
+    repro_id = f"f-{trace.get('run_id', 'repro')}"
     all_scenario_ids = golden_ids + [repro_id]
+
+    assertions = (state.get("intent") or {}).get("assertions", [])
 
     updated: list[Candidate] = []
     async with get_tools() as t:
@@ -332,22 +444,26 @@ async def verify_candidates(state: AgentState) -> dict:
             contract_ok = len(patch_result.get("contract_violations", [])) == 0
 
             results = await t.run_scenarios(ws_id, all_scenario_ids, k=2)
-            passed_count = sum(1 for r in results if r.get("passed"))
-            total = len(results)
+            repro_result = next((r for r in results if r["scenario_id"] == repro_id), None)
+            functional = repro_result.get("passed", False) if repro_result else False
+
+            golden_results = [r for r in results if r["scenario_id"] != repro_id]
+            passed_count = sum(1 for r in golden_results if r.get("passed"))
+            regression_ok = passed_count == len(golden_results)
+
+            repro_run_ids = repro_result.get("runs", []) if repro_result else []
+            intent_ok = await _check_intent(assertions, repro_run_ids, t)
+
             evidence = [run_id for r in results for run_id in r.get("runs", [])]
 
             candidate_results = CandidateResults(
-                functional=any(r["scenario_id"] == repro_id and r.get("passed") for r in results),
-                regression={"passed": passed_count, "total": total},
-                intent=True,  # PB-004 에서 assertion 실행으로 교체
+                functional=functional,
+                regression={"passed": passed_count, "total": len(golden_results)},
+                intent=intent_ok,
                 contract=contract_ok,
                 footprint=len(cand["patches"]),
             )
-            valid = (
-                candidate_results["functional"]
-                and candidate_results["regression"]["passed"] == candidate_results["regression"]["total"]
-                and candidate_results["intent"]
-            )
+            valid = functional and regression_ok and intent_ok
             updated.append({**cand, "workspace": ws_id, "results": candidate_results, "valid": valid, "evidence": evidence})
 
     base = _tick(state, "verify_candidates", f"후보 {len(updated)}개 검증 완료")
@@ -380,32 +496,38 @@ def route_valid(state: AgentState) -> str:
 # ── Node 10: rank_and_explain ─────────────────────────────────────────────────
 
 
-def rank_and_explain(state: AgentState) -> dict:
-    """유효 후보를 기준 4·5 로 순위 매기고 설명을 붙인다. PB-005 에서 LLM 으로 교체한다."""
+async def rank_and_explain(state: AgentState) -> dict:
     valid = [c for c in state["candidates"] if c.get("valid")]
 
+    # 기준 4(계약 일관성) → 기준 5(최소성) 순으로 정렬
     def sort_key(c: Candidate):
         r = c.get("results") or {}
-        contract_score = 0 if r.get("contract") else 1
-        footprint = r.get("footprint", 99)
-        return (contract_score, footprint)
+        return (0 if r.get("contract") else 1, r.get("footprint", 99))
 
     ranked = sorted(valid, key=sort_key)
-    updated = list(state["candidates"])
     rank_map = {c["id"]: i + 1 for i, c in enumerate(ranked)}
 
+    # LLM 으로 explanation 생성
+    prompt_text = load_prompt("rank_and_explain").format(
+        root_cause=state.get("root_cause") or {},
+        intent=state.get("intent") or {},
+        candidates=[{**c, "rank": rank_map.get(c["id"])} for c in ranked],
+    )
+    llm = make_structured_llm(_RankExplanationsOutput)
+    result = await llm.ainvoke(prompt_text)
+    explanation_map = {e.id: e.explanation for e in (result.explanations if result else [])}
+
+    updated = list(state["candidates"])
+    recommended: int | None = None
     for i, c in enumerate(updated):
         if c["id"] in rank_map:
-            evidence_refs = ", ".join(c.get("evidence", [])[:2]) or "없음"
-            updated[i] = {
-                **c,
-                "rank": rank_map[c["id"]],
-                "explanation": f"시나리오 통과 근거: {evidence_refs}",
-            }
+            explanation = explanation_map.get(c["id"]) or (
+                f"rank {rank_map[c['id']]}: {', '.join(c.get('evidence', [])[:2]) or '없음'}"
+            )
+            updated[i] = {**c, "rank": rank_map[c["id"]], "explanation": explanation}
+            if rank_map[c["id"]] == 1:
+                recommended = i
 
-    recommended = next(
-        (i for i, c in enumerate(updated) if c.get("rank") == 1), None
-    )
     base = _tick(state, "rank_and_explain", f"순위 매기기 완료, recommended={recommended}")
     base["candidates"] = updated
     base["recommended"] = recommended

@@ -85,6 +85,7 @@ class AgentState(TypedDict):
     # ── 후보 생성 · 검증 (PB-004) ─────────────────────────────────
     candidates: list[Candidate]
     candidate_retry: int                 # 최대 3
+    recommended: int | None             # rank=1 후보의 candidates 인덱스
 
     # ── 저장 · 승인 (PB-005) ──────────────────────────────────────
     proposal: dict | None

@@ -20,6 +20,9 @@ class _FakeChain:
         return self._val
 
 
+_STUB_DIFF = "--- a/inventory-check/SKILL.md\n+++ b/inventory-check/SKILL.md\n@@ -1 +1 @@\n-old\n+new\n"
+
+
 def _fake_structured_llm(schema):
     name = schema.__name__
     if "Hypothes" in name:
@@ -31,6 +34,18 @@ def _fake_structured_llm(schema):
             text="결제 서비스가 inventory.reserved 필드를 필요로 함",
             assertions=["payment.status == 'PAID'"],
         )
+    elif "Candidates" in name:
+        val = SimpleNamespace(candidates=[
+            SimpleNamespace(kind="local",    patches=[SimpleNamespace(skill="inventory-check", base_version=4, diff=_STUB_DIFF)]),
+            SimpleNamespace(kind="contract", patches=[SimpleNamespace(skill="inventory-check", base_version=4, diff=_STUB_DIFF), SimpleNamespace(skill="payment", base_version=4, diff=_STUB_DIFF)]),
+            SimpleNamespace(kind="flow",     patches=[SimpleNamespace(skill="inventory-check", base_version=4, diff=_STUB_DIFF)]),
+        ])
+    elif "RankExplan" in name:
+        val = SimpleNamespace(explanations=[
+            SimpleNamespace(id="c-local-01",    explanation="g-01~g-06 및 재현 시나리오 통과"),
+            SimpleNamespace(id="c-contract-01", explanation="계약 일관성 확보 후 통과"),
+            SimpleNamespace(id="c-flow-01",     explanation="전체 흐름 재구성 후 통과"),
+        ])
     else:
         val = SimpleNamespace()
     return _FakeChain(val)
@@ -75,7 +90,7 @@ def test_agent_state_has_all_fields():
     required = {
         "trigger", "trace", "diff", "skill_versions",
         "hypotheses", "ablation_runs", "root_cause", "hypothesis_retry",
-        "intent", "candidates", "candidate_retry",
+        "intent", "candidates", "candidate_retry", "recommended",
         "proposal", "approval_status", "approval_token",
         "step_count", "max_steps", "events", "error",
     }
@@ -210,3 +225,42 @@ async def test_hypothesis_exhaustion_escalates_to_end(monkeypatch):
     assert result.get("hypothesis_retry") == 3
     node_names = [e["node"] for e in result.get("events", [])]
     assert "save_proposal" not in node_names
+
+
+# ── PB-004: 후보 검증 실패·소진 경로 ─────────────────────────────────────────
+
+
+class _AllInvalidVerifyStub(StubMCPTools):
+    """ablation 은 통과, verify_candidates 는 모두 실패."""
+
+    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
+        if len(scenario_ids) == 1:  # ablation 단건 실행 → 통과
+            return [{"scenario_id": scenario_ids[0], "passed": True, "runs": [f"r_ok_{i}" for i in range(k)], "failures": []}]
+        # verify: 골든 + 재현 → 전부 실패
+        return [{"scenario_id": sid, "passed": False, "runs": [], "failures": ["검증 실패"]} for sid in scenario_ids]
+
+
+@pytest.mark.asyncio
+async def test_candidate_retries_after_all_invalid(monkeypatch):
+    """후보 전체 invalid 시 candidate_retry 가 증가하고 generate_candidates 가 재실행된다."""
+    stub = _AllInvalidVerifyStub()
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
+    config = {"configurable": {"thread_id": "test-cand-retry-pb004-1"}}
+    result = await graph.ainvoke(_initial_state(), config=config)
+
+    node_names = [e["node"] for e in result.get("events", [])]
+    assert node_names.count("generate_candidates") >= 2
+    assert result.get("candidate_retry", 0) > 0
+
+
+@pytest.mark.asyncio
+async def test_candidate_exhaustion_saves_no_valid_fix_proposal(monkeypatch):
+    """3회 소진 시 no_valid_fix 로 save_proposal 까지 도달한다."""
+    stub = _AllInvalidVerifyStub()
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
+    config = {"configurable": {"thread_id": "test-cand-exhaust-pb004-1"}}
+    result = await graph.ainvoke(_initial_state(), config=config)
+
+    assert result.get("candidate_retry") == 3
+    node_names = [e["node"] for e in result.get("events", [])]
+    assert "save_proposal" in node_names
