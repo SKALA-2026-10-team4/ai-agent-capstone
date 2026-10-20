@@ -12,6 +12,10 @@ dependencies = [
     "pydantic",
     "httpx",
     "python-dotenv",
+    "langgraph>=1.2.16",
+    "langchain-openai>=1.7.2",
+    "langchain-core>=1.6.12",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [dependency-groups]
@@ -31,3 +35,4 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
