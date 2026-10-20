@@ -43,6 +43,7 @@ class CandidateResults(TypedDict):
     intent: bool              # 기준 3: 의도 보존
     contract: bool            # 기준 4: 계약 일관성
     footprint: int            # 기준 5: 수정한 skill 수
+    tools_called: list[str]   # 재현 시나리오 실행 중 호출된 도구 목록 (Agentic 증거)
 
 
 class Candidate(TypedDict):
