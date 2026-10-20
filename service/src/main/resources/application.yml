@@ -31,6 +31,11 @@ spring:
         annotation-scanner:
           enabled: true
 
+skillops:
+  order-agent:
+    # 주문 Agent(order-agent/) 조회 API. 고정 설정값으로만 바꾸고 도구 입력으로 받지 않는다.
+    base-url: ${ORDER_AGENT_BASE_URL:http://localhost:8081}
+
 server:
   port: 8080
 
