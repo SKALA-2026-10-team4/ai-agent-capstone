@@ -1,34 +1,39 @@
-"""MCP 도구 12개 래퍼.
+"""MCP 도구 래퍼 (v1).
+
+- list_failed_runs / get_trace / list_skills / get_skill  → Order Agent HTTP API
+- diff_skill / get_dependency_graph / create_workspace / apply_patch
+  run_scenarios / save_proposal                           → MCP 도구
+
+v1 변경: promote_workspace / rollback 은 서비스가 호출하므로 Agent 에서 제거.
 
 USE_STUB_MCP=true 이면 StubMCPTools 를 반환해 service 없이 개발할 수 있다.
-
-사용 예:
-    async with get_tools() as tools:
-        pong = await tools.ping()
-        trace = await tools.get_trace("r_01")
 """
 
 import json
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import MCP_URL, USE_STUB_MCP
+import httpx
+
+from .config import MCP_URL, ORDER_AGENT_URL, USE_STUB_MCP
 from .mcp_client import mcp_client
 
 
-# ── 실제 MCP 도구 ──────────────────────────────────────────────────────────────
+# ── 실제 도구 ──────────────────────────────────────────────────────────────────
 
 
 class MCPTools:
-    """service MCP 서버(/mcp)의 도구 12개 + ping 을 호출하는 클라이언트."""
+    """Order Agent HTTP API + service MCP 서버(/mcp) 도구를 호출하는 클라이언트."""
 
     async def __aenter__(self) -> "MCPTools":
         self._client = mcp_client(MCP_URL)
         await self._client.__aenter__()
+        self._http = httpx.AsyncClient(base_url=ORDER_AGENT_URL, timeout=30.0)
         return self
 
     async def __aexit__(self, *args: Any) -> None:
         await self._client.__aexit__(*args)
+        await self._http.aclose()
 
     async def _call(self, name: str, args: dict) -> Any:
         result = await self._client.call_tool(name, args)
@@ -41,82 +46,86 @@ class MCPTools:
                     return text
         return None
 
-    # ── 읽기 도구 6개 (C-1) ─────────────────────────────────────────────────────
+    # ── Order Agent HTTP API (v1) ────────────────────────────────────────────────
+
+    async def list_failed_runs(self, since: str | None = None) -> dict:
+        params = {}
+        if since:
+            params["since"] = since
+        resp = await self._http.get("/api/executions/failed", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_trace(self, execution_id: str) -> dict:
+        resp = await self._http.get(f"/api/executions/{execution_id}/trace")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_skills(self, snapshot_id: str) -> dict:
+        resp = await self._http.get(f"/api/snapshots/{snapshot_id}/skills")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_skill(self, snapshot_id: str, skill_id: str) -> dict:
+        resp = await self._http.get(f"/api/snapshots/{snapshot_id}/skills/{skill_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── MCP 도구 ─────────────────────────────────────────────────────────────────
 
     async def ping(self) -> str:
         return await self._call("ping", {})
 
-    # TODO(B/C-1, 계약 확정 후): list_skills/get_skill/list_failed_runs/get_trace는 MCP 대신 주문 HTTP API로 연결한다.
-    # /api/snapshots/{id}/skills 및 /skills/{skill_id}, /api/executions/failed, /api/executions/{id}/trace 사용.
-    # snapshot_id/execution_id를 전달하고 items를 해제하며, nodes.py가 기대하는 steps/skill_versions 등은
-    # 실제 관찰 기록으로 변환한다. since는 제거하고 없는 저장 이력·단계·시간은 생성하지 않는다.
-    async def list_skills(self) -> list[dict]:
-        return await self._call("list_skills", {})
-
-    async def get_skill(self, name: str, version: int | None = None) -> dict:
-        args = {"name": name}
-        if version is not None:
-            args["version"] = version
-        return await self._call("get_skill", args)
-
-    # TODO(B/C-1, 계약 확정 후): 실제 Java MCP 입력은 skill_id/before_snapshot_id/after_snapshot_id다.
-    # 아래 name/from_version/to_version은 맞지 않는다. 버전->snapshot 해석 주체를 먼저 정하고 수정한다.
-    # hunks의 index는 0부터이며 v1 changes/change_no는 1부터이므로 ablation 인덱스도 함께 맞춘다.
-    async def diff_skill(self, name: str, from_version: int, to_version: int) -> dict:
+    async def diff_skill(
+        self, skill_id: str, before_snapshot_id: str, after_snapshot_id: str
+    ) -> dict:
         return await self._call("diff_skill", {
-            "name": name, "from_version": from_version, "to_version": to_version,
+            "skill_id": skill_id,
+            "before_snapshot_id": before_snapshot_id,
+            "after_snapshot_id": after_snapshot_id,
         })
 
-    # TODO(B/C-1, 계약 확정 후): 실제 서버는 snapshot_id와 entry_skill_id를 요구한다. 빈 인자는 실패한다.
-    # 조사 대상 snapshot과 flow ID를 전달하고 edges/missing 결과를 소비하는 코드도 함께 확인한다.
-    async def get_dependency_graph(self) -> dict:
-        return await self._call("get_dependency_graph", {})
+    async def get_dependency_graph(
+        self, snapshot_id: str, entry_skill_id: str
+    ) -> dict:
+        return await self._call("get_dependency_graph", {
+            "snapshot_id": snapshot_id,
+            "entry_skill_id": entry_skill_id,
+        })
 
-    async def list_failed_runs(self, since: str | None = None) -> list[dict]:
+    async def create_workspace(self, start_versions: dict | None = None) -> dict:
         args = {}
-        if since:
-            args["since"] = since
-        return await self._call("list_failed_runs", args)
-
-    async def get_trace(self, run_id: str) -> dict:
-        return await self._call("get_trace", {"run_id": run_id})
-
-    # ── 쓰기 도구 6개 (C-2) ─────────────────────────────────────────────────────
-
-    # C-2 서버는 #38 에서 v0 이름으로 맞췄다.
-    # base 를 받고 {ws_id, skill_versions, created_at} 을 돌려준다.
-    # 오류는 isError + {code, message, retryable, ...}.
-    # apply_patch 는 아직 서버에 없다(v0 이름으로 구현 예정).
-    async def create_workspace(self, base: dict | None = None) -> dict:
-        args = {}
-        if base:
-            args["base"] = base
+        if start_versions:
+            args["start_versions"] = start_versions
         return await self._call("create_workspace", args)
 
-    async def apply_patch(self, ws_id: str, patches: list[dict]) -> dict:
-        return await self._call("apply_patch", {"ws_id": ws_id, "patches": patches})
-
-    # C-2 서버는 #38 에서 v0 이름으로 맞췄다.
-    # ws_id, scenario_ids, k(+선택 extra_checks)를 받고
-    # [{scenario_id, passed, runs, failures:[{run_id, step, error}]}] 를 돌려준다.
-    # replay_run_ids 는 서버 미지원이다.
-    async def run_scenarios(
-        self, ws_id: str, scenario_ids: list[str], k: int = 2
-    ) -> list[dict]:
-        return await self._call("run_scenarios", {
-            "ws_id": ws_id, "scenario_ids": scenario_ids, "k": k,
+    async def apply_patch(self, workspace_id: str, patches: list[dict]) -> dict:
+        return await self._call("apply_patch", {
+            "workspace_id": workspace_id,
+            "patches": patches,
         })
+
+    async def run_scenarios(
+        self,
+        workspace_id: str,
+        scenario_ids: list[str],
+        repeat: int = 2,
+        replay_run_ids: list[str] | None = None,
+        extra_checks: list | None = None,
+    ) -> dict:
+        args: dict = {
+            "workspace_id": workspace_id,
+            "scenario_ids": scenario_ids,
+            "repeat": repeat,
+        }
+        if replay_run_ids:
+            args["replay_run_ids"] = replay_run_ids
+        if extra_checks:
+            args["extra_checks"] = extra_checks
+        return await self._call("run_scenarios", args)
 
     async def save_proposal(self, proposal: dict) -> dict:
         return await self._call("save_proposal", {"proposal": proposal})
-
-    async def promote_workspace(self, ws_id: str, approval_token: str) -> dict:
-        return await self._call("promote_workspace", {
-            "ws_id": ws_id, "approval_token": approval_token,
-        })
-
-    async def rollback(self, skill: str, version: int) -> dict:
-        return await self._call("rollback", {"skill": skill, "version": version})
 
 
 # ── Stub 도구 (service 없이 개발용) ───────────────────────────────────────────
@@ -134,118 +143,155 @@ class StubMCPTools:
     async def ping(self) -> str:
         return f"pong {datetime.now(timezone.utc).isoformat()}"
 
-    async def list_skills(self) -> list[dict]:
-        return [
-            {"name": "order-flow", "version": 1, "owner": "운영팀", "description": "주문 흐름", "inputs": [], "outputs": [], "depends_on": [], "steps": ["order-intake", "inventory-check", "payment", "shipping-reserve", "notify"]},
-            {"name": "order-intake", "version": 2, "owner": "운영팀", "description": "주문 접수", "inputs": ["order.id"], "outputs": ["order.id", "order.total"], "depends_on": []},
-            {"name": "inventory-check", "version": 5, "owner": "물류팀", "description": "재고 확인", "inputs": ["order.id"], "outputs": ["order.id", "inventory.예약가능수량"], "depends_on": []},
-            {"name": "payment", "version": 4, "owner": "재무팀", "description": "결제", "inputs": ["order.id", "order.total", "inventory.reserved"], "outputs": ["payment.id", "payment.status"], "depends_on": ["inventory-check"]},
-            {"name": "shipping-reserve", "version": 3, "owner": "물류팀", "description": "배송 예약", "inputs": ["order.id", "payment.id"], "outputs": ["shipping.id"], "depends_on": ["payment"]},
-            {"name": "notify", "version": 2, "owner": "운영팀", "description": "알림", "inputs": ["order.id", "payment.status"], "outputs": [], "depends_on": ["payment"]},
-        ]
+    # ── Order Agent HTTP API stubs ───────────────────────────────────────────────
 
-    async def get_skill(self, name: str, version: int | None = None) -> dict:
+    async def list_failed_runs(self, since: str | None = None) -> dict:
         return {
-            "name": name,
-            "version": version or 5,
-            "frontmatter": {"inputs": ["order.id"], "outputs": ["inventory.예약가능수량"]},
-            "body": f"# {name}\n(stub body)",
+            "items": [
+                {
+                    "execution_id": "r_stub_F1",
+                    "snapshot_id": "snap_001",
+                    "snapshot_hash": "hash001",
+                    "order_id": "ord_001",
+                    "failed_skill": "payment",
+                    "error": {"code": "MISSING_INPUT", "message": "required input inventory.reserved not found"},
+                    "started_at": "2026-10-20T09:00:00Z",
+                    "finished_at": "2026-10-20T09:00:00Z",
+                    "final_status": "FAILED",
+                }
+            ],
+            "cursor": None,
+            "has_more": False,
         }
 
-    async def diff_skill(self, name: str, from_version: int, to_version: int) -> dict:
-        # F1: inventory-check outputs 필드명 변경
+    async def get_trace(self, execution_id: str) -> dict:
+        if execution_id == "r_stub_F1":
+            return {
+                "execution_id": execution_id,
+                "snapshot_id": "snap_001",
+                "order_id": "ord_001",
+                "started_at": "2026-10-20T09:00:00Z",
+                "final_status": "FAILED",
+                "events": [
+                    {"sequence": 1, "kind": "SKILL_SELECTED",    "skill": "order-intake",    "version": 2},
+                    {"sequence": 2, "kind": "EXECUTION_FINISHED", "skill": "order-intake",    "output": {"order.id": "ord_001", "order.total": 50000}, "ms": 120},
+                    {"sequence": 3, "kind": "SKILL_SELECTED",    "skill": "inventory-check", "version": 5},
+                    {"sequence": 4, "kind": "TOOL_REQUEST",       "skill": "inventory-check", "tool": "check_inventory"},
+                    {"sequence": 5, "kind": "EXECUTION_FINISHED", "skill": "inventory-check", "output": {"inventory.예약가능수량": True}, "ms": 200},
+                    {"sequence": 6, "kind": "SKILL_SELECTED",    "skill": "payment",         "version": 4},
+                    {"sequence": 7, "kind": "EXECUTION_ERROR",   "skill": "payment",         "error": {"code": "MISSING_INPUT", "message": "required input inventory.reserved not found"}, "ms": 50},
+                ],
+            }
+        # workspace 시나리오 실행 결과 — 수정 후 통과 트레이스
         return {
-            "hunks": [
+            "execution_id": execution_id,
+            "snapshot_id": "snap_ws_001",
+            "order_id": "ord_001",
+            "started_at": "2026-10-20T09:00:00Z",
+            "final_status": "SHIPPED",
+            "events": [
+                {"sequence": 1,  "kind": "SKILL_SELECTED",    "skill": "order-intake",    "version": 2},
+                {"sequence": 2,  "kind": "EXECUTION_FINISHED", "skill": "order-intake",    "output": {"order.id": "ord_001", "order.total": 50000}, "ms": 110},
+                {"sequence": 3,  "kind": "SKILL_SELECTED",    "skill": "inventory-check", "version": 6},
+                {"sequence": 4,  "kind": "TOOL_REQUEST",       "skill": "inventory-check", "tool": "check_inventory"},
+                {"sequence": 5,  "kind": "EXECUTION_FINISHED", "skill": "inventory-check", "output": {"inventory.reserved": True}, "ms": 180},
+                {"sequence": 6,  "kind": "SKILL_SELECTED",    "skill": "payment",         "version": 4},
+                {"sequence": 7,  "kind": "EXECUTION_FINISHED", "skill": "payment",         "output": {"payment.id": "pay_001", "payment.status": "PAID"}, "ms": 90},
+                {"sequence": 8,  "kind": "SKILL_SELECTED",    "skill": "shipping-reserve","version": 3},
+                {"sequence": 9,  "kind": "EXECUTION_FINISHED", "skill": "shipping-reserve","output": {"shipping.id": "shp_001"}, "ms": 95},
+                {"sequence": 10, "kind": "SKILL_SELECTED",    "skill": "notify",          "version": 2},
+                {"sequence": 11, "kind": "EXECUTION_FINISHED", "skill": "notify",          "output": {}, "ms": 40},
+            ],
+        }
+
+    async def list_skills(self, snapshot_id: str) -> dict:
+        return {
+            "items": [
+                {"skill_id": "order-flow",       "path": "order-flow/SKILL.md",       "hash": "h001", "partial": False},
+                {"skill_id": "order-intake",      "path": "order-intake/SKILL.md",      "hash": "h002", "partial": False},
+                {"skill_id": "inventory-check",   "path": "inventory-check/SKILL.md",   "hash": "h003", "partial": False},
+                {"skill_id": "payment",           "path": "payment/SKILL.md",           "hash": "h004", "partial": False},
+                {"skill_id": "shipping-reserve",  "path": "shipping-reserve/SKILL.md",  "hash": "h005", "partial": False},
+                {"skill_id": "notify",            "path": "notify/SKILL.md",            "hash": "h006", "partial": False},
+            ]
+        }
+
+    async def get_skill(self, snapshot_id: str, skill_id: str) -> dict:
+        return {
+            "skill_id": skill_id,
+            "path": f"{skill_id}/SKILL.md",
+            "hash": "h001",
+            "size": 100,
+            "content": f"# {skill_id}\n(stub body)",
+            "encoding": "utf-8",
+        }
+
+    # ── MCP 도구 stubs ───────────────────────────────────────────────────────────
+
+    async def diff_skill(
+        self, skill_id: str, before_snapshot_id: str, after_snapshot_id: str
+    ) -> dict:
+        # F1: inventory-check outputs 필드명 변경 (v1: hunks → changes)
+        return {
+            "changes": [
                 {
-                    "index": 0,
-                    "header": "@@ -3 +3 @@",
+                    "change_no": 0,
+                    "location": "@@ -3 +3 @@",
                     "before": "outputs: [order.id, inventory.reserved]",
                     "after":  "outputs: [order.id, inventory.예약가능수량]",
                 }
             ]
         }
 
-    async def get_dependency_graph(self) -> dict:
+    async def get_dependency_graph(
+        self, snapshot_id: str, entry_skill_id: str
+    ) -> dict:
+        # v1: run_order / links / value_names / broken_links
         return {
-            "steps": ["order-intake", "inventory-check", "payment", "shipping-reserve", "notify"],
-            "edges": [
-                {"from": "inventory-check", "to": "payment", "keys": ["inventory.reserved"]},
-                {"from": "payment", "to": "shipping-reserve", "keys": ["payment.id"]},
-                {"from": "payment", "to": "notify", "keys": ["payment.status"]},
+            "run_order": ["order-intake", "inventory-check", "payment", "shipping-reserve", "notify"],
+            "links": [
+                {"from": "inventory-check", "to": "payment",          "value_names": ["inventory.reserved"]},
+                {"from": "payment",          "to": "shipping-reserve", "value_names": ["payment.id"]},
+                {"from": "payment",          "to": "notify",           "value_names": ["payment.status"]},
             ],
-            "violations": [
+            "broken_links": [
                 {"skill": "payment", "missing_input": "inventory.reserved"}
             ],
         }
 
-    async def list_failed_runs(self, since: str | None = None) -> list[dict]:
-        return [
-            {"run_id": "r_stub_F1", "order_id": "ord_001", "failed_skill": "payment", "error": "required input inventory.reserved not found", "at": "2026-10-20T09:00:00Z"},
-        ]
+    async def create_workspace(self, start_versions: dict | None = None) -> dict:
+        return {"workspace_id": "ws_stub_001"}
 
-    async def get_trace(self, run_id: str) -> dict:
-        # 원본 실패 트레이스 (F1 시나리오)
-        if run_id == "r_stub_F1":
-            return {
-                "run_id": run_id,
-                "order_id": "ord_001",
-                "mode": "live",
-                "workspace": None,
-                "scenario_id": None,
-                "started_at": "2026-10-20T09:00:00Z",
-                "skill_versions": {"order-flow": 1, "order-intake": 2, "inventory-check": 5, "payment": 4, "shipping-reserve": 3, "notify": 2},
-                "steps": [
-                    {"skill": "order-intake",    "version": 2, "input": {"order.id": "ord_001"}, "output": {"order.id": "ord_001", "order.total": 50000}, "tools_called": [], "status": "ok",    "error": None, "ms": 120},
-                    {"skill": "inventory-check", "version": 5, "input": {"order.id": "ord_001"}, "output": {"inventory.예약가능수량": True},               "tools_called": ["check_inventory"], "status": "ok", "error": None, "ms": 200},
-                    {"skill": "payment",         "version": 4, "input": {"order.id": "ord_001", "order.total": 50000}, "output": {},                       "tools_called": [], "status": "error", "error": "required input inventory.reserved not found", "ms": 50},
-                ],
-                "final_status": "FAILED",
-            }
-        # workspace 시나리오 실행 결과 — 수정 후 통과 트레이스
+    async def apply_patch(self, workspace_id: str, patches: list[dict]) -> dict:
         return {
-            "run_id": run_id,
-            "order_id": "ord_001",
-            "mode": "sandbox",
-            "workspace": "ws_stub",
-            "scenario_id": run_id,
-            "started_at": "2026-10-20T09:00:00Z",
-            "skill_versions": {"order-flow": 1, "order-intake": 2, "inventory-check": 6, "payment": 4, "shipping-reserve": 3, "notify": 2},
-            "steps": [
-                {"skill": "order-intake",      "version": 2, "input": {"order.id": "ord_001"}, "output": {"order.id": "ord_001", "order.total": 50000}, "tools_called": [], "status": "ok", "error": None, "ms": 110},
-                {"skill": "inventory-check",   "version": 6, "input": {"order.id": "ord_001"}, "output": {"inventory.reserved": True},                  "tools_called": ["check_inventory"], "status": "ok", "error": None, "ms": 180},
-                {"skill": "payment",           "version": 4, "input": {"order.id": "ord_001", "order.total": 50000, "inventory.reserved": True}, "output": {"payment.id": "pay_001", "payment.status": "PAID"}, "tools_called": [], "status": "ok", "error": None, "ms": 90},
-                {"skill": "shipping-reserve",  "version": 3, "input": {"order.id": "ord_001", "payment.id": "pay_001"}, "output": {"shipping.id": "shp_001"}, "tools_called": [], "status": "ok", "error": None, "ms": 95},
-                {"skill": "notify",            "version": 2, "input": {"order.id": "ord_001", "payment.status": "PAID"}, "output": {}, "tools_called": [], "status": "ok", "error": None, "ms": 40},
-            ],
-            "final_status": "SHIPPED",
-        }
-
-    async def create_workspace(self, base: dict | None = None) -> dict:
-        return {"ws_id": "ws_stub_001"}
-
-    async def apply_patch(self, ws_id: str, patches: list[dict]) -> dict:
-        return {
-            "ws_id": ws_id,
-            "applied": [{"skill": p["skill"], "version": p["base_version"] + 1} for p in patches],
-            "contract_violations": [],
+            "workspace_id": workspace_id,
+            "changed_skills": [{"skill": p["skill"], "version": p["base_version"] + 1} for p in patches],
+            "broken_links": [],
         }
 
     async def run_scenarios(
-        self, ws_id: str, scenario_ids: list[str], k: int = 2
-    ) -> list[dict]:
-        return [
-            {"scenario_id": sid, "passed": True, "runs": [f"r_stub_{sid}_{i}" for i in range(k)], "failures": []}
-            for sid in scenario_ids
-        ]
+        self,
+        workspace_id: str,
+        scenario_ids: list[str],
+        repeat: int = 2,
+        replay_run_ids: list[str] | None = None,
+        extra_checks: list | None = None,
+    ) -> dict:
+        return {
+            "results": [
+                {
+                    "scenario_id": sid,
+                    "passed": True,
+                    "all_passed": True,
+                    "run_ids": [f"r_stub_{sid}_{i}" for i in range(repeat)],
+                    "failures": [],
+                }
+                for sid in scenario_ids
+            ]
+        }
 
     async def save_proposal(self, proposal: dict) -> dict:
-        return {"id": "p_stub_001"}
-
-    async def promote_workspace(self, ws_id: str, approval_token: str) -> dict:
-        return {"promoted": [{"skill": "inventory-check", "version": 6}]}
-
-    async def rollback(self, skill: str, version: int) -> dict:
-        return {"skill": skill, "version": version}
+        return {"id": "p_stub_001", "status": "proposed", "valid_candidate_nos": [1]}
 
 
 # ── 팩토리 ──────────────────────────────────────────────────────────────────────

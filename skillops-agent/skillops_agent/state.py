@@ -4,56 +4,56 @@ from typing import Literal, TypedDict
 
 
 class Hypothesis(TypedDict):
-    hunk_index: int
+    change_no: int       # diff_skill 의 change 번호 (v1: hunk_index → change_no)
     summary: str
-    confidence: float  # 0.0–1.0
+    confidence: float    # 0.0–1.0
 
 
 class AblationRun(TypedDict):
-    hunk_index: int
-    ws_id: str
+    change_no: int       # v1: hunk_index → change_no
+    workspace_id: str    # v1: ws_id → workspace_id
     run_ids: list[str]
-    confirmed: bool  # 이 hunk 를 되돌리면 시나리오가 통과? → True 면 원인 확정
+    confirmed: bool      # 이 change 를 되돌리면 시나리오가 통과? → True 면 원인 확정
 
 
 class RootCause(TypedDict):
     skill: str
     from_version: int
     to_version: int
-    hunk: int          # diff_skill 의 hunk 번호 (ablation 으로 확정)
+    change_no: int           # v1: hunk → change_no
     summary: str
-    confirmed_by: list[str]  # ablation 실행 run_id 목록 (minItems: 1)
+    proof_run_ids: list[str] # v1: confirmed_by → proof_run_ids (minItems: 1)
 
 
 class Intent(TypedDict):
     text: str
-    assertions: list[str]   # "<키> <op> <리터럴>" 형식, op: ==|!=|in
-    confirmed: bool | None  # 승인 화면에서 담당자가 확인하면 True
+    checks: list[str]        # v1: assertions → checks ("키 op 리터럴" 형식)
+    confirmed: bool | None   # 승인 화면에서 담당자가 확인하면 True
 
 
 class Patch(TypedDict):
     skill: str
     base_version: int
-    diff: str  # unified diff
+    patch: str               # v1: diff → patch (unified diff)
 
 
 class CandidateResults(TypedDict):
-    functional: bool          # 기준 1: 실패 주문이 통과
-    regression: dict          # 기준 2: {passed: int, total: int}
-    intent: bool              # 기준 3: 의도 보존
-    contract: bool            # 기준 4: 계약 일관성
-    footprint: int            # 기준 5: 수정한 skill 수
-    tools_called: list[str]   # 재현 시나리오 실행 중 호출된 도구 목록 (Agentic 증거)
+    fixes_failure: bool              # v1: functional → fixes_failure
+    keeps_old_orders: dict           # v1: regression → keeps_old_orders {passed, total}
+    keeps_intent: bool               # v1: intent → keeps_intent
+    no_broken_links: bool            # v1: contract → no_broken_links
+    changed_skill_count: int         # v1: footprint → changed_skill_count
+    tools_called: list[str]          # PB-007: repro 트레이스 TOOL_REQUEST 이벤트에서 추출
 
 
 class Candidate(TypedDict):
-    id: str
-    kind: Literal["local", "contract", "flow"]
+    candidate_no: int                               # v1: id(str) → candidate_no(int, 1-based)
+    kind: Literal["same_skill", "linked_skills", "run_order"]  # v1: local/contract/flow 변경
     workspace: str | None
     patches: list[Patch]
-    results: CandidateResults | None  # verify_candidates 후 채워짐
-    valid: bool | None                # functional & regression 전부 & intent
-    evidence: list[str]               # run_id / scenario_id (비면 save_proposal 400)
+    results: CandidateResults | None   # verify_candidates 후 채워짐
+    valid: bool | None                 # fixes_failure & keeps_old_orders 전부 & keeps_intent
+    evidence_run_ids: list[str]        # v1: evidence → evidence_run_ids (비면 save_proposal 400)
     rank: int | None
     explanation: str | None
 
@@ -71,8 +71,9 @@ class AgentState(TypedDict):
 
     # ── 증거 수집 (fetch_evidence) ────────────────────────────────
     trace: dict | None                   # get_trace 결과
-    diff: dict | None                    # diff_skill 결과 → hunks[]
-    skill_versions: dict                 # trace.skill_versions
+    diff: dict | None                    # diff_skill 결과 → changes[]
+    skill_versions: dict                 # SKILL_SELECTED 이벤트에서 추출한 {skill: version}
+    snapshot_id: str | None              # v1: 실행 당시 스냅샷 ID
 
     # ── 가설 · ablation (PB-003) ──────────────────────────────────
     hypotheses: list[Hypothesis]
@@ -92,7 +93,7 @@ class AgentState(TypedDict):
     proposal: dict | None
     approval_status: Literal["pending", "approved", "rejected"] | None
     approval_token: str | None
-    smoke_passed: bool | None              # smoke_check 결과
+    smoke_passed: bool | None            # 보존 (서비스가 실제 처리하지만 응답에 포함 가능)
 
     # ── 제어 (PB-006) ─────────────────────────────────────────────
     step_count: int
