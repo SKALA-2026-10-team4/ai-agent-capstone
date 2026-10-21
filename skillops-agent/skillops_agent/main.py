@@ -36,10 +36,19 @@ async def verify_token(x_service_token: str = Header(default="")) -> None:
 
 
 async def _run_pipeline(req: DiagnoseRequest) -> None:
+    import logging
+    logger = logging.getLogger("skillops_agent")
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     initial_state = {"trigger": req.model_dump(), "max_steps": 40}
-    result = await graph.ainvoke(initial_state, config=config)
+    logger.info("[pipeline] start thread=%s trigger=%s", thread_id, req.model_dump())
+    try:
+        result = await graph.ainvoke(initial_state, config=config)
+    except Exception as exc:
+        logger.exception("[pipeline] FAILED thread=%s error=%s", thread_id, exc)
+        return
+    logger.info("[pipeline] done thread=%s events=%s", thread_id,
+                [e.get("node") for e in (result.get("events") or [])])
     # interrupt 지점에서 반환된 state 에서 proposal_id 추출 후 매핑 저장
     proposal_id = (result.get("proposal") or {}).get("id")
     if proposal_id:

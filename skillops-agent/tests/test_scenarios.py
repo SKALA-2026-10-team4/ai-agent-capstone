@@ -54,6 +54,11 @@ def patch_llm(monkeypatch):
     monkeypatch.setattr("skillops_agent.nodes.make_structured_llm", _fake_structured_llm)
 
 
+@pytest.fixture(autouse=True)
+def patch_tools(monkeypatch):
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: StubMCPTools())
+
+
 def _initial_state():
     return {
         "trigger": {"type": "failure", "run_id": "r_stub_F1", "skill": None, "version": None},

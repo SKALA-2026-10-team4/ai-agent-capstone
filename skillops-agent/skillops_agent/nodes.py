@@ -89,10 +89,21 @@ def _eval_check(check: str, context: dict) -> bool:
 
 
 def _error_event(trace: dict) -> dict:
-    """v1 events에서 EXECUTION_ERROR 이벤트를 반환한다."""
-    return next(
-        (e for e in trace.get("events", []) if e.get("kind") == "EXECUTION_ERROR"), {}
-    )
+    """실패 이벤트를 반환한다. stub(EXECUTION_ERROR)과 실제 API(SKILL_FINISHED + data.status=error) 양쪽 지원."""
+    events = trace.get("events", [])
+    # stub 형식
+    for e in events:
+        if e.get("kind") == "EXECUTION_ERROR":
+            return e
+    # 실제 order-agent 형식: SKILL_FINISHED with data.status == "error"
+    for e in events:
+        if e.get("kind") == "SKILL_FINISHED" and (e.get("data") or {}).get("status") == "error":
+            return {
+                "kind": "EXECUTION_ERROR",
+                "skill": e.get("skill_id", ""),
+                "error": (e.get("data") or {}).get("error", {}),
+            }
+    return {}
 
 
 async def _check_intent(checks: list[str], run_ids: list[str], tools) -> bool:
@@ -180,10 +191,14 @@ async def fetch_evidence(state: AgentState) -> dict:
             trace = await t.get_trace(trigger["run_id"])
             snapshot_id = trace.get("snapshot_id")
 
-            # v1: SKILL_SELECTED events에서 실행 당시 버전 맵 추출
+            # 실행 당시 버전 맵 추출: stub(SKILL_SELECTED + flat) / 실제 API(SKILL_LOADED + data.version)
             for event in trace.get("events", []):
-                if event.get("kind") == "SKILL_SELECTED":
-                    skill_versions[event["skill"]] = event["version"]
+                kind = event.get("kind")
+                if kind == "SKILL_SELECTED" and event.get("skill"):
+                    skill_versions[event["skill"]] = event.get("version", 1)
+                elif kind == "SKILL_LOADED" and event.get("skill_id"):
+                    v = (event.get("data") or {}).get("version", 1)
+                    skill_versions[event["skill_id"]] = v
 
             # v1: EXECUTION_ERROR event에서 실패 skill 추출
             failed_ev = _error_event(trace)
@@ -609,7 +624,7 @@ async def save_proposal(state: AgentState) -> dict:
     async with get_tools() as t:
         saved = await t.save_proposal(proposal)
 
-    full_proposal = {**proposal, "id": saved.get("id", "p_unknown")}
+    full_proposal = {**proposal, "id": (saved or {}).get("id", "p_unknown")}
     base = _tick(state, "save_proposal", f"proposal 저장: {full_proposal['id']} (status={status})")
     base["proposal"] = full_proposal
     return base

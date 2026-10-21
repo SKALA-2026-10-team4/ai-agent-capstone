@@ -56,6 +56,11 @@ def patch_llm(monkeypatch):
     monkeypatch.setattr("skillops_agent.nodes.make_structured_llm", _fake_structured_llm)
 
 
+@pytest.fixture(autouse=True)
+def patch_tools(monkeypatch):
+    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: StubMCPTools())
+
+
 # ── 재시도용 Stub: 처음 ablation 은 실패, 이후는 통과 ─────────────────────────
 
 class _OnceFailAblationStub(StubMCPTools):
