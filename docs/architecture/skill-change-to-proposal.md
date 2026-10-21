@@ -16,53 +16,64 @@
 ## 흐름도
 
 ```mermaid
+%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 40, "rankSpacing": 45}}}%%
 flowchart TD
-    UI1["① Skill 편집·저장<br/>Skill 편집 화면"]
-    OA1["② 수정본 저장<br/>새 Skill 세트와 저장 이벤트를 함께 기록"]
-    OA2["③ 저장 이벤트 전달<br/>3초마다 하나씩"]
-    SV1["④ 진단 요청·조회 중계"]
-    AG1["⑤ 진단 접수<br/>변경 번호로 중복 확인, 진행 기록"]
-    AG2["⑥ 증거 수집·사전 검증<br/>기준 세트와 수정본으로 기준 주문 시험"]
-    END1(["진단 종료, 제안서 없음<br/>기준 세트 실패 · 회귀 통과 · 결과만 다름"])
-    AG3["⑦ 원인 찾기<br/>가설을 세우고 바뀐 부분을 되돌려 재현"]
-    AG4["⑧ 의도 정리·수정안 만들기"]
-    AG5["⑨ 수정안 검증 판정·순위<br/>합격이 없으면 최대 3번 다시 만듦"]
-    SV2["MCP 도구<br/>diff_skill · get_dependency_graph<br/>create_workspace · apply_patch · run_scenarios"]
-    OA3["조회 API<br/>Skill 세트 · Skill 원문 · 실행 기록"]
-    OA4["모의 실행<br/>후보 Skill 세트로 주문 처리, 재고 복원"]
-    LLM["OpenAI<br/>가설 · 의도 · 수정안 · 설명"]
-    SV3["⑩ 제안서 저장 (save_proposal)<br/>근거 실행 대조 · 합격 재계산 · 본문 작성"]
-    UI2["⑪ 진단 진행 보기<br/>검증·진단 기록 화면"]
-    UI3["⑫ 제안서 읽기·승인/거절<br/>받은 제안서 화면"]
-    SV4["⑬ 제안서 조회·결정 기록"]
+    %% 같은 줄의 좌우 순서는 노드를 선언한 순서를 따릅니다: 왼쪽 옆 노드, 주 흐름, 오른쪽 옆 노드
+    %% G1~G6은 주 흐름이 한 세로줄에 서도록 좌우 균형을 맞추는 빈 칸이고, 화면에 보이지 않습니다
+    UI1["<span style='font-size:1.5em'>①</span> Skill 편집·저장<br/>Skill 편집 화면"]
+    OA1["<span style='font-size:1.5em'>②</span> 수정본 저장<br/>새 Skill 세트와 저장 이벤트를 함께 기록"]
     DB1[("주문 Agent DB<br/>Skill 세트 · 저장 이벤트 · 실행 기록")]
-    DB2[("service DB<br/>시험 실행 장부 · 제안서 · 승인")]
+    OA2["<span style='font-size:1.5em'>③</span> 저장 이벤트 전달<br/>3초마다 하나씩"]
+    G1[" "]
+    SV1["<span style='font-size:1.5em'>④</span> 진단 요청·조회 중계"]
+    G2[" "]
+    AG1["<span style='font-size:1.5em'>⑤</span> 진단 접수<br/>변경 번호로 중복 확인, 진행 기록"]
+    UI2["<span style='font-size:1.5em'>⑪</span> 진단 진행 보기<br/>검증·진단 기록 화면"]
     DB3[("B 진단 기록<br/>SQLite")]
+    AG2["<span style='font-size:1.5em'>⑥</span> 증거 수집·사전 검증<br/>기준 세트와 수정본으로 기준 주문 시험"]
+    G3[" "]
+    END1(["진단 종료, 제안서 없음<br/>기준 세트 실패 · 회귀 통과 · 결과만 다름"])
+    AG3["<span style='font-size:1.5em'>⑦</span> 원인 찾기<br/>가설을 세우고 바뀐 부분을 되돌려 재현"]
+    OA3["조회 API<br/>Skill 세트 · Skill 원문 · 실행 기록"]
+    G4[" "]
+    AG4["<span style='font-size:1.5em'>⑧</span> 의도 정리·수정안 만들기"]
+    LLM["OpenAI<br/>가설 · 의도 · 수정안 · 설명"]
+    AG5["<span style='font-size:1.5em'>⑨</span> 수정안 검증 판정·순위<br/>합격이 없으면 최대 3번 다시 만듦"]
+    G5[" "]
+    SV3["<span style='font-size:1.5em'>⑩</span> 제안서 저장 (save_proposal)<br/>근거 실행 대조 · 합격 재계산 · 본문 작성"]
+    SV2["MCP 도구<br/>diff_skill · get_dependency_graph<br/>create_workspace · apply_patch · run_scenarios<br/>시험한 실행은 시험 실행 장부에 기록"]
+    DB2[("service DB<br/>시험 실행 장부 · 제안서 · 승인")]
+    UI3["<span style='font-size:1.5em'>⑫</span> 제안서 읽기·승인/거절<br/>받은 제안서 화면"]
+    G6[" "]
+    OA4["모의 실행<br/>후보 Skill 세트로 주문 처리, 재고 복원"]
+    SV4["<span style='font-size:1.5em'>⑬</span> 제안서 조회·결정 기록"]
 
     UI1 -->|"HTTP 저장 요청"| OA1
+    OA1 -.-> DB1
     OA1 --> OA2
+    OA1 ~~~ G1
     OA2 -->|"HTTP"| SV1
+    SV1 -->|"진행 기록 중계"| UI2
     SV1 -->|"HTTP /diagnose"| AG1
+    SV1 ~~~ G2
+    AG1 -.-> DB3
     AG1 --> AG2
+    AG1 ~~~ G3
     AG2 -->|"주문이 멈추지 않음"| END1
     AG2 -->|"실행 오류로 멈춤"| AG3
+    AG2 -->|"<span style='font-size:1.5em'>⑥</span>~<span style='font-size:1.5em'>⑧</span> HTTP 조회"| OA3
+    AG3 ~~~ G4
     AG3 --> AG4
+    AG3 -->|"<span style='font-size:1.5em'>⑦</span>~<span style='font-size:1.5em'>⑨</span> AI 호출"| LLM
     AG4 --> AG5
+    AG5 ~~~ G5
     AG5 -->|"MCP save_proposal"| SV3
-
-    AG2 & AG3 & AG4 & AG5 -->|"MCP"| SV2
-    AG2 & AG3 & AG4 & AG5 -->|"HTTP 조회"| OA3
+    AG5 -->|"<span style='font-size:1.5em'>⑥</span>~<span style='font-size:1.5em'>⑨</span> MCP 호출"| SV2
+    SV3 -.-> DB2
+    SV3 -->|"받은 제안서에 나타남"| UI3
+    SV3 ~~~ G6
     SV2 -->|"HTTP 후보 등록·모의 실행"| OA4
-    AG3 & AG4 & AG5 -->|"AI 호출"| LLM
-
-    UI2 -->|"HTTP"| SV1
-    UI2 -->|"제안서 보기"| UI3
-    UI3 -->|"HTTP 조회·승인·거절"| SV4
-    SV3 -.->|"받은 제안서에 나타남"| UI3
-
-    OA1 & OA3 & OA4 -.- DB1
-    SV2 & SV3 & SV4 -.- DB2
-    AG1 -.- DB3
+    UI3 -->|"HTTP 승인·거절"| SV4
 
     classDef ui fill:#DBEAFE,stroke:#3B82F6,color:#1E3A8A
     classDef oa fill:#DCFCE7,stroke:#22C55E,color:#14532D
@@ -71,6 +82,7 @@ flowchart TD
     classDef llm fill:#FCE7F3,stroke:#EC4899,color:#831843
     classDef store fill:#F1F5F9,stroke:#94A3B8,color:#334155
     classDef stop fill:#FFFFFF,stroke:#94A3B8,color:#475569,stroke-dasharray:4 3
+    classDef ghost fill:none,stroke:none,color:transparent
 
     class UI1,UI2,UI3 ui
     class OA1,OA2,OA3,OA4 oa
@@ -79,9 +91,10 @@ flowchart TD
     class LLM llm
     class DB1,DB2,DB3 store
     class END1 stop
+    class G1,G2,G3,G4,G5,G6 ghost
 ```
 
-실선은 호출 순서이고, 점선은 저장소 읽기·쓰기와 화면에 나타나는 관계입니다.
+실선은 호출과 데이터가 넘어가는 방향이고, 점선은 저장소에 기록하는 관계입니다. 가운데 세로줄은 ①에서 ⑬까지 이어지는 주 흐름입니다. 왼쪽에는 저장소와 진단 종료를 두고, 오른쪽에는 B가 부르는 도구와 진행 화면을 두었습니다. 모든 선이 바로 다음 줄의 노드로만 이어지므로, 주 흐름은 곧은 세로선이 되고 옆으로 가는 선은 라벨에서 한 번만 꺾입니다. 그래서 B의 여러 단계가 함께 쓰는 도구(MCP 도구, OpenAI, 조회 API)는 선 하나로 묶고, 그 도구를 쓰는 단계 번호를 라벨에 적었습니다(예: ⑥~⑨ MCP 호출). 저장소도 대표 기록 하나만 선으로 잇고, 나머지 기록 위치는 아래 표에 적었습니다.
 
 ## 단계별 설명
 
