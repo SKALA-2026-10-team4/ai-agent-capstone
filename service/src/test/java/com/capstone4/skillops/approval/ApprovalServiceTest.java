@@ -3,25 +3,29 @@ package com.capstone4.skillops.approval;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
 import com.capstone4.skillops.auth.AuthUser;
+import com.capstone4.skillops.proposal.ProposalException;
+import com.capstone4.skillops.proposal.ProposalService;
 
+/** 승인·거절은 저장된 제안서에 결정을 표시한 뒤 기록한다. SkillOps Agent 로는 보내지 않는다. */
 class ApprovalServiceTest {
 
     private final ApprovalRepository repository = mock(ApprovalRepository.class);
-    private final AgentClient agent = mock(AgentClient.class);
-    private final ApprovalService service = new ApprovalService(repository, agent,
+    private final ProposalService proposals = mock(ProposalService.class);
+    private final ApprovalService service = new ApprovalService(repository, proposals,
             Clock.fixed(Instant.parse("2026-10-21T01:00:00Z"), ZoneOffset.UTC));
     private final AuthUser operator = new AuthUser("operator", "운영자", List.of("OPERATOR"));
 
@@ -30,41 +34,47 @@ class ApprovalServiceTest {
     }
 
     @Test
-    void records_approver_and_sends_code_to_agent() {
-        given(agent.approve(eq("p_stub_001"), eq("approved"), anyString()))
-                .willReturn(new AgentClient.Reply(true, "approved"));
+    void approvalRecordsCandidateNumberAndMarksProposal() {
+        Approval approval = service.approve("p_1", 1, true, operator);
 
-        Approval approval = service.approve("p_stub_001", 1, true, operator);
-
-        assertThat(approval.getApprovedBy()).isEqualTo("operator");
+        then(proposals).should().markDecided("p_1", "approved", 1);
+        assertThat(approval.getProposalId()).isEqualTo("p_1");
         assertThat(approval.getCandidateNo()).isEqualTo(1);
+        assertThat(approval.getDecision()).isEqualTo("approved");
         assertThat(approval.isIntentConfirmed()).isTrue();
+        assertThat(approval.getApprovedBy()).isEqualTo("operator");
         assertThat(approval.getApprovalToken()).matches("a_[A-Z2-9]{10}");
         assertThat(approval.getUsedAt()).isNull();
-        assertThat(approval.getAgentResult()).isEqualTo("ACCEPTED");
+        assertThat(approval.getAgentResult()).isEqualTo("NOT_SENT");
         assertThat(approval.getDecidedAt()).isEqualTo(Instant.parse("2026-10-21T01:00:00Z"));
     }
 
     @Test
-    void reject_has_no_token() {
-        given(agent.approve(eq("p_stub_001"), eq("rejected"), org.mockito.ArgumentMatchers.isNull()))
-                .willReturn(new AgentClient.Reply(true, "rejected"));
+    void rejectHasNoTokenAndNoCandidate() {
+        Approval approval = service.reject("p_1", operator);
 
-        Approval approval = service.reject("p_stub_001", operator);
-
+        then(proposals).should().markDecided("p_1", "rejected", null);
         assertThat(approval.getApprovalToken()).isNull();
         assertThat(approval.getCandidateNo()).isNull();
+        assertThat(approval.getDecision()).isEqualTo("rejected");
     }
 
     @Test
-    void keeps_the_record_when_agent_is_unreachable() {
-        given(agent.approve(any(), any(), any()))
-                .willThrow(new AgentException("AGENT_UNAVAILABLE", "SkillOps Agent 에 연결하지 못했습니다.", 502));
+    void rejectsCandidateThatDidNotPass() {
+        given(proposals.markDecided("p_1", "approved", 2)).willThrow(
+                new ProposalException("CANDIDATE_NOT_VALID", "모든 확인을 통과한 후보만 승인할 수 있습니다.", 400));
 
-        assertThatThrownBy(() -> service.reject("p_stub_001", operator))
-                .isInstanceOf(AgentException.class);
-        org.mockito.Mockito.verify(repository, org.mockito.Mockito.times(2))
-                .save(org.mockito.ArgumentMatchers.argThat(a -> "AGENT_UNAVAILABLE".equals(a.getAgentResult())
-                        || "PENDING".equals(a.getAgentResult())));
+        assertThatThrownBy(() -> service.approve("p_1", 2, true, operator)).isInstanceOf(ProposalException.class);
+        then(repository).should(never()).save(any());
+    }
+
+    @Test
+    void latestDecisionIsReadFromRepository() {
+        Approval last = new Approval("p_1", 1, "approved", true, "operator", "운영자", "a_TESTCODE01",
+                Instant.parse("2026-10-21T01:00:00Z"));
+        given(repository.findTopByProposalIdOrderByDecidedAtDesc("p_1")).willReturn(Optional.of(last));
+
+        assertThat(service.latestFor("p_1")).contains(last);
+        assertThat(service.latestFor("p_none")).isEmpty();
     }
 }

@@ -1,6 +1,7 @@
 package com.capstone4.skillops.proposal;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -72,6 +73,25 @@ public class Proposal {
         p.validCandidateNos = validCandidateNos;
         p.createdAt = createdAt;
         return p;
+    }
+
+    /**
+     * 승인·거절을 표시한다. 승인이면 담당자가 의도 해석을 확인한 것이므로 payload 의 intent.confirmed 를 true 로 둔다(계약 5 §10).
+     * 받을 수 있는 결정인지는 {@link ProposalService#markDecided} 가 먼저 확인한다.
+     */
+    void decide(String decision, Instant at) {
+        this.status = decision;
+        this.decidedAt = at;
+        if (ProposalService.APPROVED.equals(decision)) {
+            Map<String, Object> copy = new LinkedHashMap<>(payload);
+            Map<String, Object> intent = ProposalRules.map(copy.get("intent"));
+            if (intent != null) {
+                Map<String, Object> confirmed = new LinkedHashMap<>(intent);
+                confirmed.put("confirmed", true);
+                copy.put("intent", confirmed);
+            }
+            this.payload = copy;
+        }
     }
 
     public String getProposalId() {

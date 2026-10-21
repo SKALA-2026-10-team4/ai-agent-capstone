@@ -32,6 +32,8 @@ public class ProposalService {
 
     static final String PROPOSED = "proposed";
     static final String NO_VALID_FIX = "no_valid_fix";
+    static final String APPROVED = "approved";
+    static final String REJECTED = "rejected";
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -93,6 +95,32 @@ public class ProposalService {
                 Map.class);
         repository.save(Proposal.create(proposalId, threadId, status, proposal, document, valid, now));
         return new SavedProposal(proposalId, status, valid);
+    }
+
+    /**
+     * 운영자의 결정을 제안서에 표시한다. 같은 제안서는 한 번만 결정할 수 있다.
+     * 승인은 합격한 후보 번호(1부터)로만 받고, 쓸 수 있는 수정안이 없는 제안서는 거절(닫기)만 받는다.
+     */
+    public Proposal markDecided(String proposalId, String decision, Integer candidateNo) {
+        if (!APPROVED.equals(decision) && !REJECTED.equals(decision)) {
+            throw new IllegalArgumentException("decision 은 approved 나 rejected 여야 합니다 (받은 값 " + decision + ")");
+        }
+        Proposal proposal = repository.findById(proposalId)
+                .orElseThrow(() -> new ProposalException("PROPOSAL_NOT_FOUND", "제안서를 찾을 수 없습니다.", 404));
+        String status = proposal.getStatus();
+        if (APPROVED.equals(status) || REJECTED.equals(status)) {
+            throw new ProposalException("PROPOSAL_ALREADY_DECIDED", "이미 결정한 제안서입니다.", 409);
+        }
+        if (APPROVED.equals(decision)) {
+            if (NO_VALID_FIX.equals(status)) {
+                throw new ProposalException("NO_VALID_FIX", "승인할 수 있는 수정안이 없는 제안서입니다.", 409);
+            }
+            if (candidateNo == null || !proposal.getValidCandidateNos().contains(candidateNo)) {
+                throw new ProposalException("CANDIDATE_NOT_VALID", "모든 확인을 통과한 후보만 승인할 수 있습니다.", 400);
+            }
+        }
+        proposal.decide(decision, clock.instant());
+        return repository.save(proposal);
     }
 
     public Optional<Proposal> find(String proposalId) {

@@ -2,6 +2,7 @@ package com.capstone4.skillops.proposal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -181,5 +182,78 @@ class ProposalServiceTest {
     @Test
     void emptyProposalIsRejected() {
         assertThatThrownBy(() -> service.save(null)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ── 결정 표시(markDecided) ─────────────────────────────────────────────
+
+    Proposal stored(String status) {
+        Proposal proposal = Proposal.create("p_1", "5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b", status, f1Copy, Map.of(),
+                "no_valid_fix".equals(status) ? List.of() : List.of(1), Instant.parse("2026-10-21T05:00:00Z"));
+        given(repository.findById("p_1")).willReturn(Optional.of(proposal));
+        return proposal;
+    }
+
+    static void assertProblem(Throwable thrown, String code, int httpStatus) {
+        assertThat(thrown).isInstanceOf(ProposalException.class);
+        ProposalException e = (ProposalException) thrown;
+        assertThat(e.code()).isEqualTo(code);
+        assertThat(e.httpStatus()).isEqualTo(httpStatus);
+    }
+
+    @Test
+    void approvingFillsIntentConfirmed() {
+        stored("proposed");
+
+        Proposal decided = service.markDecided("p_1", "approved", 1);
+
+        assertThat(decided.getStatus()).isEqualTo("approved");
+        assertThat(decided.getDecidedAt()).isEqualTo(Instant.parse("2026-10-21T05:10:00Z"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> intent = (Map<String, Object>) decided.getPayload().get("intent");
+        assertThat(intent).containsEntry("confirmed", true);
+        then(repository).should().save(decided);
+    }
+
+    @Test
+    void rejectingKeepsIntentUnconfirmed() {
+        stored("proposed");
+
+        Proposal decided = service.markDecided("p_1", "rejected", null);
+
+        assertThat(decided.getStatus()).isEqualTo("rejected");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> intent = (Map<String, Object>) decided.getPayload().get("intent");
+        assertThat(intent.get("confirmed")).isNull();
+    }
+
+    @Test
+    void secondDecisionIsRejected() {
+        stored("approved");
+        assertProblem(catchThrowable(() -> service.markDecided("p_1", "approved", 1)), "PROPOSAL_ALREADY_DECIDED", 409);
+        assertProblem(catchThrowable(() -> service.markDecided("p_1", "rejected", null)), "PROPOSAL_ALREADY_DECIDED",
+                409);
+        then(repository).should(never()).save(any());
+    }
+
+    @Test
+    void noValidFixCannotBeApproved() {
+        stored("no_valid_fix");
+        assertProblem(catchThrowable(() -> service.markDecided("p_1", "approved", 1)), "NO_VALID_FIX", 409);
+        assertThat(service.markDecided("p_1", "rejected", null).getStatus()).isEqualTo("rejected");
+    }
+
+    @Test
+    void unknownCandidateNumberIsRejected() {
+        stored("proposed");
+        for (Integer no : new Integer[] { 0, 2, 99, null }) {
+            assertProblem(catchThrowable(() -> service.markDecided("p_1", "approved", no)), "CANDIDATE_NOT_VALID", 400);
+        }
+        then(repository).should(never()).save(any());
+    }
+
+    @Test
+    void unknownProposalIsNotFound() {
+        given(repository.findById("p_none")).willReturn(Optional.empty());
+        assertProblem(catchThrowable(() -> service.markDecided("p_none", "rejected", null)), "PROPOSAL_NOT_FOUND", 404);
     }
 }

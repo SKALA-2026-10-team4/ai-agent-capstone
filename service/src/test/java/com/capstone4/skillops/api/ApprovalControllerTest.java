@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -31,13 +32,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import com.capstone4.skillops.approval.AgentException;
 import com.capstone4.skillops.approval.Approval;
 import com.capstone4.skillops.approval.ApprovalService;
 import com.capstone4.skillops.auth.AuthProperties;
 import com.capstone4.skillops.auth.AuthUser;
 import com.capstone4.skillops.auth.SecurityConfig;
 import com.capstone4.skillops.auth.TokenService;
+import com.capstone4.skillops.proposal.Proposal;
+import com.capstone4.skillops.proposal.ProposalException;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
 /** 승인 API 의 보안 규칙: 로그인 필요, OPERATOR 만 POST, 위조·만료 토큰 거절, MCP 는 막지 않음. */
@@ -45,7 +47,7 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 @Import({ SecurityConfig.class, TokenService.class })
 class ApprovalControllerTest {
 
-    private static final String BODY = "{\"candidate\":1,\"intent_confirmed\":true}";
+    private static final String BODY = "{\"candidate_no\":1,\"intent_confirmed\":true}";
     private static final String APPROVE = "/api/proposals/p_stub_001/approve";
 
     @Autowired
@@ -97,25 +99,45 @@ class ApprovalControllerTest {
         mockMvc.perform(approve(tokenFor("operator")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.approved_by").value("operator"))
-                .andExpect(jsonPath("$.candidate").value(1))
+                .andExpect(jsonPath("$.candidate_no").value(1))
+                .andExpect(jsonPath("$.agent_result").doesNotExist())
                 .andExpect(jsonPath("$.approval_token").value("a_TESTCODE01"));
     }
 
     @Test
-    void agent_failure_is_reported_with_its_code() throws Exception {
+    void proposalErrorKeepsCodeAndStatus() throws Exception {
         given(approvals.approve(any(), anyInt(), anyBoolean(), any()))
-                .willThrow(new AgentException("AGENT_UNAVAILABLE", "SkillOps Agent 에 연결하지 못했습니다.", 502));
+                .willThrow(new ProposalException("PROPOSAL_ALREADY_DECIDED", "이미 결정한 제안서입니다.", 409));
 
         mockMvc.perform(approve(tokenFor("operator")))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("AGENT_UNAVAILABLE"));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROPOSAL_ALREADY_DECIDED"))
+                .andExpect(jsonPath("$.message").value("이미 결정한 제안서입니다."));
+    }
+
+    @Test
+    void optimisticLockFailureBecomesConflict() throws Exception {
+        given(approvals.approve(any(), anyInt(), anyBoolean(), any()))
+                .willThrow(new ObjectOptimisticLockingFailureException(Proposal.class, "p_stub_001"));
+
+        mockMvc.perform(approve(tokenFor("operator")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROPOSAL_ALREADY_DECIDED"));
+    }
+
+    @Test
+    void candidateNoBelowOneIsBadRequest() throws Exception {
+        mockMvc.perform(post(APPROVE).header("Authorization", "Bearer " + tokenFor("operator"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"candidate_no\":0,\"intent_confirmed\":true}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
     void approval_without_intent_confirmation_is_refused() throws Exception {
         mockMvc.perform(post(APPROVE).header("Authorization", "Bearer " + tokenFor("operator"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"candidate\":1,\"intent_confirmed\":false}"))
+                        .content("{\"candidate_no\":1,\"intent_confirmed\":false}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INTENT_NOT_CONFIRMED"));
     }
