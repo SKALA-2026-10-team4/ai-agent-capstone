@@ -188,6 +188,14 @@ public class WorkspaceService {
     }
 
     /**
+     * 연습 공간을 시작한 주문 Agent snapshot 번호. 운영 폴더에서 시작했으면 null.
+     * 주문 Agent 에서 돌리는 실행기(harness)가 snapshot 에서 시작한 연습 공간인지 볼 때 쓴다. 없는 번호면 IllegalArgumentException.
+     */
+    public String sourceSnapshotIdOf(String workspaceId) {
+        return find(workspaceId).getSourceSnapshotId();
+    }
+
+    /**
      * 연습 공간의 모든 파일. skills/&lt;이름&gt;/SKILL.md 는 skill 원문(수정 반영), 그 밖의 파일은 시작할 때 복사한 글 그대로.
      * 주문 Agent 후보 snapshot 을 만들 때 그대로 보낸다. 없는 번호면 IllegalArgumentException.
      */

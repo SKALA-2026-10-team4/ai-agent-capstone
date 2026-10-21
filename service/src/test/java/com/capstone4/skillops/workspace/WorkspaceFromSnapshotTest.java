@@ -208,6 +208,23 @@ class WorkspaceFromSnapshotTest {
                 .hasMessage("workspace_id w_x 이 없습니다. create_workspace 로 먼저 만드세요");
     }
 
+    /** 주문 Agent 실행기(harness)는 snapshot 에서 시작한 연습 공간만 돌린다. 그 판단에 쓴다. */
+    @Test
+    void sourceSnapshotIdOfTellsWhereTheWorkspaceStarted() {
+        when(repository.findById("w_a")).thenReturn(Optional.of(WorkspaceRecord.open("w_a",
+                Instant.parse("2026-10-21T00:00:00Z"), Map.of("payment", new WorkspaceSkill(1, "payment text")),
+                Map.of(), SNAPSHOT)));
+        when(repository.findById("w_live")).thenReturn(Optional.of(WorkspaceRecord.open("w_live",
+                Instant.parse("2026-10-21T00:00:00Z"), Map.of("payment", new WorkspaceSkill(1, "payment text")))));
+        when(repository.findById("w_x")).thenReturn(Optional.empty());
+
+        assertThat(service.sourceSnapshotIdOf("w_a")).isEqualTo(SNAPSHOT);
+        assertThat(service.sourceSnapshotIdOf("w_live")).isNull();
+        assertThatThrownBy(() -> service.sourceSnapshotIdOf("w_x"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("workspace_id w_x 이 없습니다. create_workspace 로 먼저 만드세요");
+    }
+
     @Test
     void snapshotStartWithoutOrderAgentConfiguredFails() {
         WorkspaceService withoutClient = new WorkspaceService(repository, store);

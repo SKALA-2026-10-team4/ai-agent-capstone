@@ -61,20 +61,30 @@ public class WorkspaceTools {
         return WorkspaceToolResults.run(() -> workspaces.apply(workspace_id, patches));
     }
 
-    // TODO(C-2/B): 재현 주문(replay_run_ids)은 아직 없다. 원본 실행 조회(주문 Agent #39 API)·재현 등록 계약을 정한 뒤 더한다.
     @McpTool(name = "run_scenarios", description = """
             연습 공간의 skill 로 시험 주문을 모의 실행하고 기대 결과와 비교해 채점한다.
             같은 주문을 repeat 번(기본 2) 돌려 모두 통과해야 합격이다. 실제 결제·배송은 일어나지 않는다.
+            scenario_ids 와 replay_run_ids 가운데 하나는 넣어야 한다.
+            재현 주문은 주문 Agent 에서 실패했던 실제 주문을 다시 돌리는 것이다. 오류(FAILED)로 멈추지 않으면 합격이다.
+            scenario_ids 에 f-<execution_id> 로 넣거나, replay_run_ids 에 execution_id(UUID) 또는 run_id(r_ + 32자리)로 넣는다.
+            재현 주문은 skillops.flow-runner=harness 일 때만 된다. 이때는 연습 공간을 snapshot_id 로 만들어야 주문 Agent 에서 돌릴 수 있다.
             돌려주는 값: {workspace_id, all_passed, results:[{scenario_id, replay_of_run_id, passed, run_ids:[run_id],
-            failures:[{run_id, skill, reason}]}]}. 재현 주문은 아직 없어서 replay_of_run_id 는 항상 null 이다.
+            failures:[{run_id, skill, reason}]}]}. results 는 scenario_ids, replay_run_ids 순서다.
+            재현 주문의 scenario_id 는 f-<execution_id>, replay_of_run_id 는 넣은 실행 번호다. 기준 주문이면 replay_of_run_id 는 null 이다.
             실패하면 isError=true 와 {code, message, retryable, upstream_status, snapshot_id} 를 돌려준다.""")
     public CallToolResult runScenarios(
             @McpToolParam(description = "create_workspace 가 돌려준 연습 공간 번호") String workspace_id,
-            @McpToolParam(description = "돌릴 시험 주문 번호 목록. 기준 주문은 g-01~g-06") List<String> scenario_ids,
+            @McpToolParam(required = false,
+                    description = "돌릴 시험 주문 번호 목록. 기준 주문은 g-01~g-06, 재현 주문은 f-<execution_id>")
+            List<String> scenario_ids,
+            @McpToolParam(required = false,
+                    description = "재현할 실패 실행 번호 목록. execution_id(UUID) 또는 run_id(r_ + 32자리 16진수)")
+            List<String> replay_run_ids,
             @McpToolParam(required = false,
                     description = "이번 시험에만 모든 주문에 덧붙이는 확인 조건. 예: inventory.예약가능수량 != null")
             List<String> extra_checks,
             @McpToolParam(required = false, description = "같은 주문을 돌릴 횟수(1~5, 기본 2)") Integer repeat) {
-        return WorkspaceToolResults.run(() -> scenarioRunner.run(workspace_id, scenario_ids, extra_checks, repeat));
+        return WorkspaceToolResults.run(
+                () -> scenarioRunner.run(workspace_id, scenario_ids, replay_run_ids, extra_checks, repeat));
     }
 }

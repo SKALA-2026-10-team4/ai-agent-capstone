@@ -38,7 +38,10 @@ skillops:
   # C-2 연습 공간·시험 주문 돌리기
   skills-dir: ${SKILLOPS_SKILLS_DIR:../skills}
   scenarios-dir: ${SKILLOPS_SCENARIOS_DIR:../scenarios}
-  # contract-only: SKILL.md 맨 위 칸만 보고 흉내 내는 C-2 가짜 실행기. A 실행기가 붙으면 harness
+  # 시험 주문 실행기. 둘 중 하나만 뜬다.
+  #   contract-only(기본): SKILL.md 맨 위 칸만 보고 흉내 내는 C-2 가짜 실행기. 재현 주문(f-<execution_id>, replay_run_ids)은 받지 않는다
+  #   harness: 주문 Agent(order-agent.base-url)에 연습 공간 파일을 후보 snapshot 으로 올리고 모의 실행(POST /api/dry-runs)한다.
+  #            연습 공간을 create_workspace 의 snapshot_id 로 만들어야 하고, 재현 주문도 돌린다
   flow-runner: ${SKILLOPS_FLOW_RUNNER:contract-only}
   agent:
     # SkillOps 진단 Agent(skillops-agent/). 승인 결과를 전달할 때만 부른다.

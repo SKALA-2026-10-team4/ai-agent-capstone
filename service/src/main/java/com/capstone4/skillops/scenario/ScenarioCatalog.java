@@ -19,7 +19,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 기준 주문 목록. 서비스가 켜질 때 scenarios/golden/*.json 을 모두 읽는다(D 가 쓰는 파일).
- * 재현 주문(f-NN)과 scenarios 테이블은 다음 계획(원인 확인)에서 더한다.
+ * 재현 주문(f-&lt;execution_id&gt;)은 이 목록에 없다. ScenarioRunner 가 주문 Agent 에서 원래 주문을 꺼내 만든다.
  */
 @Component
 public class ScenarioCatalog {

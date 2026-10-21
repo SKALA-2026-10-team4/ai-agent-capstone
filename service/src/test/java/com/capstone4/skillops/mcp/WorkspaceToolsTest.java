@@ -116,11 +116,11 @@ class WorkspaceToolsTest {
     @Test
     @SuppressWarnings("unchecked")
     void runScenariosReturnsV1Report() {
-        when(runner.run("w_abc", List.of("g-01"), null, 2)).thenReturn(new ScenarioRunReport("w_abc", false, List.of(
+        when(runner.run("w_abc", List.of("g-01"), null, null, 2)).thenReturn(new ScenarioRunReport("w_abc", false, List.of(
                 new ScenarioRunReport.ScenarioResult("g-01", null, false, List.of("r_1", "r_2"), List.of(
                         new ScenarioRunReport.Failure("r_1", "payment", "최종 상태 기대 SHIPPED, 실제 FAILED"))))));
 
-        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, 2);
+        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, null, 2);
 
         assertThat(result.isError()).isFalse();
         Map<String, Object> body = mapOf(textOf(result));
@@ -193,12 +193,41 @@ class WorkspaceToolsTest {
         assertThat(mapOf(textOf(result)).get("changed_skills")).isEqualTo(List.of(Map.of("skill", "inventory-check", "version", 2)));
     }
 
+    /** scenario_ids 와 replay_run_ids 는 둘 다 선택이다. B 가 지금 보내는 {workspace_id, scenario_ids, repeat} 도 그대로 받는다. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void runScenariosTakesReplayRunIdsThroughMcp() {
+        SyncToolSpecification spec = new SyncMcpToolProvider(List.of(tools)).getToolSpecifications().stream()
+                .filter(s -> s.tool().name().equals("run_scenarios")).findFirst().orElseThrow();
+        Map<String, Object> schema = spec.tool().inputSchema();
+        assertThat((List<String>) schema.get("required")).containsExactly("workspace_id");
+        assertThat(((Map<String, Object>) schema.get("properties")).keySet())
+                .containsExactlyInAnyOrder("workspace_id", "scenario_ids", "replay_run_ids", "extra_checks", "repeat");
+        String alias = "r_5bc11dca57c14517950ca0aec8ed67e2";
+        when(runner.run("w_abc", null, List.of(alias), null, null)).thenReturn(new ScenarioRunReport("w_abc", true,
+                List.of(new ScenarioRunReport.ScenarioResult("f-5bc11dca-57c1-4517-950c-a0aec8ed67e2", alias, true,
+                        List.of("r_1"), List.of()))));
+        when(runner.run("w_abc", List.of("g-01"), null, null, 2)).thenReturn(new ScenarioRunReport("w_abc", true, List.of()));
+
+        CallToolResult replay = spec.callHandler().apply(null, CallToolRequest.builder().name("run_scenarios")
+                .arguments(Map.of("workspace_id", "w_abc", "replay_run_ids", List.of(alias))).build());
+        CallToolResult golden = spec.callHandler().apply(null, CallToolRequest.builder().name("run_scenarios")
+                .arguments(Map.of("workspace_id", "w_abc", "scenario_ids", List.of("g-01"), "repeat", 2)).build());
+
+        assertThat(replay.isError()).isFalse();
+        Map<String, Object> first = ((List<Map<String, Object>>) mapOf(textOf(replay)).get("results")).getFirst();
+        assertThat(first.get("scenario_id")).isEqualTo("f-5bc11dca-57c1-4517-950c-a0aec8ed67e2");
+        assertThat(first.get("replay_of_run_id")).isEqualTo(alias);
+        assertThat(golden.isError()).isFalse();
+        assertThat(mapOf(textOf(golden)).get("all_passed")).isEqualTo(true);
+    }
+
     @Test
     void invalidInputBecomesStructuredError() {
-        when(runner.run(any(), any(), any(), any())).thenThrow(
+        when(runner.run(any(), any(), any(), any(), any())).thenThrow(
                 new IllegalArgumentException("확인 조건을 읽을 수 없습니다: payment.status = PAID (예: payment.status == 'PAID')"));
 
-        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), List.of("payment.status = PAID"), null);
+        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, List.of("payment.status = PAID"), null);
 
         assertThat(result.isError()).isTrue();
         Map<String, Object> error = mapOf(textOf(result));
