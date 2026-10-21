@@ -45,9 +45,9 @@ flowchart TD
     OA1 --> OA2
     OA1 ~~~ G1
     OA2 -->|"HTTP"| SV1
-    SV1 -->|"진행 기록 중계"| UI2
-    SV1 -->|"HTTP /diagnose"| AG1
     SV1 ~~~ G2
+    SV1 -->|"HTTP /diagnose"| AG1
+    SV1 -->|"진행 기록 중계"| UI2
     AG1 -.-> DB3
     AG1 --> AG2
     AG1 ~~~ G3
