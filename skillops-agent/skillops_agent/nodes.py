@@ -467,6 +467,13 @@ async def verify_candidates(state: AgentState) -> dict:
             repro_run_ids = repro_result.get("runs", []) if repro_result else []
             intent_ok = await _check_intent(assertions, repro_run_ids, t)
 
+            # repro 트레이스에서 실제 호출된 도구 목록 수집 (Agentic 증거)
+            tools_called: list[str] = []
+            if repro_run_ids:
+                repro_trace = await t.get_trace(repro_run_ids[0])
+                for step in repro_trace.get("steps", []):
+                    tools_called.extend(step.get("tools_called", []))
+
             evidence = [run_id for r in results for run_id in r.get("runs", [])]
 
             candidate_results = CandidateResults(
@@ -475,6 +482,7 @@ async def verify_candidates(state: AgentState) -> dict:
                 intent=intent_ok,
                 contract=contract_ok,
                 footprint=len(cand["patches"]),
+                tools_called=tools_called,
             )
             valid = functional and regression_ok and intent_ok
             updated.append({**cand, "workspace": ws_id, "results": candidate_results, "valid": valid, "evidence": evidence})
