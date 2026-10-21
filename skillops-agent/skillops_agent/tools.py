@@ -83,8 +83,10 @@ class MCPTools:
 
     # ── 쓰기 도구 6개 (C-2) ─────────────────────────────────────────────────────
 
-    # TODO(B/C-2, 계약 확정 후): Java는 start_versions를 받고 workspace_id를 반환한다. 아래 base와
-    # nodes.py의 ws_id 파싱을 함께 변경한다. apply_patch의 ws_id/diff도 workspace_id/patch 계약과 대조한다.
+    # C-2 서버는 #38 에서 v0 이름으로 맞췄다.
+    # base 를 받고 {ws_id, skill_versions, created_at} 을 돌려준다.
+    # 오류는 isError + {code, message, retryable, ...}.
+    # apply_patch 는 아직 서버에 없다(v0 이름으로 구현 예정).
     async def create_workspace(self, base: dict | None = None) -> dict:
         args = {}
         if base:
@@ -94,8 +96,10 @@ class MCPTools:
     async def apply_patch(self, ws_id: str, patches: list[dict]) -> dict:
         return await self._call("apply_patch", {"ws_id": ws_id, "patches": patches})
 
-    # TODO(B/C-2, 계약 확정 후): Java 입력은 workspace_id/scenario_ids/extra_checks/repeat이며 ws_id/k가 아니다.
-    # 반환 results 객체와 run_ids/실패 상세를 nodes.py 및 stub과 맞춘다. replay_run_ids는 서버 미지원이다.
+    # C-2 서버는 #38 에서 v0 이름으로 맞췄다.
+    # ws_id, scenario_ids, k(+선택 extra_checks)를 받고
+    # [{scenario_id, passed, runs, failures:[{run_id, step, error}]}] 를 돌려준다.
+    # replay_run_ids 는 서버 미지원이다.
     async def run_scenarios(
         self, ws_id: str, scenario_ids: list[str], k: int = 2
     ) -> list[dict]:

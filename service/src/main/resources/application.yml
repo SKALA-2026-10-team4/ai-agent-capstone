@@ -35,6 +35,11 @@ skillops:
   order-agent:
     # 주문 Agent(order-agent/) 조회 API. 고정 설정값으로만 바꾸고 도구 입력으로 받지 않는다.
     base-url: ${ORDER_AGENT_BASE_URL:http://localhost:8081}
+  # C-2 연습 공간·시험 주문 돌리기
+  skills-dir: ${SKILLOPS_SKILLS_DIR:../skills}
+  scenarios-dir: ${SKILLOPS_SCENARIOS_DIR:../scenarios}
+  # contract-only: SKILL.md 맨 위 칸만 보고 흉내 내는 C-2 가짜 실행기. A 실행기가 붙으면 harness
+  flow-runner: ${SKILLOPS_FLOW_RUNNER:contract-only}
 
 server:
   port: 8080
@@ -43,9 +48,3 @@ logging:
   level:
     '[org.springframework.ai]': INFO
     '[org.springframework.ai.mcp]': DEBUG
-
-skillops:
-  skills-dir: ${SKILLOPS_SKILLS_DIR:../skills}
-  scenarios-dir: ${SKILLOPS_SCENARIOS_DIR:../scenarios}
-  # contract-only: SKILL.md 맨 위 칸만 보고 흉내 내는 C-2 가짜 실행기. A 실행기가 붙으면 harness
-  flow-runner: ${SKILLOPS_FLOW_RUNNER:contract-only}
