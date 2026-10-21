@@ -1,22 +1,20 @@
-// 수정안(근거 리포트). skillops-agent 에는 아직 조회 API 가 없어 목록·상세는 mock 으로만 동작한다.
-// TODO(B·C-2 연동): 수정안 목록·상세 GET 이 생기면 경로만 바꾼다. 응답 형식은 skillops_agent/state.py 와 같다.
-import { get, post, USE_MOCK } from './client'
+// 수정 제안서. SkillOps Agent 가 save_proposal 로 저장한 제안서를 service 가 보관하고, 화면은 service 에서 읽는다.
+// 목록·상세는 로그인한 사람 누구나, 승인·거절은 OPERATOR 만 할 수 있다(service SecurityConfig 와 같은 규칙).
+import { get, post } from './client'
 
-// 조회 API 가 생기기 전까지 실서버 모드에서는 화면이 호출하지 않고 연결 대기를 표시한다.
-export const PROPOSALS_AVAILABLE = USE_MOCK
+// → { items: [{ proposal_id, status, created_at, title, summary, root_cause_skill, recommended_candidate_no,
+//               valid_candidate_nos, candidate_count }] }
+export const listProposals = () => get('/service/api/proposals')
 
-export const listProposals = () => get('/agent/proposals')
+// → { proposal_id, status, created_at, decided_at, thread_id, valid_candidate_nos, recommended_candidate_no,
+//     document: { title, summary, sections, tone_warnings }, proposal: <Agent 가 보낸 제안서>, decision: 승인 기록 | null }
+export const getProposal = (id) => get(`/service/api/proposals/${encodeURIComponent(id)}`)
 
-export const getProposal = (id) => get(`/agent/proposals/${encodeURIComponent(id)}`)
-
-// 승인/거절은 service 가 받는다(로그인 + OPERATOR). 계약 5 REST: POST /api/proposals/{id}/approve
-// {candidate, intent_confirmed} → approval_token. service 가 승인 기록(approvals)을 남기고
-// skillops-agent POST /approve 로 넘긴다. 지금 Agent 는 recommended 후보만 반영한다.
-// → { proposal_id, decision, candidate, intent_confirmed, approval_token, approved_by, approver_name, decided_at,
-//     used_at, agent_result, agent_message }
-export const approveProposal = (proposalId, candidate, intentConfirmed) =>
+// candidateNo 는 제안서의 후보 번호(1부터)이고, 모든 확인을 통과한 후보만 승인할 수 있다.
+// → { proposal_id, decision, candidate_no, intent_confirmed, approval_token, approved_by, approver_name, decided_at, used_at }
+export const approveProposal = (proposalId, candidateNo, intentConfirmed) =>
   post(`/service/api/proposals/${encodeURIComponent(proposalId)}/approve`, {
-    candidate,
+    candidate_no: candidateNo,
     intent_confirmed: intentConfirmed,
   })
 

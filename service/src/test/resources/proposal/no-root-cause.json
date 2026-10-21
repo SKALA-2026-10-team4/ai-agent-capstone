@@ -1,0 +1,32 @@
+{
+  "thread_id": "7d1e2f3a-0b1c-4d2e-8f3a-4b5c6d7e8f90",
+  "trigger": {
+    "type": "failure",
+    "execution_id": "44444444-4444-4444-8444-444444444444",
+    "baseline_snapshot_id": "11111111-1111-4111-8111-111111111111",
+    "candidate_snapshot_id": "22222222-2222-4222-8222-222222222222",
+    "changed_paths": ["skills/inventory-check/SKILL.md"],
+    "change_id": null,
+    "entry_skill_id": "order-flow",
+    "diagnosis_only": false,
+    "intent_checks": [],
+    "run_id": null,
+    "skill": null,
+    "version": null
+  },
+  "baseline_snapshot_id": "11111111-1111-4111-8111-111111111111",
+  "snapshot_id": "22222222-2222-4222-8222-222222222222",
+  "failure": {
+    "execution_id": "44444444-4444-4444-8444-444444444444",
+    "skill": "payment",
+    "category": "CONTRACT_VIOLATION",
+    "message": null,
+    "missing_inputs": ["inventory.reserved"],
+    "at": "2026-10-21T06:30:00Z"
+  },
+  "root_cause": null,
+  "intent": null,
+  "candidates": [],
+  "recommended_candidate_no": null,
+  "status": "no_valid_fix"
+}

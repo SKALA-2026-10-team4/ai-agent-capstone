@@ -1,4 +1,4 @@
-"""B diagnosis graph using the current C contract; external proposal saving is unavailable."""
+"""B diagnosis graph using the current C contract; proposals are saved via C save_proposal."""
 
 import inspect
 from functools import wraps

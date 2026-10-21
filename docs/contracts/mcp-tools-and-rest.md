@@ -36,8 +36,8 @@
 | GET | `/api/skills/{name}/versions` | `[{version, saved_at, by}]` |
 | POST | `/api/orders` | 주문 생성 + live 실행 → `{order_id, run_id, final_status}`. FAILED 면 webhook `failure` |
 | GET | `/api/orders/{id}/trace` | Trace |
-| GET | `/api/proposals` · `/api/proposals/{id}` | Proposal 목록/상세 |
-| POST | `/api/proposals/{id}/approve` | `{candidate: index, intent_confirmed: bool}` → `{approval_token}` 발급 후 서비스가 `promote_workspace` 수행, 스모크 실행 결과 반환 |
+| GET | `/api/proposals` · `/api/proposals/{id}` | 제안서 목록 / 본문(`document`)·제안서·결정을 담은 상세 (구현됨) |
+| POST | `/api/proposals/{id}/approve` | `{candidate_no: 1부터, intent_confirmed: bool}` → 승인 기록과 `{approval_token}` (구현됨). `promote_workspace`와 스모크 실행은 아직 연결되지 않았다 |
 | POST | `/api/rollback` | `{skill, version}` |
 
 Swagger UI: `http://localhost:8080/swagger-ui.html` (springdoc).

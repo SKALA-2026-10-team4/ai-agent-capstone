@@ -44,13 +44,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (saving.value) throw new Error('수정본을 저장하고 있어요.')
     const id = snapshotId.value
     const base = sets.value[id]
-    const changes = { ...(drafts.value[id] ?? {}) }
+    const changes = { ...drafts.value[id] }
     if (!base || !Object.keys(changes).length) throw new Error('저장할 수정 내용이 없어요.')
     saving.value = true
     try {
       const savedSnapshot = await saveSkillEdits(id, base.snapshot.hash, changes)
       // Retain edits made while the request was in flight, including edits on another snapshot.
-      const remaining = { ...(drafts.value[id] ?? {}) }
+      const remaining = { ...drafts.value[id] }
       for (const [path, text] of Object.entries(changes)) {
         if (remaining[path] === text) delete remaining[path]
       }
@@ -163,13 +163,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     drafts.value = { ...drafts.value, [id]: next }
   }
 
-  // 개선안의 unified diff 들을 현재 초안(없으면 원본)에 적용한다. 하나라도 기준 내용이 다르면
+  // 제안서 후보의 unified diff(patches[].patch)들을 현재 초안(없으면 원본)에 적용한다. 하나라도 기준 내용이 다르면
   // 아무것도 바꾸지 않고 실패한 skill 목록을 돌려준다(반쯤 적용된 초안을 만들지 않는다).
   function applyPatchesToDraft(patches) {
     const results = patches.map((p) => {
       const path = skillPath(p.skill)
       const base = draftSkills.value.find((s) => s.path === path)?.text
-      const next = base == null ? false : applyPatch(base, p.diff, { fuzzFactor: 1 })
+      const next = base == null ? false : applyPatch(base, p.patch, { fuzzFactor: 1 })
       return { skill: p.skill, path, next }
     })
     const failed = results.filter((r) => r.next === false).map((r) => r.skill)

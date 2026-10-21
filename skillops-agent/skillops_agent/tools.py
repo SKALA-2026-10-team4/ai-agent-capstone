@@ -154,7 +154,9 @@ class MCPTools:
         return await self._call("run_scenarios", args)
 
     async def save_proposal(self, proposal: dict) -> dict:
-        raise ContractError("save_proposal is not provided by the current C server")
+        # 돌려받는 값: {proposal_id, status, valid_candidate_nos}.
+        # 근거 실행이 맞지 않으면 INVALID_INPUT 오류다.
+        return await self._call("save_proposal", {"proposal": proposal})
 
 
 # ── Stub 도구 (service 없이 개발용) ───────────────────────────────────────────

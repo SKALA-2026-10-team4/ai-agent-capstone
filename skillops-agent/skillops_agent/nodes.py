@@ -20,6 +20,8 @@ from pydantic import BaseModel as _PydanticModel
 from .config import GOLDEN_IDS
 from .contracts import (
     ContractError,
+    check_problem,
+    context_keys,
     event_data,
     execution_uuid,
     reverse_hunk,
@@ -443,25 +445,54 @@ def route_ablation(state: AgentState) -> str:
 # ── Node 6: extract_intent ────────────────────────────────────────────────────
 
 
+async def _known_values(state: AgentState) -> list[str]:
+    """원인을 되돌려 통과한 실행에서 값 이름을 모은다.
+
+    정상 흐름이 실제로 만드는 값만 확인 조건에 쓸 수 있다.
+    """
+    passing = next(
+        (r for r in state.get("ablation_runs", []) if r["confirmed"] and r["run_ids"]), None
+    )
+    if passing is None:
+        return context_keys(state.get("trace") or {})
+    async with get_tools() as t:
+        return context_keys(await t.get_trace(passing["run_ids"][0]))
+
+
 async def extract_intent(state: AgentState) -> dict:
     diff = state.get("diff") or {}
     root_cause = state.get("root_cause") or {}
+    known = await _known_values(state)
 
     prompt_text = load_prompt("extract_intent").format(
         root_cause=root_cause,
         diff=diff,
+        context_keys=", ".join(known) or "(없음)",
+        style=load_prompt("style"),
     )
 
     llm = make_structured_llm(_IntentOutput)
     result = await llm.ainvoke(prompt_text)
 
+    # C 가 읽지 못하는 조건이 하나라도 있으면 run_scenarios 전체가 거절된다.
+    # 미리 걸러서 이유와 함께 남긴다.
+    kept, dropped = [], []
+    for check in result.checks if result else []:
+        problem = check_problem(check, set(known))
+        if problem:
+            dropped.append({"check": check, "reason": problem})
+        else:
+            kept.append(check)
+
     intent = Intent(
         text=result.text if result else "의도 추출 실패",
-        checks=result.checks if result else [],
+        checks=kept,
+        dropped_checks=dropped,
         confirmed=None,
     )
 
-    base = _tick(state, "extract_intent", "의도 추출 완료")
+    message = f"의도 추출 완료 (조건 {len(kept)}개, 버린 조건 {len(dropped)}개)"
+    base = _tick(state, "extract_intent", message)
     base["intent"] = intent
     return base
 
@@ -697,6 +728,7 @@ async def rank_and_explain(state: AgentState) -> dict:
         root_cause=state.get("root_cause") or {},
         intent=state.get("intent") or {},
         candidates=[{**c, "rank": rank_map.get(c["candidate_no"])} for c in ranked],
+        style=load_prompt("style"),
     )
     llm = make_structured_llm(_RankExplanationsOutput)
     result = await llm.ainvoke(prompt_text)
@@ -725,43 +757,69 @@ async def rank_and_explain(state: AgentState) -> dict:
 # ── Node 11: save_proposal ────────────────────────────────────────────────────
 
 
-async def save_proposal(state: AgentState) -> dict:
-    root_cause = state.get("root_cause") or {}
-    intent = state.get("intent") or {}
-    recommended = state.get("recommended")
-    candidates = state.get("candidates", [])
-    valid_candidates = [c for c in candidates if c.get("valid")]
-
-    # 유효 후보 중 evidence_run_ids 가 비어 있으면 400 거부로 간주하고 오류 기록
-    empty_evidence_nos = [
-        c["candidate_no"] for c in valid_candidates if not c.get("evidence_run_ids")
-    ]
-    if empty_evidence_nos:
-        base = _tick(state, "save_proposal", f"evidence_run_ids 없음(400): {empty_evidence_nos}")
-        base["error"] = f"save_proposal 400: evidence_run_ids 없는 후보 {empty_evidence_nos}"
-        return base
-
-    status = "proposed" if valid_candidates else "no_valid_fix"
-
-    recommended_candidate_no = None
-    if recommended is not None and recommended < len(candidates):
-        recommended_candidate_no = candidates[recommended].get("candidate_no")
-
-    proposal = {
-        "trigger": state["trigger"],
-        "root_cause": root_cause,
-        "intent": intent,
-        "candidates": candidates,
-        "recommended_candidate_no": recommended_candidate_no,
-        "status": status,
+def _failure_of(trace: dict | None) -> dict | None:
+    """실행 기록의 EXECUTION_ERROR 를 제안서의 failure 묶음으로 옮긴다. 오류가 없으면 None."""
+    event = _error_event(trace or {})
+    if not event:
+        return None
+    data = event_data(event)
+    return {
+        "execution_id": (trace or {}).get("execution_id"),
+        "skill": data.get("skill_id") or event.get("skill_id"),
+        "category": data.get("category"),
+        "message": data.get("message"),
+        "missing_inputs": data.get("missing_inputs", []),
+        "at": event.get("at"),
     }
 
-    # Current C has no save_proposal tool. Keep the evaluated result in graph state,
-    # without fabricating an external proposal ID or entering approval.
-    full_proposal = {**proposal, "id": None, "storage_status": "NOT_SAVED"}
+
+def proposal_payload(state: AgentState) -> dict:
+    """save_proposal 로 보낼 제안서(계약 5 §10). 합격 판정과 본문 작성은 service 가 다시 한다."""
+    root_cause = state.get("root_cause")
+    if root_cause:
+        change = next(
+            (c for c in state.get("changes", []) if c["change_no"] == root_cause["change_no"]), {}
+        )
+        root_cause = {**root_cause, "before": change.get("before"), "after": change.get("after")}
+    candidates = []
+    for c in state.get("candidates", []):
+        candidate = {k: v for k, v in c.items() if k != "workspace"}
+        candidates.append({**candidate, "workspace_id": c.get("workspace")})
+    recommended = state.get("recommended")
+    recommended_no = (
+        candidates[recommended]["candidate_no"]
+        if recommended is not None and recommended < len(candidates)
+        else None
+    )
     return {
-        **_tick(state, "save_proposal", "검증 결과 보존: C 제안 저장 도구 미제공"),
-        "proposal": full_proposal,
+        "thread_id": state.get("pipeline_thread_id"),
+        "trigger": state["trigger"],
+        "baseline_snapshot_id": state.get("baseline_snapshot_id"),
+        "snapshot_id": state.get("snapshot_id"),
+        "failure": _failure_of(state.get("trace")),
+        "root_cause": root_cause,
+        "intent": state.get("intent"),
+        "candidates": candidates,
+        "recommended_candidate_no": recommended_no,
+        "status": "proposed" if any(c.get("valid") for c in candidates) else "no_valid_fix",
+    }
+
+
+async def save_proposal(state: AgentState) -> dict:
+    payload = proposal_payload(state)
+    # 근거 실행과 합격 조건은 service 가 확인한다.
+    # 거부되면 MCPToolError 가 그대로 올라가 ERROR 로 남는다.
+    async with get_tools() as t:
+        saved = await t.save_proposal(payload)
+    proposal = {
+        **payload,
+        "id": saved["proposal_id"],
+        "storage_status": "SAVED",
+        "valid_candidate_nos": saved["valid_candidate_nos"],
+    }
+    return {
+        **_tick(state, "save_proposal", f"제안서 저장: {saved['proposal_id']}"),
+        "proposal": proposal,
         "diagnosis_status": "EVALUATED",
     }
 

@@ -54,6 +54,8 @@ public class SecurityConfig {
                         // 결정(승인·거절)은 운영자만
                         .requestMatchers(HttpMethod.POST, "/api/proposals/*/approve", "/api/proposals/*/reject")
                         .hasRole("OPERATOR")
+                        // 제안서 목록·본문은 로그인한 사람이면 누구나 읽는다
+                        .requestMatchers(HttpMethod.GET, "/api/proposals", "/api/proposals/*").authenticated()
                         .requestMatchers("/api/auth/me", "/api/approvals", "/api/diagnoses", "/api/diagnoses/**").authenticated()
                         // 그 밖(로그인, health, MCP /mcp, Swagger, 다른 담당자의 API)은 지금처럼 인증 없이 둔다.
                         // 새 API 에 로그인이 필요하면 위에 한 줄 추가한다.

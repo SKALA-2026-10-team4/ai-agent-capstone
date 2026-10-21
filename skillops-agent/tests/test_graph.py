@@ -8,6 +8,7 @@ import pytest
 from skillops_agent import nodes
 from skillops_agent.graph import graph
 from skillops_agent.stub_tools import StubMCPTools
+from skillops_agent.tools import MCPToolError
 
 
 def initial(**extra):
@@ -78,8 +79,9 @@ async def test_real_event_shape_and_changed_skill_are_used(tools):
     assert result["root_cause"]["hunk_id"] == "fixture-hunk"
     assert result["root_cause"]["proof_run_ids"]
     assert result["candidates"][0]["valid"]
-    assert result["proposal"]["id"] is None
-    assert result["proposal"]["storage_status"] == "NOT_SAVED"
+    assert result["proposal"]["id"].startswith("p_stub")
+    assert result["proposal"]["storage_status"] == "SAVED"
+    assert result["proposal"]["valid_candidate_nos"] == [1]
     assert result["diagnosis_status"] == "EVALUATED"
     assert "__interrupt__" not in result
 
@@ -358,3 +360,126 @@ async def test_generation_prompt_contains_real_current_sources(tools, monkeypatc
     assert not result["error"]
     assert prompts and "outputs: []" in prompts[0]
     assert "full_text" in prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_proposal_is_saved_with_contract_payload(tools):
+    result = await run(initial())
+    saved = tools.saved[-1]
+    assert saved["status"] == "proposed"
+    assert saved["failure"]["skill"] == "payment"
+    assert saved["failure"]["category"] == "CONTRACT_VIOLATION"
+    assert saved["failure"]["missing_inputs"] == ["inventory.reserved"]
+    assert saved["failure"]["execution_id"] == StubMCPTools.EXECUTION
+    assert saved["root_cause"]["skill"] == "inventory-check"
+    assert saved["root_cause"]["before"] and saved["root_cause"]["after"]
+    assert saved["snapshot_id"] == StubMCPTools.CANDIDATE
+    assert saved["baseline_snapshot_id"] == StubMCPTools.BASELINE
+    assert saved["recommended_candidate_no"] == 1
+    assert all(c["workspace_id"].startswith("w_") for c in saved["candidates"])
+    assert "workspace" not in saved["candidates"][0]
+    assert result["proposal"]["storage_status"] == "SAVED"
+    assert result["proposal"]["id"].startswith("p_stub")
+    assert result["diagnosis_status"] == "EVALUATED"
+
+
+@pytest.mark.asyncio
+async def test_rejected_save_ends_in_error(tools, monkeypatch):
+    async def reject(proposal):
+        raise MCPToolError(
+            "save_proposal", {"code": "INVALID_INPUT", "message": "후보 1 의 근거 실행"}
+        )
+
+    monkeypatch.setattr(tools, "save_proposal", reject)
+    result = await run(initial())
+    assert result["diagnosis_status"] == "ERROR"
+    assert "save_proposal" in result["error"]
+
+
+def intent_llm(checks):
+    def make(schema):
+        chain = fake_llm(schema)
+        if schema.__name__ == "_IntentOutput":
+            chain.output = SimpleNamespace(text="결제가 끝까지 처리되게 한다.", checks=checks)
+        return chain
+
+    return make
+
+
+@pytest.mark.asyncio
+async def test_unreadable_intent_checks_are_dropped_not_sent(tools, monkeypatch):
+    sent = []
+    original = tools.run_scenarios
+
+    async def capture(workspace_id, scenario_ids, repeat=2, replay_run_ids=None, extra_checks=None):
+        if extra_checks:
+            sent.append(list(extra_checks))
+        return await original(workspace_id, scenario_ids, repeat, replay_run_ids, extra_checks)
+
+    monkeypatch.setattr(tools, "run_scenarios", capture)
+    monkeypatch.setattr(
+        nodes,
+        "make_structured_llm",
+        intent_llm(
+            [
+                "inventory-check.outputs == ['inventory.available']",
+                "payment.status == 'PAID'",
+                "inventory.unknown != null",
+            ]
+        ),
+    )
+    result = await run(initial())
+    assert result["error"] is None
+    assert sent and all(checks == ["payment.status == 'PAID'"] for checks in sent)
+    assert result["intent"]["checks"] == ["payment.status == 'PAID'"]
+    assert [d["check"] for d in result["intent"]["dropped_checks"]] == [
+        "inventory-check.outputs == ['inventory.available']",
+        "inventory.unknown != null",
+    ]
+    assert result["proposal"]["storage_status"] == "SAVED"
+
+
+@pytest.mark.asyncio
+async def test_all_checks_dropped_continues_without_intent_check(tools, monkeypatch):
+    sent = []
+    original = tools.run_scenarios
+
+    async def capture(workspace_id, scenario_ids, repeat=2, replay_run_ids=None, extra_checks=None):
+        sent.append(extra_checks)
+        return await original(workspace_id, scenario_ids, repeat, replay_run_ids, extra_checks)
+
+    monkeypatch.setattr(tools, "run_scenarios", capture)
+    monkeypatch.setattr(
+        nodes,
+        "make_structured_llm",
+        intent_llm(["inventory-check.outputs == ['inventory.available']"]),
+    )
+    result = await run(initial())
+    assert result["error"] is None
+    assert all(not checks for checks in sent)
+    assert result["intent"]["checks"] == []
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert result["proposal"]["storage_status"] == "SAVED"
+
+
+@pytest.mark.asyncio
+async def test_intent_prompt_lists_values_seen_in_a_passing_run(tools, monkeypatch):
+    prompts = []
+
+    def capture(schema):
+        chain = fake_llm(schema)
+        if schema.__name__ == "_IntentOutput":
+            original = chain.ainvoke
+
+            async def ainvoke(prompt, *args):
+                prompts.append(prompt)
+                return await original(prompt, *args)
+
+            chain.ainvoke = ainvoke
+        return chain
+
+    monkeypatch.setattr(nodes, "make_structured_llm", capture)
+    await run(initial())
+    assert prompts and "## 실행 기록에 있는 값 이름" in prompts[0]
+    section = prompts[0].split("## 실행 기록에 있는 값 이름", 1)[1].split("##", 1)[0]
+    assert "payment.status" in section

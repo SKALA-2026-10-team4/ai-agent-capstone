@@ -3,7 +3,8 @@ import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { FileDiff, FilePen, GitCompareArrows, Inbox, LogOut, PlayCircle, Sparkles } from 'lucide-vue-next'
 import { USE_MOCK } from '@/api/client'
-import { listProposals, PROPOSALS_AVAILABLE } from '@/api/proposals'
+import { listProposals } from '@/api/proposals'
+import { awaitsDecision } from '@/utils/proposalView'
 import { useAuthStore } from '@/stores/auth'
 
 // 왼쪽 메뉴. 담당자의 일 순서대로 묶었다: 개선안 받기 → Skill 손보기 → 실행해 보기.
@@ -33,9 +34,9 @@ function logout() {
 
 // 승인·거절 뒤 다른 화면으로 가면 숫자가 바로 맞도록 이동할 때마다 다시 센다.
 async function countPending() {
-  if (!PROPOSALS_AVAILABLE || !auth.loggedIn) return
+  if (!auth.loggedIn) return
   try {
-    pending.value = (await listProposals()).filter((p) => p.approval_status === 'pending').length
+    pending.value = (await listProposals()).items.filter(awaitsDecision).length
   } catch {
     pending.value = 0
   }

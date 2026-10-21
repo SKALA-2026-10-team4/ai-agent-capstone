@@ -9,9 +9,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 /**
- * 승인 기록(계약 5 저장 공간 목록의 approvals, 담당 A). 승인 한 번에 한 줄.
+ * 승인 기록(계약 5 저장 공간 목록의 approvals, 담당 A). 결정 한 번에 한 줄.
  * A 가 화면 승인 때 쓰고, C-2 의 promote_workspace 가 approval_token 을 확인한 뒤 used_at 을 채운다.
- * Agent 전달에 실패해도 누가 언제 무엇을 결정했는지는 남긴다.
+ * 결정은 저장된 제안서(proposals)에도 표시하며, SkillOps Agent 로는 보내지 않는다.
  */
 @Entity
 @Table(name = "approvals")
@@ -23,7 +23,7 @@ public class Approval {
     @Column(nullable = false, length = 64)
     private String proposalId;
 
-    /** 승인한 후보 번호(candidates 의 인덱스). 거절이면 null. */
+    /** 승인한 후보 번호(제안서의 candidate_no, 1부터). 거절이면 null. */
     private Integer candidateNo;
 
     /** approved | rejected */
@@ -50,7 +50,7 @@ public class Approval {
     /** promote_workspace 가 approval_token 을 쓴 시각. C-2 가 채운다. */
     private Instant usedAt;
 
-    /** ACCEPTED · PROPOSAL_NOT_FOUND · AGENT_UNAVAILABLE · AGENT_ERROR */
+    /** 예전에 Agent 로 보내던 결과 칸. 지금은 보내지 않으므로 NOT_SENT 다(예전 기록은 ACCEPTED 등) */
     @Column(nullable = false, length = 32)
     private String agentResult;
 
@@ -71,12 +71,7 @@ public class Approval {
         this.approverName = approverName;
         this.approvalToken = approvalToken;
         this.decidedAt = decidedAt;
-        this.agentResult = "PENDING";
-    }
-
-    void recordAgentResult(String result, String message) {
-        this.agentResult = result;
-        this.agentMessage = message == null || message.length() <= 500 ? message : message.substring(0, 500);
+        this.agentResult = "NOT_SENT";
     }
 
     public UUID getId() {
