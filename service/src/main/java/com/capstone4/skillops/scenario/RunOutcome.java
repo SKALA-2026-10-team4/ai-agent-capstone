@@ -5,7 +5,7 @@ import java.util.Map;
 
 /**
  * 채점에 필요한 만큼만 담은 실행 결과. C-1 의 Trace 에 기대지 않으려고 C-2 가 따로 둔 모양이다.
- * A 의 실행기가 붙으면 Trace → RunOutcome 변환만 더한다.
+ * 주문 Agent 의 실행 기록은 {@link OrderAgentTraceConverter} 가 이 모양으로 바꾼다.
  *
  * @param finalStatus SHIPPED · REJECTED · HOLD · FAILED
  */

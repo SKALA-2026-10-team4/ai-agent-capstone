@@ -12,6 +12,7 @@ public class Order {
     private UUID executionId;
     private UUID requestedSnapshotId;
     @Column(nullable=false) private boolean inventoryReserved;
+    @Column(nullable=false) private boolean dryRun;
     @Column(nullable = false, unique = true) private UUID requestId;
     @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
     @Column(nullable = false, length = 64) private String requestHash;
@@ -84,6 +85,8 @@ public class Order {
     }
     public void useSnapshot(UUID id) { if(status!=OrderStatus.CREATED)throw new IllegalStateException(); requestedSnapshotId=id; }
     public UUID getRequestedSnapshotId() { return requestedSnapshotId; }
+    public void markDryRun() { if(status!=OrderStatus.CREATED)throw new IllegalStateException(); dryRun=true; }
+    public boolean isDryRun() { return dryRun; }
     public UUID getExecutionId() { return executionId; }
     public boolean isInventoryReserved() { return inventoryReserved; }
     public void reserved() { requireProcessing(); inventoryReserved=true; }

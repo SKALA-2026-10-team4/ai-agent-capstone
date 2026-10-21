@@ -11,8 +11,8 @@ public class TraceService {
     private final ExecutionRepository store;
     private final Clock clock;
     public TraceService(ExecutionRepository store, Clock clock) { this.store = store; this.clock = clock; }
-    @Transactional public UUID begin(UUID order, String mode, String model) {
-        UUID id=UUID.randomUUID(); store.begin(id, order, mode, model, clock.instant());
+    @Transactional public UUID begin(UUID order, String runMode, String mode, String model) {
+        UUID id=UUID.randomUUID(); store.begin(id, order, runMode, mode, model, clock.instant());
         store.append(id, "EXECUTION_STARTED", null, Map.of("order_id",order,"mode",mode), clock.instant()); return id;
     }
     @Transactional public void fixSnapshot(UUID id,UUID snapshot,String hash) {

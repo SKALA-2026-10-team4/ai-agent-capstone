@@ -60,10 +60,14 @@ docker compose up --build -d --wait
 | GET /api/snapshots/{snapshot_id} | 메타데이터·전체 해시·파일 manifest |
 | GET /api/snapshots/{snapshot_id}/files?path=skills/... | snapshot 내부 파일 원본, UTF-8 또는 base64 |
 | POST /api/snapshots | 개발용 {"fixture":"baseline/broken-contract/repaired"} 후보 고정 |
+| POST /api/snapshots/candidates | 후보 SKILL.md 묶음을 snapshot으로 발행. 본문 {"files":{경로:텍스트},"metadata":{...}}, 경로는 skills/로 시작(어긋나면 INVALID_BUNDLE_PATH), 파일 1~256개·파일당 1MB(1,000,000바이트) 이하·합계 5MB(5,000,000바이트) 이하(어긋나면 INVALID_BUNDLE_SIZE). metadata.source는 candidate로 고정. 응답은 GET /api/snapshots/{id}와 같은 manifest. order-agent.demo-enabled가 꺼져 있으면 SNAPSHOT_NOT_FOUND |
+| POST /api/dry-runs | 후보 snapshot으로 주문 하나를 live 주문처럼 실행한 뒤 예약한 재고를 모두 되돌린다. 본문 {"snapshot_id":UUID,"order":POST /api/orders와 같은 주문}, 최상위 snapshot_id가 order.snapshot_id를 대신한다. 응답 {execution_id, run_id, order_id, final_status, completion}. FAILED로 끝나도 HTTP 200이며 실패는 오류가 아니라 결과다. 주문과 실행 기록은 근거로 남는다. order-agent.demo-enabled가 꺼져 있으면 SNAPSHOT_NOT_FOUND |
+
+실행의 mode는 live 외에 dry_run이 될 수 있다(POST /api/dry-runs로 만든 실행). dry_run 실행은 GET /api/executions/failed(live만 모음)에 나오지 않지만 GET /api/executions(최근 20개)에는 나온다. 모의 실행의 재고는 끝난 뒤 복원된다.
 
 POST /api/orders는 선택적 snapshot_id(UUID)를 받는다. 미지정이면 현재 게시본을 새 snapshot으로 고정한다. 응답에 execution_id·trace_url이 추가되며, 과거 MVP 주문은 null이다. 같은 키의 멱등 비교에는 명시한 snapshot_id도 포함한다. 없는/변조된 snapshot은 주문 접수 전에 거절한다.
 
-실행 mode는 live, model_mode는 fixed/openai다. 고정 응답은 api_calls=0, 토큰은 미관측 null이다. 실패한 API 시도·일시 오류 재시도도 호출 수에 포함하며 인증·형식·오선택은 재시도하지 않는다. timeout 후 늦은 응답은 도구 실행을 할 수 없다.
+실행 mode는 live(모의 실행은 dry_run), model_mode는 fixed/openai다. 고정 응답은 api_calls=0, 토큰은 미관측 null이다. 실패한 API 시도·일시 오류 재시도도 호출 수에 포함하며 인증·형식·오선택은 재시도하지 않는다. timeout 후 늦은 응답은 도구 실행을 할 수 없다.
 
 ## 트랜잭션 변경
 

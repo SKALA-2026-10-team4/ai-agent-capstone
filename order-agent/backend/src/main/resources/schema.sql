@@ -89,3 +89,4 @@ CREATE TABLE IF NOT EXISTS agent_tool_operations (
 CREATE INDEX IF NOT EXISTS idx_execution_order ON agent_executions(order_id);
 
 ALTER TABLE agent_executions ADD COLUMN IF NOT EXISTS model_mode VARCHAR(16) NOT NULL DEFAULT 'fixed';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS dry_run BOOLEAN NOT NULL DEFAULT FALSE;

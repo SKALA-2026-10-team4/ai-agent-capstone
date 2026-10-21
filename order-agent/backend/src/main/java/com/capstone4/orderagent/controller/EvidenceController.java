@@ -39,6 +39,17 @@ public class EvidenceController {
         if(request.fixture()==null)throw new AgentException("UNKNOWN_FIXTURE");
         return manifest(snapshots.demo(request.fixture()));
     }
+    public record CandidateRequest(Map<String,String> files,Map<String,Object> metadata){}
+    /** 후보 SKILL.md 묶음을 그대로 snapshot으로 발행한다. 경로·크기 검사는 SnapshotService.publish가 한다. */
+    @PostMapping("/snapshots/candidates") public Map<String,Object> publishCandidate(@RequestBody CandidateRequest request){
+        if(!demo)throw new AgentException("SNAPSHOT_NOT_FOUND");
+        var files=new TreeMap<String,byte[]>();
+        if(request.files()!=null)request.files().forEach((path,text)->files.put(path,text.getBytes(StandardCharsets.UTF_8)));
+        var metadata=new LinkedHashMap<String,Object>();
+        if(request.metadata()!=null)metadata.putAll(request.metadata());
+        metadata.put("source","candidate");
+        return manifest(snapshots.publish(files,metadata));
+    }
     @GetMapping("/snapshots/{id}") public Map<String,Object> snapshot(@PathVariable UUID id){return manifest(snapshots.get(id));}
     @GetMapping("/snapshots/{id}/files") public Map<String,Object> file(@PathVariable UUID id,@RequestParam String path){
         var snapshot=snapshots.get(id);byte[] bytes=snapshot.files().get(path);if(bytes==null)throw new AgentException("SNAPSHOT_FILE_NOT_FOUND");

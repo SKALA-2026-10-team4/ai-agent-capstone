@@ -14,7 +14,7 @@ import com.capstone4.skillops.workspace.WorkspaceSkill;
 import tools.jackson.databind.json.JsonMapper;
 
 /** 테스트 공용 도우미. 저장소의 실제 파일(scenarios/, skills/)을 읽는다. 테스트는 service/ 에서 돈다. */
-final class TestFixtures {
+public final class TestFixtures {
 
     static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -30,7 +30,7 @@ final class TestFixtures {
     }
 
     /** 운영 폴더의 skill 6개를 버전 1 로 읽는다. */
-    static Map<String, WorkspaceSkill> liveSkills() {
+    public static Map<String, WorkspaceSkill> liveSkills() {
         Map<String, WorkspaceSkill> skills = new TreeMap<>();
         try (Stream<Path> dirs = Files.list(Path.of("../skills"))) {
             for (Path dir : dirs.filter(d -> Files.isRegularFile(d.resolve("SKILL.md"))).toList()) {

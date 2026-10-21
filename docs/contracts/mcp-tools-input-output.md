@@ -4,6 +4,10 @@
 
 > **2026-10-21 갱신 (#38).** B의 Agent(`skillops-agent/skillops_agent/tools.py`)가 계약 5 v0 이름으로 이미 만들어져 있어서, C-2 도구는 v0 이름을 따르기로 했습니다. 7번 `create_workspace`와 9번 `run_scenarios`는 실제 구현에 맞게 고쳤습니다. 8·10·11·12번은 구현할 때 v0 이름(`ws_id`, `approval_token` 등)으로 고칩니다. 오류는 C-1 도구와 같은 `{code, message, retryable, upstream_status, snapshot_id}` 모양입니다.
 
+> **2026-10-21 갱신 (#52).** B가 Agent를 v1 이름으로 옮겼습니다(PR #52, `tools.py`의 `MCPTools`). 그래서 C-2 도구를 다시 v1 이름으로 맞췄습니다. 7번 `create_workspace`는 입력 `start_versions`, 결과 `workspace_id`를 쓰고, 9번 `run_scenarios`는 입력 `workspace_id`·`scenario_ids`·`extra_checks`·`repeat`, 결과 `{workspace_id, all_passed, results}`를 씁니다. 위 #38 메모의 "v0 이름을 따른다"는 이 갱신으로 대체됩니다. 8·10·11·12번도 구현할 때 v1 이름으로 합니다. 오류 모양(`INVALID_INPUT`, `INTERNAL_ERROR`)은 그대로이고, 오류 문구만 v1 입력 이름(`workspace_id`, `repeat`, `start_versions`)으로 바꿨습니다. 재현 주문(`replay_run_ids`)은 아직 받지 않아서 결과의 `replay_of_run_id`는 항상 `null`입니다. (이 부분은 바로 아래 #55 갱신에서 바뀌었습니다.)
+
+> **2026-10-21 갱신 (#55, 실제 주문 Agent로 판정).** 시험 주문을 가짜 실행기가 아니라 **주문 Agent에서 실제로 모의 실행**해 채점할 수 있게 했습니다. 7번 `create_workspace`에 `snapshot_id`가 생겼고, 8번 `apply_patch`는 구현됐으며 결과의 `changed_skills`는 `[{skill, version}]` 모양입니다. 9번 `run_scenarios`는 실제 실행기(`harness`)와 재현 주문(`f-<execution_id>`, `replay_run_ids`)을 받고, 시험 주문 폴더는 `SKILLOPS_SCENARIOS_DIR`로 정합니다. 주문 Agent가 돌려준 오류는 그대로 전달됩니다(아래 공통 약속 2번). 이 갱신은 `skillops-agent/scripts/c2_real_judge.py` 실험으로 확인했습니다.
+
 SkillOps Agent는 주문 처리 서비스의 데이터베이스를 직접 보지 않습니다. 서비스가 열어 둔 도구 12개에 값을 보내고, 돌려받은 결과만 보고 판단합니다. 이 문서는 도구마다 **무엇을 보내고, 무엇을 돌려받고, 그 사이에 서비스가 어떤 저장 공간을 읽고 쓰는지**를 정리한 것입니다.
 
 ## 이 문서를 읽는 사람
@@ -31,8 +35,8 @@ SkillOps Agent는 주문 처리 서비스의 데이터베이스를 직접 보지
 
 ## 공통 약속
 
-1. **결과는 JSON 글 한 덩어리입니다.** 대부분 중괄호 묶음이고, `run_scenarios`처럼 계약 5 v0에서 목록으로 정한 도구는 목록을 그대로 돌려줍니다.
-2. **실패하면 `isError=true`와 오류 묶음을 돌려줍니다.** 모양은 C-1 도구와 같은 `{code, message, retryable, upstream_status, snapshot_id}`입니다. `message`에는 "무엇이 잘못됐고 어떻게 고치면 되는지"를 한 줄로 적습니다. 예: `"ws_id w_A17 이 없습니다. create_workspace 로 먼저 만드세요"`. C-2 도구의 `code`는 `INVALID_INPUT`(입력이 잘못됨. 고쳐서 다시 부름)과 `INTERNAL_ERROR`(서버 쪽 문제) 두 가지이고, 둘 다 `retryable`은 `false`입니다.
+1. **결과는 항상 중괄호 묶음입니다.** 목록을 돌려줄 때도 `{"skills": [...]}`처럼 이름을 붙여 감쌉니다. MCP 규칙에서 도구의 정리된 결과는 묶음이어야 하기 때문입니다.
+2. **실패하면 `isError=true`와 오류 묶음을 돌려줍니다.** 모양은 C-1 도구와 같은 `{code, message, retryable, upstream_status, snapshot_id}`입니다. `message`에는 "무엇이 잘못됐고 어떻게 고치면 되는지"를 한 줄로 적습니다. 예: `"workspace_id w_A17 이 없습니다. create_workspace 로 먼저 만드세요"`. C-2 도구가 직접 만드는 `code`는 `INVALID_INPUT`(입력이 잘못됨. 고쳐서 다시 부름)과 `INTERNAL_ERROR`(서버 쪽 문제) 두 가지이고, 둘 다 `retryable`은 `false`입니다. 다만 주문 Agent에서 파일을 읽다가 실패하면(`create_workspace`에 `snapshot_id`를 넣었을 때) 주문 Agent가 알려 준 오류를 **그대로** 전달합니다. 그때는 `code`가 `SNAPSHOT_NOT_FOUND`, `ORDER_AGENT_UNAVAILABLE`처럼 주문 Agent 쪽 값이고, `retryable`(다시 불러 볼 만한지), `upstream_status`(주문 Agent가 돌려준 HTTP 상태), `snapshot_id`도 주문 Agent가 준 값입니다. `run_scenarios`가 실제 실행기로 돌다가 주문 Agent에 닿지 못하거나 주문 Agent가 오류(5xx)를 내면 `INTERNAL_ERROR`, 주문 Agent가 요청을 거절(4xx)하면 `INVALID_INPUT`입니다.
 3. **이름은 줄여 쓰지 않습니다.** 끝말은 아래 규칙을 따릅니다.
 
 | 끝말 | 뜻 | 예 |
@@ -52,7 +56,7 @@ SkillOps Agent는 주문 처리 서비스의 데이터베이스를 직접 보지
 | 연습 공간 번호 `workspace_id` | `w_` 로 시작 | `w_A17` |
 | 제안서 번호 `proposal_id` | `p_` 로 시작 | `p_0007` |
 | 승인 번호 `approval_code` | `a_` 로 시작 | `a_5XQ9` |
-| 시험 주문 번호 `scenario_id` | 기준 주문 `g-01`~`g-06`, 재현 주문 `f-01`부터 | `g-01`, `f-01` |
+| 시험 주문 번호 `scenario_id` | 기준 주문 `g-01`~`g-06`, 재현 주문은 `f-` 뒤에 실패한 실행의 `execution_id`를 붙임 | `g-01`, `f-5c7a8c4a-f846-4d1c-a81e-ea648893343a` |
 | 주문 번호 `order_id` | 실제 주문은 `o_`, 모의 실행용 임시 주문은 `s_` 로 시작 | `o_1042` |
 
 ## 도구 사이를 잇는 번호
@@ -64,8 +68,8 @@ SkillOps Agent는 주문 처리 서비스의 데이터베이스를 직접 보지
 | `run_id` | 주문 실패 알림, `list_failed_runs`, `run_scenarios` 결과 | `get_trace`, `run_scenarios`의 `replay_run_ids`, `save_proposal`의 `proof_run_ids`·`evidence_run_ids` |
 | `skill` + 버전 번호 | `list_skills`, `get_trace` | `diff_skill`, `get_skill`, `create_workspace`, `rollback` |
 | `change_no` + `patch` | `diff_skill` | `apply_patch`의 `patches[].patch`, `save_proposal`의 `root_cause.change_no` |
-| `ws_id` | `create_workspace` | `apply_patch`, `run_scenarios`, `save_proposal`의 `candidates[].workspace`, `promote_workspace` |
-| `scenario_id` | 기준 주문 파일(`g-01`~`g-06`), `run_scenarios` 결과(재현 주문 `f-NN`) | `run_scenarios` |
+| `workspace_id` | `create_workspace` | `apply_patch`, `run_scenarios`, `save_proposal`의 `candidates[].workspace_id`, `promote_workspace` |
+| `scenario_id` | 기준 주문 파일(`g-01`~`g-06`), 재현 주문(`f-<execution_id>`: 주문 Agent가 알려 준 실패한 실행 번호로 만듦) | `run_scenarios` |
 | `proposal_id` | `save_proposal` | 화면의 승인 API |
 | `approval_code` | 화면의 승인 API | `promote_workspace` |
 
@@ -99,8 +103,6 @@ SkillOps Agent는 주문 처리 서비스의 데이터베이스를 직접 보지
 | 계약 4 제안서 | `candidates[].id` / `evidence` / `recommended` | `candidate_no` / `evidence_run_ids` / `recommended_candidate_no` | 무엇이 들어가는지 드러나게 |
 | 계약 4 제안서 | `results.functional` / `regression` / `intent` / `contract` / `footprint` | `fixes_failure` / `keeps_old_orders` / `keeps_intent` / `no_broken_links` / `changed_skill_count` | 기준 이름을 문장처럼 읽히게 |
 | 계약 4 제안서 | `kind: local` / `contract` / `flow` | `same_skill` / `linked_skills` / `run_order` | 고치는 범위가 드러나게 |
-
-**C-2 도구 행(`ws_id`, `create_workspace`, `run_scenarios`, `apply_patch`, `promote_workspace`, `rollback`)은 채택하지 않았습니다(#38).** B의 Agent가 v0 이름으로 이미 만들어져 있기 때문입니다.
 
 도구 이름 12개는 설계 문서와 역할 문서 여러 곳에 이미 쓰여 있어서 그대로 두었습니다. 위의 이름 변경이 확정되면 `trace.schema.json`, `scenario.schema.json`, `proposal.schema.json`도 같은 이름으로 고칩니다.
 
@@ -505,20 +507,23 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 운영 중인 skill은 그대로 두고 복사본을 따로 만듭니다. skill마다 몇 번째 버전으로 시작할지 정할 수 있고, 정하지 않은 skill은 지금 운영 중인 버전으로 복사합니다. 원인을 확인할 때는 "담당자가 고치기 전 버전"으로, 후보를 시험할 때는 "지금 운영 중인 상태"로 만듭니다. 시험마다 새로 하나씩 만듭니다.
 
-부르는 쪽: Agent · 담당: C-2 · 구현됨(#37, #38)
+**주문 Agent에서 실제로 돌려 볼 연습 공간은 `snapshot_id`로 만듭니다.** 주문 Agent가 보관한 skill 묶음(`skills/` 아래 파일 전부, `resources/` 같은 SKILL.md가 아닌 파일 포함)을 그대로 복사하므로, 주문 Agent가 실행하는 글과 똑같은 파일로 시작합니다. 서비스의 운영 폴더(`skills/`)에 있는 SKILL.md는 주문 Agent가 실행하는 글과 달라서, 실제 실행기(9번 참고)는 `snapshot_id`로 만든 연습 공간만 받습니다.
+
+부르는 쪽: Agent · 담당: C-2 · 구현됨(#37, #38, #52). `snapshot_id`는 #55에서 더했습니다.
 
 ### 보내는 값
 
 | 필드 | 한글 이름 | 형식 | 꼭 필요 | 설명 |
 |---|---|---|---|---|
-| `base` | 시작 버전 | 묶음 | 아니오 | skill 이름과 시작할 버전 번호의 묶음입니다. 적지 않은 skill은 운영 버전으로 시작합니다. 비우면 전부 운영 버전입니다. |
+| `start_versions` | 시작 버전 | 묶음 | 아니오 | skill 이름과 시작할 버전 번호의 묶음입니다. 적지 않은 skill은 운영 버전으로 시작합니다. 비우면 전부 운영 버전입니다. `snapshot_id`와 함께 쓸 수 없습니다. |
+| `snapshot_id` | 시작 snapshot | 글자 | 아니오 | 주문 Agent가 보관한 skill 묶음의 번호(UUID)입니다. 주면 운영 폴더 대신 그 snapshot의 skill 파일 전부로 시작합니다. 실패한 주문에 기록된 `snapshot_id`나 시연용 snapshot 번호를 넣습니다. `start_versions`와 함께 쓸 수 없습니다. 둘 다 없으면 전부 운영 버전입니다. |
 
 ### 돌려받는 값
 
 | 필드 | 한글 이름 | 형식 | 꼭 필요 | 설명 |
 |---|---|---|---|---|
-| `ws_id` | 연습 공간 번호 | 글자 | 예 | 새로 만든 연습 공간의 번호입니다. 이 공간을 쓰는 다른 도구에 모두 이 번호를 넣습니다. |
-| `skill_versions` | 시작한 버전 | 묶음 | 예 | 연습 공간 안의 skill 전부와 각각의 시작 버전입니다. |
+| `workspace_id` | 연습 공간 번호 | 글자 | 예 | 새로 만든 연습 공간의 번호입니다. 이 공간을 쓰는 다른 도구에 모두 이 번호를 넣습니다. |
+| `skill_versions` | 시작한 버전 | 묶음 | 예 | 연습 공간 안의 skill 전부와 각각의 시작 버전입니다. `snapshot_id`로 만들었으면 각 SKILL.md 맨 위 칸의 `version` 값입니다. |
 | `created_at` | 만든 시각 | 시각 | 예 | 연습 공간을 만든 시각입니다(UTC). |
 
 ### 예시
@@ -526,35 +531,58 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 담당자가 고치기 전 버전으로 만드는 경우입니다.
 
 ```json
-{ "base": { "inventory-check": 1 } }
+{ "start_versions": { "inventory-check": 1 } }
 ```
 
 ```json
 {
-  "ws_id": "w_A17",
+  "workspace_id": "w_A17",
   "skill_versions": { "order-flow": 1, "order-intake": 1, "inventory-check": 1, "payment": 1, "shipping-reserve": 1, "notify": 1 },
   "created_at": "2026-10-21T00:13:05.123456Z"
 }
+```
+
+주문 Agent의 snapshot으로 만드는 경우입니다. 결과 모양은 같습니다.
+
+```json
+{ "snapshot_id": "b6678449-9819-4d31-8c1b-13fc57892e5c" }
+```
+
+```json
+{
+  "workspace_id": "w_C31",
+  "skill_versions": { "inventory-check": 1, "notify": 1, "order-flow": 1, "order-intake": 1, "payment": 1, "shipping-reserve": 1 },
+  "created_at": "2026-10-21T04:11:52.402113Z"
+}
+```
+
+그 snapshot이 주문 Agent에 없으면 오류를 돌려줍니다. `code`, `retryable`, `upstream_status`는 주문 Agent가 준 값이 그대로 들어갑니다.
+
+```json
+{ "code": "SNAPSHOT_NOT_FOUND", "message": "실행 자료를 확인할 수 없습니다: SNAPSHOT_NOT_FOUND", "retryable": false, "upstream_status": 404, "snapshot_id": "b6678449-9819-4d31-8c1b-13fc57892e5d" }
 ```
 
 ### 읽고 쓰는 저장 공간
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `skill_versions` | 읽기 | 시작 버전의 원문. 지금은 운영 폴더 `skills/`를 읽는 임시 구현이라 운영 버전만 줄 수 있습니다 |
-| `workspaces` | 쓰기 | 연습 공간 한 줄(번호, 만든 시각, 상태 "사용 중", `skills` 칸에 skill별 시작 버전과 원문) |
+| `skill_versions` | 읽기 | `start_versions`로 만들 때 시작 버전의 원문. 지금은 운영 폴더 `skills/`를 읽는 임시 구현이라 운영 버전만 줄 수 있습니다 |
+| 주문 Agent의 snapshot | 읽기 | `snapshot_id`로 만들 때 `GET /api/snapshots/{snapshot_id}`와 파일 조회로 `skills/` 아래 파일을 전부 읽습니다. 주문 Agent에는 아무것도 쓰지 않습니다 |
+| `workspaces` | 쓰기 | 연습 공간 한 줄(번호, 만든 시각, 상태 "사용 중", `skills` 칸에 skill별 시작 버전과 원문). `snapshot_id`로 만들었으면 `source_snapshot_id` 칸에 그 번호, `resources` 칸에 SKILL.md가 아닌 파일의 글을 함께 둡니다 |
 
 ### v0에서 바뀐 점
 
-- 입력 `base`와 결과 `ws_id`는 v0 그대로입니다. 결과에 `skill_versions`, `created_at`을 더했습니다.
+- `base`를 `start_versions`로, `ws_id`를 `workspace_id`로 바꿨습니다.
+- `skill_versions`, `created_at`을 더했습니다.
+- (#55) `snapshot_id`를 더했습니다. 주문 Agent에서 실제로 돌릴 연습 공간은 이 값으로 만듭니다.
 
 ---
 
 ## 8. 수정 적용하기 · `apply_patch`
 
-연습 공간 안의 SKILL.md를 고칩니다. 고친 뒤에는 skill 사이의 연결이 끊기지 않았는지 검사해서, 끊긴 곳이 있으면 목록으로 알려 줍니다. 운영 중인 skill에는 아무 영향이 없습니다. 원인을 확인할 때는 변경 하나만 넣고, 후보를 시험할 때는 후보 수정안을 넣습니다.
+연습 공간 안의 SKILL.md를 고칩니다. 고친 뒤에는 skill 사이의 연결이 끊기지 않았는지 검사해서, 끊긴 곳이 있으면 목록으로 알려 줍니다. 운영 중인 skill에는 아무 영향이 없습니다. 원인을 확인할 때는 변경 하나만 넣고, 후보를 시험할 때는 후보 수정안을 넣습니다. 고치는 대상은 SKILL.md뿐이고, `snapshot_id`로 만든 연습 공간의 `resources/` 같은 다른 파일은 그대로 둡니다.
 
-부르는 쪽: Agent · 담당: C-2
+부르는 쪽: Agent · 담당: C-2 · 구현됨(#55)
 
 ### 보내는 값
 
@@ -564,17 +592,21 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 | `patches` | 수정 내용 목록 | 목록 | 예 | 넣을 수정 내용입니다. 적힌 순서대로 적용합니다. |
 | `patches[].skill` | 고칠 skill | 글자 | 예 | 고칠 skill 이름입니다. |
 | `patches[].base_version` | 기준 버전 | 정수 | 예 | 이 수정 내용을 만들 때 기준으로 삼은 버전입니다. 연습 공간 안 그 skill의 시작 버전과 같아야 합니다. 다르면 엉뚱한 줄을 고칠 수 있어서 거부합니다. |
-| `patches[].patch` | 수정 내용 | 글자 | 예 | `diff_skill`이 돌려준 `changes[].patch`를 그대로 넣거나, 같은 형식으로 Agent가 만든 수정 내용입니다. |
+| `patches[].patch` | 수정 내용 | 글자 | 예 | `diff_skill`이 돌려준 `changes[].patch`를 그대로 넣거나, 같은 형식으로 Agent가 만든 수정 내용입니다. 통합 diff(`@@ -줄,개수 +줄,개수 @@`로 시작하는 덩어리)여야 하고, `---`·`+++` 머리줄은 없어도 됩니다. |
 
 ### 돌려받는 값
 
 | 필드 | 한글 이름 | 형식 | 꼭 필요 | 설명 |
 |---|---|---|---|---|
 | `workspace_id` | 연습 공간 번호 | 글자 | 예 | 보낸 값 그대로입니다. |
-| `changed_skills` | 고친 skill | 목록 | 예 | 실제로 고쳐진 skill 이름입니다. |
+| `changed_skills` | 고친 skill | 목록 | 예 | 실제로 고쳐진 skill입니다. 항목마다 `{skill, version}`입니다. |
+| `changed_skills[].skill` | skill 이름 | 글자 | 예 | 고쳐진 skill의 이름입니다. |
+| `changed_skills[].version` | 고친 뒤 버전 | 정수 | 예 | 시작 버전에 그 skill에 수정이 들어간 횟수를 더한 값입니다. 처음 한 번 고치면 시작 버전 + 1입니다. |
 | `broken_links` | 끊긴 연결 | 목록 | 예 | 고친 뒤 연습 공간 안에서 끊긴 연결입니다. 모양과 뜻은 `get_dependency_graph`의 `broken_links`와 같습니다. 비어 있으면 연결이 모두 이어져 있습니다. |
 
-수정 내용 가운데 하나라도 적용하지 못하면 전부 취소하고 오류를 돌려줍니다. 연습 공간은 보내기 전 상태 그대로 남습니다. 같은 skill에 수정을 여러 번 넣으면 앞의 수정이 들어간 글 위에 차례로 적용합니다.
+수정 내용 가운데 하나라도 적용하지 못하면 전부 취소하고 오류를 돌려줍니다. 연습 공간은 보내기 전 상태 그대로 남습니다. 같은 skill에 수정을 여러 번 넣으면 앞의 수정이 들어간 글 위에 차례로 적용합니다. 끊긴 연결이 있어도 수정은 들어갑니다. 그 수정을 쓸지는 부른 쪽이 정합니다. 다만 고치고 나면 SKILL.md 맨 위 칸을 읽을 수 없게 되는 수정은 거부합니다.
+
+**한 skill의 변경을 여러 개 한꺼번에 넣을 때.** 변경마다 따로 받은 수정 내용을 이어 붙여 `patches` 한 칸으로 보낼 수 있습니다. 변경의 줄 번호는 모두 "바뀌기 전 파일" 기준이라 그대로 이으면 됩니다. 다만 변경마다 붙어 온 `---`·`+++` 머리줄은 **첫 변경 것만 남기고** 지워야 합니다. 중간에 머리줄이 또 나오면 "지우는 줄"로 읽혀 `"2번째 줄 근처가 수정 내용과 맞지 않아 적용하지 못했습니다"`(`INVALID_INPUT`)로 거부됩니다. 참고로 지금 C-1이 구현한 `diff_skill`은 `changes[].patch` 대신 `hunks[].diff`를 돌려주고, 덩어리마다 `---`·`+++` 머리줄이 붙어 옵니다(4번과의 이름 맞춤은 아직입니다).
 
 ### 예시
 
@@ -596,7 +628,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 ```json
 {
   "workspace_id": "w_A17",
-  "changed_skills": ["inventory-check"],
+  "changed_skills": [{ "skill": "inventory-check", "version": 2 }],
   "broken_links": [
     { "skill": "payment", "missing_input": "inventory.reserved" }
   ]
@@ -613,6 +645,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 - `ws_id`를 `workspace_id`로, `patches[].diff`를 `patches[].patch`로 바꿨습니다.
 - 결과의 `applied`를 `changed_skills`로, `contract_violations`를 `broken_links`로 바꿨습니다.
+- (#55) `changed_skills`는 이름만이 아니라 `{skill, version}` 목록입니다. 구현을 마쳤습니다.
 
 ---
 
@@ -620,36 +653,88 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 연습 공간의 skill로 시험 주문을 모의 실행하고, 결과가 기대한 대로인지 채점합니다. 모의 실행이라 실제 결제나 배송은 일어나지 않습니다. 같은 주문을 정해진 횟수만큼 돌려서 모두 통과해야 합격입니다. AI는 고칠 방법을 제안만 하고, 합격 여부는 이 도구의 실행 결과로 정합니다.
 
-부르는 쪽: Agent · 담당: C-2 · 구현됨(#37, #38). 재현 주문(`replay_run_ids`)은 다음 작업에서 더합니다.
+부르는 쪽: Agent · 담당: C-2 · 구현됨(#37, #38, #52). 실제 실행기와 재현 주문(`replay_run_ids`)은 #55에서 더했습니다.
+
+### 실행기는 둘 중 하나입니다
+
+서비스를 켤 때 설정 `skillops.flow-runner`(환경 변수 `SKILLOPS_FLOW_RUNNER`)로 정합니다. 도구를 부르는 쪽은 어느 쪽인지 고를 수 없습니다.
+
+| 실행기 | 설정값 | 어떻게 돌리나 | 쓸 곳 |
+|---|---|---|---|
+| 간이 실행기 | `contract-only` (기본) | SKILL.md 맨 위 칸(받는 값, 내놓는 값)만 보고 흉내 냅니다. 주문 Agent 없이 돌고, 재현 주문은 받지 않습니다 | 주문 Agent 없이 하는 개발과 단위 확인 |
+| 실제 실행기 | `harness` | 연습 공간의 파일 전부를 후보 snapshot으로 주문 Agent에 올리고, 시험 주문마다 주문 Agent에서 모의 실행(`POST /api/dry-runs`)한 뒤 실행 기록(trace)을 읽어 채점합니다 | 후보가 실제 주문 Agent에서 고쳐지는지 판정 |
+
+실제 실행기에서 알아 둘 점은 아래와 같습니다.
+
+| 항목 | 내용 |
+|---|---|
+| 연습 공간 | `snapshot_id`로 만든 연습 공간만 받습니다(7번). 운영 폴더에서 만든 연습 공간은 `INVALID_INPUT`입니다 |
+| 실제 주문에 주는 영향 | 없습니다. 모의 실행은 도는 동안 재고를 잡았다가 끝나면 되돌립니다. 모의 실행의 실패는 `list_failed_runs`(주문 Agent의 실패 목록)에 나오지 않습니다 |
+| 돌리는 순서 | 재고를 잡기 때문에 시험 주문을 한 번에 하나씩 차례로 돌립니다 |
+| 같은 파일 묶음 | 같은 연습 공간 파일을 다시 올리지 않고 먼저 올린 후보 snapshot을 씁니다 |
+| 연결이 끊긴 skill이 있을 때 | 주문 Agent는 주문을 처리하기 전에 흐름 전체의 연결부터 검사합니다. 끊긴 곳이 하나라도 있으면, 그 주문이 어떤 길로 가든(재고가 없어 거절될 주문도) 단계 없이 `FAILED`로 끝납니다. 떨어진 이유에는 문제가 난 skill의 `CONTRACT_VIOLATION`과 빠진 값 이름이 나옵니다 |
+| 주문 Agent에 닿지 못할 때 | `INTERNAL_ERROR`입니다 |
+
+### 기준 주문 폴더
+
+기준 주문은 서비스가 켜질 때 `<skillops.scenarios-dir>/golden/*.json`을 모두 읽어 둡니다. 폴더는 설정 `skillops.scenarios-dir`(환경 변수 `SKILLOPS_SCENARIOS_DIR`, 기본 `../scenarios`)로 바꿉니다. 파일 모양은 계약 3(`docs/contracts/scenario.schema.json`)과 같고, `expect`에서 비워 둔 칸은 채점하지 않습니다.
+
+| 폴더 | 내용 | 어느 실행기에 맞나 |
+|---|---|---|
+| `scenarios/golden/` (기본) | D가 쓰는 기준 주문(지금은 g-01 하나, 목표는 g-01~g-06). 주문 Agent에 없는 상품(`SKU-APPLE-1KG` 등)을 쓰는 간이 실행기용 주문 | 간이 실행기 |
+| `scenarios/order-agent/golden/` | 주문 Agent의 시연 규칙에 맞춘 g-01~g-03. g-01 랜턴 1개 정상 주문(`SHIPPED`, 배송 1건), g-02 머그컵 재고 없음(`REJECTED`), g-03 결제가 거절되는 고객 `c_declined`(`HOLD`) | 실제 실행기 |
+
+주문 Agent에서 돌릴 때는 서비스를 이렇게 켭니다.
+
+```bash
+cd service
+SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./gradlew bootRun
+```
+
+주문 Agent의 주소는 설정 `skillops.order-agent.base-url`(환경 변수 `ORDER_AGENT_BASE_URL`, 기본 `http://localhost:8081`)입니다.
+
+### 재현 주문
+
+주문 Agent에서 **실제로 실패했던 주문**을 그대로 다시 돌립니다. 실패한 실행의 `execution_id`(주문 Agent의 `GET /api/executions/failed`가 알려 줍니다)로 원래 주문(손님, 상품과 수량, 결제 방법, 배송)을 꺼내 모의 실행합니다. 넣는 방법은 둘 중 하나입니다.
+
+| 넣는 곳 | 넣는 값 | 결과의 `scenario_id` |
+|---|---|---|
+| `scenario_ids` | `f-<execution_id>` (하이픈이 있는 UUID) | 넣은 그대로 |
+| `replay_run_ids` | `execution_id` 또는 `run_id`(`r_` + 32자리 16진수) | `f-<execution_id>` |
+
+재현 주문의 합격 기준은 **오류로 멈추지 않는 것**입니다. 최종 상태가 `FAILED`가 아니면(`SHIPPED`, `REJECTED`, `HOLD` 무엇이든) 통과이고, `extra_checks`는 재현 주문에도 똑같이 붙습니다. 결과는 `scenario_ids`에 넣은 순서대로, 그 뒤에 `replay_run_ids` 순서로 나옵니다. 재현 주문은 실제 실행기에서만 돌릴 수 있습니다.
 
 ### 보내는 값
 
 | 필드 | 한글 이름 | 형식 | 꼭 필요 | 설명 |
 |---|---|---|---|---|
-| `ws_id` | 연습 공간 번호 | 글자 | 예 | 어느 연습 공간의 skill로 돌릴지입니다. |
-| `scenario_ids` | 시험 주문 번호 | 목록 | 예 | 돌릴 시험 주문의 번호입니다. 기준 주문은 `g-01`~`g-06`입니다. |
-| `extra_checks` | 추가 확인 조건 | 목록 | 아니오 | 이번 시험에만 덧붙이는 확인 조건입니다. 모든 시험 주문에 똑같이 붙으므로, 어떤 주문에서도 성립해야 하는 조건만 넣습니다. 담당자의 의도를 지켰는지 보는 조건을 여기에 넣습니다. v0에 없던 칸이라 B의 Agent는 아직 보내지 않습니다. |
-| `k` | 반복 횟수 | 정수 | 아니오 | 같은 주문을 몇 번 돌릴지입니다(1~5). 비우면 2번입니다. AI가 처리하는 단계가 있어서 한 번의 통과는 우연일 수 있기 때문에 여러 번 돌립니다. |
+| `workspace_id` | 연습 공간 번호 | 글자 | 예 | 어느 연습 공간의 skill로 돌릴지입니다. |
+| `scenario_ids` | 시험 주문 번호 | 목록 | 아니오 | 돌릴 시험 주문의 번호입니다. 기준 주문은 `g-01`~`g-06`(주문 Agent용 폴더는 `g-01`~`g-03`), 재현 주문은 `f-<execution_id>`입니다. `scenario_ids`와 `replay_run_ids` 가운데 하나는 넣어야 합니다. |
+| `replay_run_ids` | 재현할 실행 번호 | 목록 | 아니오 | 주문 Agent에서 실패했던 실행의 `execution_id` 또는 `run_id`입니다. 실제 실행기에서만 받습니다. |
+| `extra_checks` | 추가 확인 조건 | 목록 | 아니오 | 이번 시험에만 덧붙이는 확인 조건입니다. 모든 시험 주문에 똑같이 붙으므로, 어떤 주문에서도 성립해야 하는 조건만 넣습니다. 담당자의 의도를 지켰는지 보는 조건을 여기에 넣습니다. |
+| `repeat` | 반복 횟수 | 정수 | 아니오 | 같은 주문을 몇 번 돌릴지입니다(1~5). 비우면 2번입니다. AI가 처리하는 단계가 있어서 한 번의 통과는 우연일 수 있기 때문에 여러 번 돌립니다. |
 
 확인 조건은 `값 이름 비교 값` 모양의 한 줄입니다. 비교는 `==`(같다), `!=`(다르다), `in`(목록 안에 있다) 세 가지만 씁니다. 예: `payment.status == 'PAID'`, `inventory.예약가능수량 != null`
 
-입력은 주문을 하나라도 돌리기 전에 모두 검사합니다. 잘못된 확인 조건, 없는 시험 주문이나 연습 공간, 범위를 벗어난 `k`는 `INVALID_INPUT` 오류로 돌려주고 주문은 돌리지 않습니다.
+입력은 주문을 하나라도 돌리기 전에 모두 검사합니다. 잘못된 확인 조건, 없는 시험 주문이나 연습 공간, 범위를 벗어난 `repeat`, 주문 Agent에 없는 재현할 실행은 `INVALID_INPUT` 오류로 돌려주고 주문은 돌리지 않습니다.
 
 ### 돌려받는 값
 
-결과는 시험 주문 하나마다 한 칸인 **목록**입니다.
-
 | 필드 | 한글 이름 | 형식 | 꼭 필요 | 설명 |
 |---|---|---|---|---|
-| `[].scenario_id` | 시험 주문 번호 | 글자 | 예 | 기준 주문이면 `g-NN`입니다. |
-| `[].passed` | 합격 | 참·거짓 | 예 | 반복한 실행이 모두 통과했으면 `true`입니다. |
-| `[].runs` | 실행 번호 | 목록 | 예 | 반복할 때마다 생긴 모의 실행의 번호입니다. 제안서의 근거로 이 번호를 적습니다. |
-| `[].failures` | 떨어진 이유 | 목록 | 예 | 통과하지 못한 실행마다 한 칸입니다. 합격이면 빈 목록입니다. |
-| `[].failures[].run_id` | 실행 번호 | 글자 | 예 | 통과하지 못한 실행입니다. |
-| `[].failures[].step` | 문제가 난 skill | 글자 | 아니오 | 문제가 처음 드러난 skill입니다. 최종 결과만 다른 경우처럼 특정할 수 없으면 `null`입니다. |
-| `[].failures[].error` | 이유 | 글자 | 예 | 사람이 읽을 한국어 문장입니다. 여러 개면 `; `로 잇습니다. 예: `최종 상태 기대 SHIPPED, 실제 FAILED; 확인 조건 실패: inventory.예약가능수량 != null (실제 null)` |
+| `workspace_id` | 연습 공간 번호 | 글자 | 예 | 보낸 값 그대로입니다. |
+| `all_passed` | 모두 합격 | 참·거짓 | 예 | 돌린 시험 주문이 전부 합격이면 `true`입니다. |
+| `results` | 주문별 결과 | 목록 | 예 | 시험 주문 하나마다 한 칸입니다. |
+| `results[].scenario_id` | 시험 주문 번호 | 글자 | 예 | 기준 주문이면 `g-NN`, 재현 주문이면 `f-<execution_id>`입니다. |
+| `results[].replay_of_run_id` | 재현한 실행 번호 | 글자 | 아니오 | 재현 주문이면 원래 실패했던 실행 번호(넣은 값 그대로), 아니면 `null`입니다. |
+| `results[].passed` | 합격 | 참·거짓 | 예 | 반복한 실행이 모두 통과했으면 `true`입니다. |
+| `results[].run_ids` | 실행 번호 | 목록 | 예 | 반복할 때마다 생긴 모의 실행의 번호입니다. 제안서의 근거로 이 번호를 적습니다. 실제 실행기에서는 `r_` 뒤에 주문 Agent의 `execution_id`에서 하이픈을 뺀 글자가 붙고, 그 `execution_id`로 `GET /api/executions/{execution_id}/trace`에서 실행 기록을 볼 수 있습니다. |
+| `results[].failures` | 떨어진 이유 | 목록 | 예 | 통과하지 못한 실행마다 한 칸입니다. 합격이면 빈 목록입니다. |
+| `results[].failures[].run_id` | 실행 번호 | 글자 | 예 | 통과하지 못한 실행입니다. |
+| `results[].failures[].skill` | 문제가 난 skill | 글자 | 아니오 | 문제가 처음 드러난 skill입니다. 최종 결과만 다른 경우처럼 특정할 수 없으면 `null`입니다. |
+| `results[].failures[].reason` | 이유 | 글자 | 예 | 사람이 읽을 한국어 문장입니다. 여러 개면 `; `로 잇습니다. 예: `최종 상태 기대 SHIPPED, 실제 FAILED; 확인 조건 실패: inventory.예약가능수량 != null (실제 null)` |
 
-**합격 기준.** 기준 주문은 기대 결과(거친 skill 순서, 최종 상태, 배송 건수, 확인 조건)와 모두 맞아야 하고, `extra_checks`도 통과해야 합니다.
+**합격 기준.** 기준 주문은 기대 결과(거친 skill 순서, 최종 상태, 배송 건수, 확인 조건)와 모두 맞아야 하고, `extra_checks`도 통과해야 합니다. 재현 주문은 오류로 멈추지 않고 `extra_checks`를 통과하면 합격입니다. `extra_checks`는 모든 주문에 붙으므로, 한 후보가 의도 확인 조건 때문에 기준 주문까지 불합격으로 나올 수 있습니다. 그때 `failures[].reason`에는 `확인 조건 실패: …`만 있고 다른 이유는 없습니다.
 
 모의 실행이 실패해도 실패 알림은 보내지 않고, `list_failed_runs`에도 나오지 않습니다.
 
@@ -659,20 +744,48 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 ```json
 {
-  "ws_id": "w_B22",
+  "workspace_id": "w_B22",
   "scenario_ids": ["g-01", "g-02"],
   "extra_checks": ["inventory.예약가능수량 != null"],
-  "k": 2
+  "repeat": 2
 }
 ```
 
 ```json
-[
-  { "scenario_id": "g-01", "passed": true, "runs": ["r_D301", "r_D302"], "failures": [] },
-  { "scenario_id": "g-02", "passed": false, "runs": ["r_D303", "r_D304"], "failures": [
-    { "run_id": "r_D303", "step": "payment", "error": "payment 단계 오류: required input inventory.reserved not found; 최종 상태 기대 SHIPPED, 실제 FAILED" }
-  ] }
-]
+{
+  "workspace_id": "w_B22",
+  "all_passed": false,
+  "results": [
+    { "scenario_id": "g-01", "replay_of_run_id": null, "passed": true, "run_ids": ["r_D301", "r_D302"], "failures": [] },
+    { "scenario_id": "g-02", "replay_of_run_id": null, "passed": false, "run_ids": ["r_D303", "r_D304"], "failures": [
+      { "run_id": "r_D303", "skill": "payment", "reason": "payment 단계 오류: required input inventory.reserved not found; 최종 상태 기대 SHIPPED, 실제 FAILED" }
+    ] }
+  ]
+}
+```
+
+실제 실행기에서 실패했던 주문을 재현하는 경우입니다. 연습 공간은 `snapshot_id`로 만들어 `apply_patch`로 후보를 넣은 상태입니다. 결과는 `c2_real_judge.py` 실험에서 후보 (나) repaired를 돌린 것입니다.
+
+```json
+{
+  "workspace_id": "w_L0yTjI63",
+  "scenario_ids": ["g-01", "g-02", "g-03", "f-5c7a8c4a-f846-4d1c-a81e-ea648893343a"],
+  "extra_checks": ["inventory.reservable_quantity != null"],
+  "repeat": 1
+}
+```
+
+```json
+{
+  "workspace_id": "w_L0yTjI63",
+  "all_passed": true,
+  "results": [
+    { "scenario_id": "g-01", "replay_of_run_id": null, "passed": true, "run_ids": ["r_8e45845774f141f59a5420bcbe2fdbc0"], "failures": [] },
+    { "scenario_id": "g-02", "replay_of_run_id": null, "passed": true, "run_ids": ["r_62037bf3ca86416fa80d1bb96d52b852"], "failures": [] },
+    { "scenario_id": "g-03", "replay_of_run_id": null, "passed": true, "run_ids": ["r_c39fbef1932641bc9fd751f156b7e229"], "failures": [] },
+    { "scenario_id": "f-5c7a8c4a-f846-4d1c-a81e-ea648893343a", "replay_of_run_id": "5c7a8c4a-f846-4d1c-a81e-ea648893343a", "passed": true, "run_ids": ["r_690d2a05a07749c9addc252e9964c395"], "failures": [] }
+  ]
+}
 ```
 
 잘못된 확인 조건을 보낸 경우의 오류입니다.
@@ -685,16 +798,18 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `workspaces` | 읽기 | 어떤 skill 원문으로 돌릴지(`skills` 칸) |
-| `scenarios` | 읽기·쓰기 | 기준 주문의 내용과 기대 결과를 읽고, 재현 주문을 새로 등록 |
-| `trace_run`, `orders`, `order_items` | 읽기 | 재현할 원래 실행의 주문 내용 |
-| `trace_run` | 쓰기 | 모의 실행 기록. A의 실행기가 C-1의 기록 기능(`TraceRecorder`)으로 남깁니다 |
-| `scenario_results` | 쓰기 | 모의 실행마다 합격 여부와 떨어진 이유 |
+| `workspaces` | 읽기 | 어떤 skill 원문으로 돌릴지(`skills` 칸). 실제 실행기는 `resources` 칸과 `source_snapshot_id` 칸도 읽습니다 |
+| `scenarios` | 읽기 | 서비스가 켜질 때 `<SKILLOPS_SCENARIOS_DIR>/golden/*.json`에서 불러 둔 기준 주문의 내용과 기대 결과. 재현 주문은 저장하지 않고 부를 때마다 주문 Agent의 원래 주문으로 만듭니다 |
+| 주문 Agent (실제 실행기만) | 읽기·쓰기 | 후보 snapshot 올리기(`POST /api/snapshots/candidates`), 모의 실행(`POST /api/dry-runs`), 실행 기록 읽기(`GET /api/executions/{execution_id}/trace`), 재현할 원래 주문 꺼내기. 모의 실행 기록은 주문 Agent 쪽에 남고 실제 재고와 실패 목록은 바뀌지 않습니다 |
+| `trace_run`, `orders`, `order_items` | 읽기 | 간이 실행기 설계에서 재현할 원래 실행의 주문 내용을 읽는 곳. 실제 실행기는 이 저장 공간 대신 주문 Agent에서 읽습니다 |
+| `scenario_results` | 쓰기 | 설계상 모의 실행마다 합격 여부와 떨어진 이유를 남기는 곳. 아직 저장하지 않고 결과를 도구 응답으로만 돌려줍니다 |
 
 ### v0에서 바뀐 점
 
-- 입력 `ws_id`, `scenario_ids`, `k`와 결과 목록 `[{scenario_id, passed, runs, failures:[{run_id, step, error}]}]`은 v0 그대로입니다.
-- 입력에 `extra_checks`를 더했습니다. 재현 주문(`replay_run_ids`)은 다음 작업에서 더합니다.
+- `ws_id`를 `workspace_id`로, `k`를 `repeat`로, `runs`를 `run_ids`로 바꿨습니다. `failures[]`의 `step`은 `skill`로, `error`는 `reason`으로 바꿨습니다.
+- `extra_checks`, `all_passed`, `replay_of_run_id`를 더했고, 결과를 `results`로 감쌌습니다.
+- `replay_run_ids`는 #55에서 더했습니다. 재현 주문의 `replay_of_run_id`는 원래 실패했던 실행 번호입니다.
+- (#55) 실행기를 설정으로 고르게 했습니다(간이 `contract-only`, 실제 `harness`). 기준 주문 폴더는 `SKILLOPS_SCENARIOS_DIR`로 바꿉니다.
 
 ---
 
