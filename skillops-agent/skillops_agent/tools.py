@@ -46,6 +46,10 @@ class MCPTools:
     async def ping(self) -> str:
         return await self._call("ping", {})
 
+    # TODO(B/C-1, 계약 확정 후): list_skills/get_skill/list_failed_runs/get_trace는 MCP 대신 주문 HTTP API로 연결한다.
+    # /api/snapshots/{id}/skills 및 /skills/{skill_id}, /api/executions/failed, /api/executions/{id}/trace 사용.
+    # snapshot_id/execution_id를 전달하고 items를 해제하며, nodes.py가 기대하는 steps/skill_versions 등은
+    # 실제 관찰 기록으로 변환한다. since는 제거하고 없는 저장 이력·단계·시간은 생성하지 않는다.
     async def list_skills(self) -> list[dict]:
         return await self._call("list_skills", {})
 
@@ -55,11 +59,16 @@ class MCPTools:
             args["version"] = version
         return await self._call("get_skill", args)
 
+    # TODO(B/C-1, 계약 확정 후): 실제 Java MCP 입력은 skill_id/before_snapshot_id/after_snapshot_id다.
+    # 아래 name/from_version/to_version은 맞지 않는다. 버전->snapshot 해석 주체를 먼저 정하고 수정한다.
+    # hunks의 index는 0부터이며 v1 changes/change_no는 1부터이므로 ablation 인덱스도 함께 맞춘다.
     async def diff_skill(self, name: str, from_version: int, to_version: int) -> dict:
         return await self._call("diff_skill", {
             "name": name, "from_version": from_version, "to_version": to_version,
         })
 
+    # TODO(B/C-1, 계약 확정 후): 실제 서버는 snapshot_id와 entry_skill_id를 요구한다. 빈 인자는 실패한다.
+    # 조사 대상 snapshot과 flow ID를 전달하고 edges/missing 결과를 소비하는 코드도 함께 확인한다.
     async def get_dependency_graph(self) -> dict:
         return await self._call("get_dependency_graph", {})
 
@@ -74,6 +83,10 @@ class MCPTools:
 
     # ── 쓰기 도구 6개 (C-2) ─────────────────────────────────────────────────────
 
+    # C-2 서버는 #38 에서 v0 이름으로 맞췄다.
+    # base 를 받고 {ws_id, skill_versions, created_at} 을 돌려준다.
+    # 오류는 isError + {code, message, retryable, ...}.
+    # apply_patch 는 아직 서버에 없다(v0 이름으로 구현 예정).
     async def create_workspace(self, base: dict | None = None) -> dict:
         args = {}
         if base:
@@ -83,6 +96,10 @@ class MCPTools:
     async def apply_patch(self, ws_id: str, patches: list[dict]) -> dict:
         return await self._call("apply_patch", {"ws_id": ws_id, "patches": patches})
 
+    # C-2 서버는 #38 에서 v0 이름으로 맞췄다.
+    # ws_id, scenario_ids, k(+선택 extra_checks)를 받고
+    # [{scenario_id, passed, runs, failures:[{run_id, step, error}]}] 를 돌려준다.
+    # replay_run_ids 는 서버 미지원이다.
     async def run_scenarios(
         self, ws_id: str, scenario_ids: list[str], k: int = 2
     ) -> list[dict]:

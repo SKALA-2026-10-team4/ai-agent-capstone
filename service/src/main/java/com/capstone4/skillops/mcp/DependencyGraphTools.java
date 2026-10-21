@@ -18,6 +18,9 @@ public class DependencyGraphTools {
         this.graphService = graphService;
     }
 
+    // TODO(C-1/B, 계약 확정 후): 서버는 snapshot_id/entry_skill_id가 필수지만 Python/v1은 {}를 보낸다.
+    // Python에 실행 당시 snapshot과 order-flow를 전달하거나 운영본 해석 계층을 합의해야 한다.
+    // 무인자 형태로 바꾸더라도 진단 도중 최신 운영본이 섞이지 않게 대상 snapshot을 한 번 고정한다.
     @McpTool(name = "get_dependency_graph", description = """
             snapshot 안의 flow 와 단계 skill 들의 연결 관계와 끊긴 곳을 돌려준다.
             바뀐 부분이 다른 skill 에 어떤 영향을 주는지, 실패 이벤트의 누락 입력이 어디서 끊겼는지 볼 때 쓴다.

@@ -9,6 +9,7 @@ import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
@@ -28,7 +29,7 @@ public class GlobalExceptionHandler {
             .map(f -> new ErrorResponse.FieldError(f.getField(), f.getDefaultMessage())).toList();
         return response(ErrorCode.VALIDATION_ERROR, null, fields);
     }
-    @ExceptionHandler({MissingRequestHeaderException.class, MethodArgumentTypeMismatchException.class})
+    @ExceptionHandler({MissingRequestHeaderException.class, MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
     ResponseEntity<ErrorResponse> invalidInput(Exception e) { return response(ErrorCode.VALIDATION_ERROR, null, List.of()); }
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<ErrorResponse> malformed(Exception e) { return response(ErrorCode.MALFORMED_JSON, null, List.of()); }

@@ -59,6 +59,23 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "skillops-agent"}
 
 
+@app.get("/runs/{thread_id}/events", dependencies=[Depends(verify_token)])
+async def get_run_events(thread_id: str) -> dict:
+    config = {"configurable": {"thread_id": thread_id}}
+    snapshot = await graph.aget_state(config)
+    if snapshot is None or not snapshot.values:
+        raise HTTPException(status_code=404, detail=f"Thread '{thread_id}' not found")
+    values = snapshot.values
+    return {
+        "thread_id": thread_id,
+        "step_count": values.get("step_count", 0),
+        "error": values.get("error"),
+        "proposal_id": (values.get("proposal") or {}).get("id"),
+        "approval_status": values.get("approval_status"),
+        "events": values.get("events", []),
+    }
+
+
 @app.post("/diagnose", status_code=202, dependencies=[Depends(verify_token)])
 async def diagnose(req: DiagnoseRequest, background_tasks: BackgroundTasks) -> dict:
     background_tasks.add_task(_run_pipeline, req)

@@ -36,6 +36,9 @@ public class OrderHarness {
         var control=new ExecutionControl(timeout,maxCalls,maxTokens);
         UUID execution=trace.begin(orderId,decisions.mode(),decisions.mode().equals("fixed")?"fixed-policy-v1":model);
         ProcessingStepType current=ProcessingStepType.RECOVERY;
+        SkillLoader.Skill activeSkill=null;
+        long stepStarted=0;
+        int stepNo=0;
         try{
             var initial=business.initial(orderId);
             var snapshot=initial.requestedSnapshotId()==null?snapshots.capture():snapshots.get(initial.requestedSnapshotId());
@@ -63,8 +66,12 @@ public class OrderHarness {
             for(var definition:steps){
                 control.check();var skill=loader.load(files,definition.id());loaded(execution,skill);
                 current=stepType(skill.id());
+                activeSkill=skill;stepStarted=System.nanoTime();stepNo++;
+                var inputs=new LinkedHashMap<String,Object>();
+                for(var key:skill.inputs())if(context.containsKey(key))inputs.put(key,context.get(key));
+                trace.event(execution,"SKILL_STARTED",skill.id(),Map.of("step_no",stepNo,"version",skill.version(),
+                    "hash",skill.hash(),"input",inputs));
                 loader.validateInputs(skill,context.keySet(),completed,"runtime_validation");
-                var inputs=new LinkedHashMap<String,Object>();for(var key:skill.inputs())inputs.put(key,context.get(key));
                 var decision=decisions.decide(execution,new DecisionProvider.Question("tool",List.of(),skill,inputs,
                     ToolCatalog.definition(ToolCatalog.toolFor(skill.id()))),control);
                 if(!(decision.get("tool") instanceof String tool)||!(decision.get("arguments") instanceof Map<?,?>))throw new AgentException("MODEL_FORMAT_ERROR");
@@ -73,6 +80,9 @@ public class OrderHarness {
                 control.check();
                 var outputs=(Map<String,Object>)actual.get("context");
                 if(!actual.get("final_status").equals("PROCESSING")&&!actual.get("final_status").equals("SHIPPED")){
+                    finishedStep(execution,skill,stepNo,stepStarted,"ok",present(outputs,skill.outputs()),
+                        Map.of("final_status",actual.get("final_status"),"business_stop",true));
+                    activeSkill=null;
                     trace.event(execution,"BUSINESS_STOP",skill.id(),Map.of("final_status",actual.get("final_status")));
                     trace.finish(execution,"COMPLETED",business.status(orderId),null,control.elapsedMs());return;
                 }
@@ -80,6 +90,8 @@ public class OrderHarness {
                 for(var key:skill.outputs())context.put(key,outputs.get(key));
                 completed.add(skill.id());
                 trace.event(execution,"SKILL_COMPLETED",skill.id(),Map.of("declared_output",project(outputs,skill.outputs())));
+                finishedStep(execution,skill,stepNo,stepStarted,"ok",project(outputs,skill.outputs()),Map.of());
+                activeSkill=null;
             }
             if(!completed.contains("notify"))throw new AgentException("INCOMPLETE_FLOW");
             control.check();business.complete(orderId,execution,control.elapsedMs());
@@ -87,6 +99,10 @@ public class OrderHarness {
             String category=error instanceof AgentException a?a.category():"EXECUTION_ERROR";
             var details=new LinkedHashMap<String,Object>();details.put("category",category);
             if(error instanceof AgentException agent)details.putAll(agent.details());
+            if(activeSkill!=null){
+                details.putIfAbsent("skill_id",activeSkill.id());
+                finishedStep(execution,activeSkill,stepNo,stepStarted,"error",Map.of(),Map.of("category",category));
+            }
             String failedSkill=details.get("skill_id") instanceof String id?id:null;
             if(failedSkill!=null)current=stepType(failedSkill);
             business.compensateUnpaid(orderId,execution,category);
@@ -96,6 +112,18 @@ public class OrderHarness {
             if(error instanceof AgentException agent)throw agent;
             throw new AgentException(category);
         }
+    }
+    private void finishedStep(UUID execution,SkillLoader.Skill skill,int stepNo,long started,String status,
+            Map<String,Object> output,Map<String,Object> extra){
+        var data=new LinkedHashMap<String,Object>(extra);
+        data.put("step_no",stepNo);data.put("version",skill.version());data.put("status",status);data.put("output",output);
+        data.put("duration_ms",java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started));
+        trace.event(execution,"SKILL_FINISHED",skill.id(),data);
+    }
+    private Map<String,Object> present(Map<String,Object> source,List<String> keys){
+        var result=new LinkedHashMap<String,Object>();
+        for(var key:keys)if(source.containsKey(key))result.put(key,source.get(key));
+        return result;
     }
     private void loaded(UUID execution,SkillLoader.Skill skill){trace.event(execution,"SKILL_LOADED",skill.id(),
         Map.of("path",skill.path(),"version",skill.version(),"hash",skill.hash()));}

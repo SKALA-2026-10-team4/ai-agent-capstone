@@ -74,3 +74,14 @@ e2e·smoke는 실제 데모 재고를 소비한다. e2e는 시작 시 랜턴 최
 - 응답 유실 복구의 키·본문은 페이지 메모리에 보관한다. 브라우저 새로고침 후 자동 복구는 없다. 결과 미확정 상태에서 새 키로 자동 재주문하지 않는다.
 - 초기 스키마는 idempotent 생성 SQL이며 운영 마이그레이션 도구는 없다. 기존 스키마가 달라지면 ddl-auto=validate가 실패하므로 스키마 변경 시 마이그레이션을 추가해야 한다.
 - `/api/health`는 앱 readiness를 확인한다. DB가 기동 후 중단되는 모든 상황을 지속 검사하는 health API는 아니다.
+
+## 이슈 #39 진단용 조회 API 검증 (2026-10-21)
+
+- Java 21, ORDER_DEMO_INTEGRATION_TESTS=true ./gradlew test bootJar: 총 35개 통과(기존 27 + 신규 계약 통합 테스트 8), 실패·오류·건너뜀 0. 전용 임시 order_agent_test DB 사용.
+- 전체 live 실패 26건 반환·실패 시각 정렬·dry-run 제외·업무 거절 제외·빈 배열 응답 확인.
+- 실패 snapshot 해시와 CONTRACT_VIOLATION 상세, 정적 차단 시 단계/업무 도구 미실행 확인.
+- 새 실제 단계 입력·출력·측정 시간과 runtime 오류의 실패 Skill 기록 확인.
+- 목록·본문·기존 manifest/files 간 해시 일치, CRLF 원문과 관련 파일 보존 확인.
+- 없는 ID·잘못된 이름·필수 path 누락·중복 YAML·필수 메타데이터 누락·잘못된 UTF-8·변조 파일의 명시 응답 확인.
+- 기존 trace 별칭과 snapshot·파일 API 계약 유지. 실제 MCP 서버를 통한 종단 연결과 공용 v1 변환은 이번 검사에 포함하지 않음.
+- 고정 응답 모드 검증이며 실제 모델 호출은 수행하지 않음. 프론트 소스 변경 없음.

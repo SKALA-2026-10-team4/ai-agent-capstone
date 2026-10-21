@@ -195,3 +195,11 @@ order_id는 접수된 주문을 안전하게 확인할 수 있을 때만 반환�
 - 내부 처리 오류 후 롤백된 단계의 성공 기록은 재구성하지 않는다. 접수 기록·실패 단계·후속 미실행을 보여준다. 이 동작은 외부 부수 효과 없는 Mock 단계에만 적용한다.
 - GET /api/health는 ApplicationRunner의 중단 주문 정리가 끝나고 앱이 요청 수락 상태가 된 후 200이다. 처리 준비 중에는 503이다. DB 지속 가용성을 검증하는 endpoint는 아니다.
 - `estimated_delivery_date` 계산용 Clock은 UTC를 사용하며 화면의 timestamp만 브라우저 시간대로 표시한다.
+
+## 진단용 조회 API (#39)
+
+별도 요청 파라미터 없이 GET /api/executions/failed로 전체 운영 실패를 조회한다. 응답은 items 배열이며 실행·주문·snapshot ID/해시와 저장된 오류 상세를 포함한다. 최근 실패부터 정렬하고 업무 거절·시험 실행은 제외한다.
+
+Skill 목록은 GET /api/snapshots/{snapshot_id}/skills, 본문은 GET /api/snapshots/{snapshot_id}/skills/{skill_id}로 조회한다. 파싱 실패 목록은 partial/parse_errors로 표시하고 원문은 기존 files API에서 확인할 수 있다. 모든 조회는 업무 상태를 변경하지 않는다.
+
+상세 JSON 계약·오류 코드·MCP 변환 범위는 [진단용 조회 API 명세](diagnosis-read-api.md)를 참고한다. 기존 trace는 events 형식을 유지하고 새 단계 관찰 이벤트를 추가했다.

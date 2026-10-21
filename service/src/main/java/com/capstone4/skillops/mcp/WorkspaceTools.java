@@ -39,6 +39,7 @@ public class WorkspaceTools {
         return WorkspaceToolResults.run(() -> workspaces.create(base));
     }
 
+    // TODO(C-2/B): 재현 주문(replay_run_ids)은 아직 없다. 원본 실행 조회(주문 Agent #39 API)·재현 등록 계약을 정한 뒤 더한다.
     @McpTool(name = "run_scenarios", description = """
             연습 공간의 skill 로 시험 주문을 모의 실행하고 기대 결과와 비교해 채점한다.
             같은 주문을 k 번(기본 2) 돌려 모두 통과해야 합격이다. 실제 결제·배송은 일어나지 않는다.
