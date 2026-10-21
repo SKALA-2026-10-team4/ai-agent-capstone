@@ -9,7 +9,9 @@ load_dotenv(find_dotenv(usecwd=True))
 MODEL = os.getenv("SKILLOPS_MODEL", "gpt-4.1-mini")
 SERVICE_URL = os.getenv("SKILLOPS_SERVICE_URL", "http://localhost:8080")
 MCP_URL = os.getenv("SKILLOPS_MCP_URL", f"{SERVICE_URL}/mcp")
-ORDER_AGENT_URL = os.getenv("SKILLOPS_ORDER_AGENT_URL", "http://localhost:8081")
+ORDER_AGENT_URL = os.getenv(
+    "SKILLOPS_ORDER_AGENT_URL", os.getenv("ORDER_AGENT_BASE_URL", "http://localhost:8081")
+)
 
 # 주문 Agent(order-agent/) 진단용 조회 API. 실행 기록·실패 목록·skill 목록·본문을 직접 부른다.
 ORDER_AGENT_BASE_URL = os.getenv("ORDER_AGENT_BASE_URL", "http://localhost:8081")
@@ -18,4 +20,8 @@ ORDER_AGENT_BASE_URL = os.getenv("ORDER_AGENT_BASE_URL", "http://localhost:8081"
 SERVICE_TOKEN = os.getenv("SKILLOPS_SERVICE_TOKEN", "")
 
 # true 이면 service(:8080) 없이 stub 응답으로 개발한다.
-USE_STUB_MCP = os.getenv("SKILLOPS_USE_STUB_MCP", "true").lower() == "true"
+USE_STUB_MCP = os.getenv("SKILLOPS_USE_STUB_MCP", "false").lower() == "true"
+
+GOLDEN_IDS = [
+    v.strip() for v in os.getenv("SKILLOPS_GOLDEN_IDS", "g-01,g-02,g-03").split(",") if v.strip()
+]

@@ -13,11 +13,11 @@
 유효한 후보(valid=true)를 아래 기준으로 순위를 매기고 explanation을 작성하세요.
 
 ### 순위 기준
-4. **계약 일관성** (contract=true): 모든 skill의 inputs/outputs 선언이 일치하면 우선
-5. **최소성** (footprint 작을수록 우선): 수정한 skill 수가 적을수록 좋음
+4. **계약 일관성** (no_broken_links=true): 모든 skill의 inputs/outputs 선언이 일치하면 우선
+5. **최소성** (changed_skill_count 작을수록 우선): 수정한 skill 수가 적을수록 좋음
 
 ### explanation 규칙
-- evidence[] 에 있는 run_id 또는 scenario_id 만 인용할 수 있습니다.
+- evidence_run_ids[] 에 있는 run_id 또는 scenario_id 만 인용할 수 있습니다.
 - 예: "시나리오 g-01(r_ws_c01_g01)에서 통과함"
 - 증거 없는 주장은 금지입니다.
 - recommended는 rank=1 후보의 candidates 인덱스입니다.

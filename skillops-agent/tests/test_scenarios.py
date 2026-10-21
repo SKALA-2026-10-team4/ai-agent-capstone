@@ -1,162 +1,112 @@
-"""PB-007: Agentic 요소 실행 증거 시나리오 테스트.
-
-각 후보의 검증 결과에 실행 증거(run_id, tools_called)가 올바르게 기록되는지 확인한다.
-"""
+"""C contract boundary regression tests: no LLM or live service calls."""
 
 from types import SimpleNamespace
+from uuid import uuid4
 
+import httpx
 import pytest
-from langgraph.types import Command
 
-from skillops_agent.graph import graph
-from skillops_agent.tools import StubMCPTools
-
-
-# ── FakeLLM (test_graph.py 와 동일 패턴) ──────────────────────────────────────
-
-_STUB_DIFF = "--- a/inventory-check/SKILL.md\n+++ b/inventory-check/SKILL.md\n@@ -1 +1 @@\n-old\n+new\n"
+from skillops_agent.contracts import ContractError, execution_uuid, reverse_hunk, validate_report
+from skillops_agent.tools import MCPTools
 
 
-class _FakeChain:
-    def __init__(self, val):
-        self._val = val
-
-    async def ainvoke(self, *args, **kwargs):
-        return self._val
+@pytest.mark.parametrize("value", ["r_bad", "snap_prev", "", None])
+def test_invalid_execution_is_rejected(value):
+    with pytest.raises(ContractError):
+        execution_uuid(value)
 
 
-def _fake_structured_llm(schema):
-    name = schema.__name__
-    if "Hypothes" in name:
-        val = SimpleNamespace(hypotheses=[
-            SimpleNamespace(change_no=0, summary="inventory-check 출력 필드명 변경", confidence=0.95),
-        ])
-    elif "Intent" in name:
-        val = SimpleNamespace(
-            text="결제 서비스가 inventory.reserved 필드를 필요로 함",
-            checks=["payment.status == 'PAID'"],
-        )
-    elif "Candidates" in name:
-        val = SimpleNamespace(candidates=[
-            SimpleNamespace(kind="same_skill", patches=[SimpleNamespace(skill="inventory-check", base_version=4, patch=_STUB_DIFF)]),
-        ])
-    elif "RankExplan" in name:
-        val = SimpleNamespace(explanations=[
-            SimpleNamespace(candidate_no=1, explanation="재현 시나리오 및 골든 시나리오 통과"),
-        ])
-    else:
-        val = SimpleNamespace()
-    return _FakeChain(val)
-
-
-@pytest.fixture(autouse=True)
-def patch_llm(monkeypatch):
-    monkeypatch.setattr("skillops_agent.nodes.make_structured_llm", _fake_structured_llm)
-
-
-def _initial_state():
-    return {
-        "trigger": {"type": "failure", "run_id": "r_stub_F1", "skill": None, "version": None},
-        "max_steps": 40,
-    }
-
-
-# ── 증거 완전성 ───────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_valid_candidate_has_run_id_evidence():
-    """유효 후보의 evidence_run_ids 에 run_id 가 포함된다."""
-    config = {"configurable": {"thread_id": "scenario-evidence-run-ids-1"}}
-    result = await graph.ainvoke(_initial_state(), config=config)
-
-    candidates = result.get("candidates", [])
-    valid = [c for c in candidates if c.get("valid")]
-    assert valid, "유효 후보가 최소 1개 있어야 합니다"
-
-    for c in valid:
-        assert c.get("evidence_run_ids"), f"후보 {c['candidate_no']}의 evidence_run_ids 가 비어 있습니다"
-        for ev in c["evidence_run_ids"]:
-            assert isinstance(ev, str) and len(ev) > 0
-
-
-@pytest.mark.asyncio
-async def test_valid_candidate_has_tools_called_evidence():
-    """유효 후보의 results.tools_called 에 도구 호출 목록이 기록된다."""
-    config = {"configurable": {"thread_id": "scenario-tools-called-1"}}
-    result = await graph.ainvoke(_initial_state(), config=config)
-
-    candidates = result.get("candidates", [])
-    valid = [c for c in candidates if c.get("valid")]
-    assert valid, "유효 후보가 최소 1개 있어야 합니다"
-
-    for c in valid:
-        results = c.get("results") or {}
-        tools_called = results.get("tools_called", [])
-        assert "check_inventory" in tools_called, (
-            f"후보 {c['candidate_no']}의 tools_called 에 check_inventory 가 없습니다: {tools_called}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_ablation_run_ids_recorded_in_root_cause():
-    """ablation 으로 확정된 root_cause 의 proof_run_ids 에 run_id 가 있다."""
-    config = {"configurable": {"thread_id": "scenario-ablation-evidence-1"}}
-    result = await graph.ainvoke(_initial_state(), config=config)
-
-    root_cause = result.get("root_cause") or {}
-    proof_run_ids = root_cause.get("proof_run_ids", [])
-    assert proof_run_ids, "root_cause.proof_run_ids 가 비어 있습니다"
-    for run_id in proof_run_ids:
-        assert isinstance(run_id, str) and len(run_id) > 0
-
-
-# ── 전체 Agentic 루프 증거 검증 ───────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_full_agentic_loop_evidence_chain():
-    """진단 → 검증 → 승인 전 과정에서 증거가 State 에 보존된다."""
-    config = {"configurable": {"thread_id": "scenario-full-loop-1"}}
-
-    result = await graph.ainvoke(_initial_state(), config=config)
-
-    assert result.get("root_cause") is not None
-    assert result.get("intent") is not None
-    assert result.get("proposal") is not None
-
-    proposal = result["proposal"]
-    assert proposal.get("id")
-    assert proposal.get("status") == "proposed"
-    assert proposal.get("recommended_candidate_no") is not None
-
-    candidates = result.get("candidates", [])
-    valid = [c for c in candidates if c.get("valid")]
-    assert valid
-    for c in valid:
-        assert c.get("evidence_run_ids")
-        assert (c.get("results") or {}).get("tools_called") is not None
-
-    # 승인 후 검증
-    final = await graph.ainvoke(
-        Command(resume={"status": "approved", "token": "tok_scenario_001"}),
-        config=config,
+def test_reverse_multiline_hunk_preserves_positions_and_context():
+    value = (
+        "--- a/skills/x/SKILL.md\n+++ b/skills/x/SKILL.md\n"
+        "@@ -7,3 +9,4 @@\n context\n-old\n+new\n+extra\n tail\n"
     )
+    assert reverse_hunk(value) == "@@ -9,4 +7,3 @@\n context\n+old\n-new\n-extra\n tail\n"
 
-    assert final.get("approval_status") == "approved"
-    # v1: promote_workspace / smoke_check 는 서비스가 처리하므로 Agent events 에 없음
-    node_names = [e["node"] for e in final.get("events", [])]
-    assert "promote_workspace" not in node_names
-    assert "smoke_check" not in node_names
+
+@pytest.mark.parametrize("diff", ["garbage", "", "@@ -1 +1 @@\n-a\n+b\n@@ -4 +4 @@\n-c\n+d\n"])
+def test_invalid_ablation_hunks_are_rejected(diff):
+    with pytest.raises(ContractError):
+        reverse_hunk(diff)
 
 
 @pytest.mark.asyncio
-async def test_proposal_evidence_integrity():
-    """저장된 proposal 의 candidates 에 evidence_run_ids 가 모두 포함된다."""
-    config = {"configurable": {"thread_id": "scenario-proposal-integrity-1"}}
-    result = await graph.ainvoke(_initial_state(), config=config)
+@pytest.mark.parametrize(
+    "result",
+    [
+        SimpleNamespace(is_error=True, content=[SimpleNamespace(text='{"code":"INVALID_INPUT"}')]),
+        SimpleNamespace(is_error=False, content=[SimpleNamespace(text="not JSON")]),
+        SimpleNamespace(is_error=False, content=[]),
+    ],
+)
+async def test_mcp_errors_are_not_normal_results(result):
+    class Client:
+        async def call_tool(self, *args):
+            return result
 
-    proposal = result.get("proposal") or {}
-    for c in proposal.get("candidates", []):
-        if c.get("valid"):
-            assert c.get("evidence_run_ids"), f"proposal 내 후보 {c['candidate_no']}의 evidence_run_ids 가 없습니다"
+    tools = MCPTools()
+    tools._client = Client()
+    with pytest.raises(ContractError):
+        await tools._call("run_scenarios", {})
+
+
+@pytest.mark.asyncio
+async def test_http_alias_converts_to_uuid_and_failure_has_no_since():
+    execution = str(uuid4())
+    paths = []
+
+    def respond(req):
+        paths.append(str(req.url))
+        return httpx.Response(200, json={"events": []})
+
+    tools = MCPTools()
+    async with httpx.AsyncClient(
+        base_url="http://order", transport=httpx.MockTransport(respond)
+    ) as client:
+        tools._http = client
+        await tools.get_trace("r_" + execution.replace("-", ""))
+        await tools.list_failed_runs()
+    assert paths == [
+        f"http://order/api/executions/{execution}/trace",
+        "http://order/api/executions/failed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workspace_forwards_snapshot_and_patch_names():
+    captured = []
+
+    class Capture:
+        async def call_tool(self, name, args):
+            captured.append((name, args))
+            return SimpleNamespace(
+                is_error=False, content=[SimpleNamespace(text='{"workspace_id":"w"}')]
+            )
+
+    tools = MCPTools()
+    tools._client = Capture()
+    await tools.create_workspace(snapshot_id="snapshot")
+    await tools.apply_patch("w", [{"skill": "payment", "base_version": 1, "patch": "diff"}])
+    assert captured[0] == ("create_workspace", {"snapshot_id": "snapshot"})
+    assert captured[1][1]["patches"][0]["patch"] == "diff"
+
+
+@pytest.mark.parametrize(
+    "mutation", ["empty", "duplicate", "wrong_id", "missing_failure", "overall"]
+)
+def test_incomplete_reports_are_rejected(mutation):
+    ids = ["r_" + uuid4().hex for _ in range(2)]
+    row = {"scenario_id": "g-01", "passed": True, "run_ids": ids, "failures": []}
+    report = {"workspace_id": "w", "all_passed": True, "results": [row]}
+    if mutation == "empty":
+        report["results"] = []
+    if mutation == "duplicate":
+        row["run_ids"] = [ids[0], ids[0]]
+    if mutation == "wrong_id":
+        row["scenario_id"] = "g-02"
+    if mutation == "missing_failure":
+        row["passed"] = False
+    if mutation == "overall":
+        report["all_passed"] = False
+    with pytest.raises(ContractError):
+        validate_report(report, "w", ["g-01"], 2)
