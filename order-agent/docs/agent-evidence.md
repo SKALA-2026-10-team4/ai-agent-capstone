@@ -113,3 +113,12 @@ order-agent/.env에서 ORDER_AGENT_MODEL_MODE=openai, OPENAI_API_KEY, SKILLOPS_M
   "message": "Skill에 필요한 입력 또는 선행 단계가 충족되지 않았습니다."
 }
 ```
+
+## 이슈 #39 진단용 조회 API (2026-10-21)
+
+- GET /api/executions/failed: 파라미터 없이 전체 live 실패(FAILED/INTERRUPTED), 최근 실패순. 업무 거절과 dry-run 제외.
+- GET /api/snapshots/{id}/skills: 같은 실행 로더로 검증한 메타데이터와 partial/parse_errors.
+- GET /api/snapshots/{id}/skills/{skill_id}: snapshot 원문·메타데이터·파일 해시. 기존 파일 조회 API도 유지.
+- 새 실행 trace에 SKILL_STARTED/FINISHED로 실제 입력·출력·상태·측정 시간을 추가. 정적 차단은 단계 실행으로 표시하지 않음.
+
+요청·응답과 MCP v1과의 차이는 [진단용 조회 API 명세](diagnosis-read-api.md)를 따른다. 이 확장은 공용 Registry·Runner·실패 이벤트 전송을 구현하지 않는다.
