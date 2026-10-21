@@ -45,7 +45,7 @@ public class OrderService {
     }
     public OrderResponse getOrder(UUID id) { return lifecycle.get(id); }
     public OrderResponse getByRequestId(UUID key) { return lifecycle.byRequest(key); }
-    private boolean hasDatabaseCause(Throwable error) {
+    static boolean hasDatabaseCause(Throwable error) {
         for (Throwable e = error; e != null; e = e.getCause()) if (e instanceof DataAccessException) return true;
         return false;
     }

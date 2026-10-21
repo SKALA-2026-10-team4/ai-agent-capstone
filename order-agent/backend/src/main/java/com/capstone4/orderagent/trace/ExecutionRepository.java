@@ -11,9 +11,10 @@ import org.springframework.stereotype.Repository;
 public class ExecutionRepository {
     private final JdbcTemplate jdbc;
     public ExecutionRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
-    public void begin(UUID id, UUID orderId, String mode, String model, Instant now) {
-        jdbc.update("insert into agent_executions(id,order_id,agent_id,mode,model_mode,model,completion,started_at) values (?,?,?,'live',?,?,'RUNNING',?)",
-            id, orderId, "camping-order-agent", mode, model, Timestamp.from(now));
+    /** runMode is live or dry_run (agent_executions.mode); mode is the model mode (model_mode). */
+    public void begin(UUID id, UUID orderId, String runMode, String mode, String model, Instant now) {
+        jdbc.update("insert into agent_executions(id,order_id,agent_id,mode,model_mode,model,completion,started_at) values (?,?,?,?,?,?,'RUNNING',?)",
+            id, orderId, "camping-order-agent", runMode, mode, model, Timestamp.from(now));
         jdbc.update("update orders set execution_id=? where id=?", id, orderId);
     }
     public void attach(UUID id, UUID snapshotId) { jdbc.update("update agent_executions set snapshot_id=? where id=?", snapshotId, id); }

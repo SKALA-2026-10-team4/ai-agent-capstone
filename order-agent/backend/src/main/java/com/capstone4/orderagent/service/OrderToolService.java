@@ -32,9 +32,9 @@ public class OrderToolService {
         this.orders=orders;this.products=products;this.inventory=inventory;this.payments=payments;
         this.shipping=shipping;this.notifications=notifications;this.evidence=evidence;this.jdbc=jdbc;this.clock=clock;
     }
-    public record Initial(Map<String,Object> context, UUID requestedSnapshotId) {}
+    public record Initial(Map<String,Object> context, UUID requestedSnapshotId, boolean dryRun) {}
     @Transactional(readOnly=true)
-    public Initial initial(UUID id){var o=orders.findById(id).orElseThrow();return new Initial(context(o),o.getRequestedSnapshotId());}
+    public Initial initial(UUID id){var o=orders.findById(id).orElseThrow();return new Initial(context(o),o.getRequestedSnapshotId(),o.isDryRun());}
     @Transactional(readOnly=true)
     public String status(UUID id){return orders.findById(id).orElseThrow().getStatus().name();}
     private Map<String,Object> context(Order o){

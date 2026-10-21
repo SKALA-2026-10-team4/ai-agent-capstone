@@ -34,13 +34,14 @@ public class OrderHarness {
     @SuppressWarnings("unchecked")
     public void execute(UUID orderId){
         var control=new ExecutionControl(timeout,maxCalls,maxTokens);
-        UUID execution=trace.begin(orderId,decisions.mode(),decisions.mode().equals("fixed")?"fixed-policy-v1":model);
+        // The run mode is fixed at begin; dry runs are kept out of the live failure list.
+        var initial=business.initial(orderId);
+        UUID execution=trace.begin(orderId,initial.dryRun()?"dry_run":"live",decisions.mode(),decisions.mode().equals("fixed")?"fixed-policy-v1":model);
         ProcessingStepType current=ProcessingStepType.RECOVERY;
         SkillLoader.Skill activeSkill=null;
         long stepStarted=0;
         int stepNo=0;
         try{
-            var initial=business.initial(orderId);
             var snapshot=initial.requestedSnapshotId()==null?snapshots.capture():snapshots.get(initial.requestedSnapshotId());
             trace.fixSnapshot(execution,snapshot.id(),snapshot.hash());
             var files=snapshot.files();var candidates=loader.candidates(files);
