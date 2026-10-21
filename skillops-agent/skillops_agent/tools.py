@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from . import order_agent
 from .config import MCP_URL, ORDER_AGENT_URL, USE_STUB_MCP
 from .contracts import ContractError, execution_uuid
 from .mcp_client import mcp_client
@@ -69,10 +70,10 @@ class MCPTools:
 
     # ── Order Agent HTTP API (v1) ────────────────────────────────────────────────
 
+    # 조회 4개는 order_agent 함수(재시도·OrderAgentError)를 쓴다.
+    # 주소·timeout 은 self._http 를 따른다.
     async def list_failed_runs(self) -> dict:
-        resp = await self._http.get("/api/executions/failed")
-        resp.raise_for_status()
-        return resp.json()
+        return await order_agent.list_failed_runs(client=self._http)
 
     async def get_snapshot(self, snapshot_id: str) -> dict:
         resp = await self._http.get(f"/api/snapshots/{snapshot_id}")
@@ -80,19 +81,13 @@ class MCPTools:
         return resp.json()
 
     async def get_trace(self, execution_id: str) -> dict:
-        resp = await self._http.get(f"/api/executions/{execution_uuid(execution_id)}/trace")
-        resp.raise_for_status()
-        return resp.json()
+        return await order_agent.get_trace(execution_uuid(execution_id), client=self._http)
 
     async def list_skills(self, snapshot_id: str) -> dict:
-        resp = await self._http.get(f"/api/snapshots/{snapshot_id}/skills")
-        resp.raise_for_status()
-        return resp.json()
+        return await order_agent.list_skills(snapshot_id, client=self._http)
 
     async def get_skill(self, snapshot_id: str, skill_id: str) -> dict:
-        resp = await self._http.get(f"/api/snapshots/{snapshot_id}/skills/{skill_id}")
-        resp.raise_for_status()
-        return resp.json()
+        return await order_agent.get_skill(snapshot_id, skill_id, client=self._http)
 
     # ── MCP 도구 ─────────────────────────────────────────────────────────────────
 
