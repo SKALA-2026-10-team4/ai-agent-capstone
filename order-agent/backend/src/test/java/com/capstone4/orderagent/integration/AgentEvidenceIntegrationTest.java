@@ -9,6 +9,8 @@ import com.capstone4.orderagent.trace.TraceService;
 import com.capstone4.orderagent.workspace.SnapshotService;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -56,6 +58,67 @@ class AgentEvidenceIntegrationTest {
         mvc.perform(get("/api/snapshots/"+snapshot+"/files").param("path","skills/inventory-check/resources/policy.md"))
             .andExpect(status().isOk()).andExpect(jsonPath("encoding").value("utf-8"));
         assertThat(snapshots.get(snapshot).files()).hasSize(7);
+    }
+
+    @ParameterizedTest(name="S1: {0}, stock={1} → {2}")
+    @CsvSource({"c_1001,10,SHIPPED,9", "c_1001,0,REJECTED,0", "c_declined,10,HOLD,10"})
+    void descriptionOnlyEditPreservesBusinessResultsAndLoadsEditedBytes(
+            String customer,int initialStock,String expectedStatus,int remainingStock) throws Exception {
+        String path="skills/inventory-check/SKILL.md";
+        var baseline=snapshots.capture();
+        var files=new TreeMap<>(baseline.files());
+        String original=new String(files.get(path),StandardCharsets.UTF_8);
+        String edited=original.replace("description: 상품 전체 재고를 확인하고 예약한다",
+            "description: 주문에 포함된 모든 상품의 재고를 확인한 뒤 전체 수량을 예약한다");
+        assertThat(edited).isNotEqualTo(original);
+        files.put(path,edited.getBytes(StandardCharsets.UTF_8));
+        var candidate=snapshots.publish(files,Map.of("source","s1-description-edit",
+            "baseline_snapshot_id",baseline.id().toString()));
+        assertThat(candidate.hash()).isNotEqualTo(baseline.hash());
+        assertThat(candidate.files().keySet()).isEqualTo(baseline.files().keySet());
+        baseline.files().forEach((p,bytes)->{
+            if(!p.equals(path))assertThat(candidate.files().get(p)).isEqualTo(bytes);
+        });
+
+        for(var snapshot:List.of(baseline,candidate)){
+            jdbc.update("update products set stock_quantity=? where sku=?",initialStock,LANTERN);
+            var request=new CreateOrderRequest(customer,List.of(new CreateOrderRequest.Item(LANTERN,1)),
+                "card",new CreateOrderRequest.Shipping("KR",false),snapshot.id());
+            var order=orders.createOrder(UUID.randomUUID(),request).order();
+            assertThat(order.status().name()).isEqualTo(expectedStatus);
+            assertThat(order.totalAmount()).isEqualTo(30000);
+            assertThat(stock()).isEqualTo(remainingStock);
+            assertThat(order.payment().status().name()).isEqualTo(
+                expectedStatus.equals("SHIPPED")?"PAID":expectedStatus.equals("HOLD")?"DECLINED":"NOT_ATTEMPTED");
+            if(expectedStatus.equals("SHIPPED"))assertThat(order.shipment()).isNotNull();
+            else assertThat(order.shipment()).isNull();
+            assertThat(order.notification().status().name()).isEqualTo(
+                expectedStatus.equals("SHIPPED")?"SENT":"NOT_ATTEMPTED");
+
+            var trace=traces.get(order.executionId());
+            assertThat(trace.get("snapshot_id")).isEqualTo(snapshot.id());
+            assertThat(trace.get("completion")).isEqualTo("COMPLETED");
+            assertThat(trace.get("error_category")).isNull();
+            assertThat(events(trace).stream().filter(e->"TOOL_REQUEST".equals(e.get("kind")))
+                .map(e->((Map<?,?>)e.get("data")).get("tool")).toList()).isEqualTo(
+                    expectedStatus.equals("SHIPPED")
+                        ?List.of("order.inspect","inventory.reserve","payment.charge","shipping.reserve","notify.send")
+                        :expectedStatus.equals("HOLD")?List.of("order.inspect","inventory.reserve","payment.charge","inventory.release")
+                        :List.of("order.inspect","inventory.reserve"));
+            var loaded=events(trace).stream().filter(e->"SKILL_LOADED".equals(e.get("kind"))
+                &&"inventory-check".equals(e.get("skill_id"))).findFirst().orElseThrow();
+            assertThat(((Map<?,?>)loaded.get("data")).get("hash"))
+                .isEqualTo(Json.hash(snapshot.files().get(path)));
+            if(!expectedStatus.equals("SHIPPED")){
+                assertThat(events(trace).stream().filter(e->"TOOL_REQUEST".equals(e.get("kind")))
+                    .map(e->e.get("skill_id"))).doesNotContain("shipping-reserve","notify");
+            }
+        }
+        mvc.perform(get("/api/snapshots/"+candidate.id()+"/files").param("path",path))
+            .andExpect(status().isOk()).andExpect(jsonPath("content").value(edited));
+        assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
+        verify(decisions).decide(argThat(q->q.skill()!=null&&q.skill().id().equals("inventory-check")
+            &&q.skill().hash().equals(Json.hash(candidate.files().get(path)))));
     }
     @Test void brokenContractFailsBeforeBusinessToolsAndRepairedSnapshotPasses(){
         var broken=snapshots.demo("broken-contract");
