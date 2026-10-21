@@ -184,6 +184,7 @@ class ApplyPatchTest {
                 .hasMessageStartingWith("inventory-check: ")
                 .hasMessageContaining("name 이 폴더 이름(inventory-check)과 다릅니다");
         verify(repository, never()).save(any());
+        assertWorkspaceUntouched();
     }
 
     @Test
@@ -196,6 +197,7 @@ class ApplyPatchTest {
                 .hasMessageStartingWith("order-flow: ")
                 .hasMessageContaining("steps");
         verify(repository, never()).save(any());
+        assertWorkspaceUntouched();
     }
 
     @Test
@@ -209,6 +211,11 @@ class ApplyPatchTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageStartingWith("order-flow: ");
         verify(repository, never()).save(any());
+    }
+
+    /** 실패한 수정은 불러온 연습 공간 원문을 건드리지 않는다 */
+    private void assertWorkspaceUntouched() {
+        assertThat(record.getSkills()).isEqualTo(F1Texts.brokenSkills());
     }
 
     private WorkspaceRecord savedRecord() {

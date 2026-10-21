@@ -94,4 +94,82 @@ class PatchApplierTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("수정 내용의 덩어리 머리줄을 읽을 수 없습니다: @@ 2번째 줄 @@");
     }
+
+    // 문맥 없는 끼워 넣기(git diff -U0 모양). 기대 결과는 git apply --unidiff-zero 가 만든 결과와 같다.
+
+    static final String FIVE_LINES = "l1\nl2\nl3\nl4\nl5\n";
+
+    @Test
+    void insertsAtTopWithZeroContext() {
+        assertThat(PatchApplier.apply(FIVE_LINES, "@@ -0,0 +1 @@\n+X\n")).isEqualTo("X\nl1\nl2\nl3\nl4\nl5\n");
+    }
+
+    @Test
+    void insertsAfterOldLineWithZeroContext() {
+        assertThat(PatchApplier.apply(FIVE_LINES, "@@ -2,0 +3 @@\n+X\n")).isEqualTo("l1\nl2\nX\nl3\nl4\nl5\n");
+    }
+
+    @Test
+    void insertsAtEndWithZeroContext() {
+        assertThat(PatchApplier.apply(FIVE_LINES, "@@ -5,0 +6 @@\n+X\n")).isEqualTo("l1\nl2\nl3\nl4\nl5\nX\n");
+        assertThat(PatchApplier.apply("l1\nl2", "@@ -2,0 +3 @@\n+X\n")).isEqualTo("l1\nl2\nX");
+    }
+
+    @Test
+    void insertsSeveralZeroContextHunksInOriginalCoordinates() {
+        String diff = "--- a/x\n+++ b/x\n@@ -1,0 +2 @@\n+A\n@@ -3,0 +5,2 @@\n+B\n+C\n";
+        assertThat(PatchApplier.apply(FIVE_LINES, diff)).isEqualTo("l1\nA\nl2\nl3\nB\nC\nl4\nl5\n");
+    }
+
+    @Test
+    void insertionPastTheEndFails() {
+        // git 은 파일 끝에 붙이지만, 없는 줄 뒤에 넣으라는 수정은 위치를 잘못 센 것일 수 있어 거부한다
+        assertThatThrownBy(() -> PatchApplier.apply(FIVE_LINES, "@@ -6,0 +7 @@\n+X\n"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("맞지 않아");
+    }
+
+    // 접두어 없는 줄. java-diff-utils 는 이런 줄을 말없이 버리므로 우리가 먼저 거부한다.
+
+    @Test
+    void contextLineWithoutLeadingSpaceFails() {
+        assertThatThrownBy(() -> PatchApplier.apply(FIVE_LINES, "@@ -2,2 +2,3 @@\nl2\n+X\nl3\n"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("수정 내용 2번째 줄은 ' ', '+', '-' 중 하나로 시작해야 합니다 (바뀌지 않는 줄도 앞에 공백 한 칸을 붙입니다): l2");
+    }
+
+    @Test
+    void continuationLineInPlusBlockWithoutPlusFails() {
+        assertThatThrownBy(() -> PatchApplier.apply(FIVE_LINES, "--- a/x\n+++ b/x\n@@ -2,1 +2,2 @@\n-l2\n+A\nB\n"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("수정 내용 6번째 줄은 ' ', '+', '-' 중 하나로 시작해야 합니다")
+                .hasMessageEndingWith(": B");
+    }
+
+    @Test
+    void lineAfterMinusBlockWithoutPrefixFails() {
+        assertThatThrownBy(() -> PatchApplier.apply(FIVE_LINES, "@@ -2,2 +2,2 @@\n-l2\nl3\n+X\nY\n"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("수정 내용 3번째 줄은 ' ', '+', '-' 중 하나로 시작해야 합니다");
+    }
+
+    // 덩어리 안의 빈 줄은 git 처럼 빈 문맥 줄로 본다. 문맥은 원문과 대조하므로 틀린 곳에 말없이 들어가지 않는다.
+
+    @Test
+    void emptyLineInsideHunkIsAnEmptyContextLine() {
+        assertThat(PatchApplier.apply("a\n\nb\nc\n", "@@ -1,3 +1,3 @@\n a\n\n-b\n+B\n")).isEqualTo("a\n\nB\nc\n");
+    }
+
+    @Test
+    void emptyContextLineIsVerifiedAgainstTheOriginal() {
+        assertThatThrownBy(() -> PatchApplier.apply("a\nx\nb\nc\n", "@@ -1,3 +1,3 @@\n a\n\n-b\n+B\n"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("1번째 줄 근처가 수정 내용과 맞지 않아 적용하지 못했습니다");
+    }
+
+    @Test
+    void emptyLinesBetweenHunksAreSeparators() {
+        String diff = "@@ -1 +1 @@\n-a\n+A\n\n@@ -4 +4 @@\n-d\n+D\n\n";
+        assertThat(PatchApplier.apply("a\nb\nc\nd\n", diff)).isEqualTo("A\nb\nc\nD\n");
+    }
 }
