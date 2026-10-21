@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.capstone4.skillops.scenario.RunLedger;
@@ -41,6 +42,7 @@ public class ProposalService {
     private final RunLedger ledger;
     private final Clock clock;
 
+    @Autowired
     public ProposalService(ProposalRepository repository, RunLedger ledger) {
         this(repository, ledger, Clock.systemUTC());
     }
