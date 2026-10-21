@@ -1,0 +1,111 @@
+{
+  "thread_id": "5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b",
+  "trigger": {
+    "type": "skill_saved",
+    "execution_id": null,
+    "baseline_snapshot_id": null,
+    "candidate_snapshot_id": "22222222-2222-4222-8222-222222222222",
+    "changed_paths": null,
+    "change_id": "c_20261021_01",
+    "entry_skill_id": "order-flow",
+    "diagnosis_only": false,
+    "intent_checks": [],
+    "run_id": null,
+    "skill": null,
+    "version": null
+  },
+  "baseline_snapshot_id": "11111111-1111-4111-8111-111111111111",
+  "snapshot_id": "22222222-2222-4222-8222-222222222222",
+  "failure": {
+    "execution_id": "33333333-3333-4333-8333-333333333333",
+    "skill": "payment",
+    "category": "CONTRACT_VIOLATION",
+    "message": "required input inventory.reserved not found",
+    "missing_inputs": ["inventory.reserved"],
+    "at": "2026-10-21T05:03:00Z"
+  },
+  "root_cause": {
+    "skill": "inventory-check",
+    "change_no": 1,
+    "hunk_id": "h_1",
+    "from_version": 1,
+    "to_version": 1,
+    "summary": "outputs: [inventory.available, inventory.reserved] → outputs: [inventory.available]",
+    "before": "outputs: [inventory.available, inventory.reserved]",
+    "after": "outputs: [inventory.available]",
+    "proof_run_ids": [
+      "r_a0000000000000000000000000000001",
+      "r_a0000000000000000000000000000002"
+    ]
+  },
+  "intent": {
+    "text": "예약 가능 수량을 계속 내놓고 싶다.",
+    "checks": ["inventory.reservable_quantity != null"],
+    "confirmed": null
+  },
+  "candidates": [
+    {
+      "candidate_no": 1,
+      "kind": "same_skill",
+      "workspace_id": "w_c1",
+      "patches": [
+        {
+          "skill": "inventory-check",
+          "base_version": 1,
+          "patch": "--- a/inventory-check/SKILL.md\n+++ b/inventory-check/SKILL.md\n@@ -5,1 +5,1 @@\n-outputs: [inventory.available]\n+outputs: [inventory.available, inventory.reserved]\n"
+        }
+      ],
+      "results": {
+        "fixes_failure": true,
+        "keeps_old_orders": { "passed": 3, "total": 3 },
+        "keeps_intent": true,
+        "no_broken_links": true,
+        "changed_skill_count": 1,
+        "tools_called": ["inventory.reserve"]
+      },
+      "valid": true,
+      "validation_error": null,
+      "evidence_run_ids": [
+        "r_c1000000000000000000000000000001",
+        "r_c1000000000000000000000000000002"
+      ],
+      "rank": 1,
+      "explanation": "재고 확인 Skill이 예약 여부를 다시 내놓게 했습니다."
+    },
+    {
+      "candidate_no": 2,
+      "kind": "linked_skills",
+      "workspace_id": "w_c2",
+      "patches": [
+        {
+          "skill": "payment",
+          "base_version": 1,
+          "patch": "--- a/payment/SKILL.md\n+++ b/payment/SKILL.md\n@@ -4,1 +4,1 @@\n-inputs: [order.id, inventory.reserved]\n+inputs: [order.id, inventory.available]\n"
+        },
+        {
+          "skill": "shipping-reserve",
+          "base_version": 1,
+          "patch": "--- a/shipping-reserve/SKILL.md\n+++ b/shipping-reserve/SKILL.md\n@@ -4,1 +4,1 @@\n-inputs: [order.id, inventory.reserved]\n+inputs: [order.id]\n"
+        }
+      ],
+      "results": {
+        "fixes_failure": true,
+        "keeps_old_orders": { "passed": 2, "total": 3 },
+        "keeps_intent": true,
+        "no_broken_links": false,
+        "changed_skill_count": 2,
+        "tools_called": []
+      },
+      "valid": false,
+      "validation_error": null,
+      "evidence_run_ids": [
+        "r_c2000000000000000000000000000001",
+        "r_c2000000000000000000000000000002"
+      ],
+      "rank": null,
+      "explanation": "이 기능을 통해 연결을 맞췄습니다."
+    }
+  ],
+  "recommended_candidate_no": 1,
+  "status": "proposed"
+}
