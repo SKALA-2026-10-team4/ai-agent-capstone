@@ -16,6 +16,10 @@ public class SkillQueryService {
         this.loader = loader;
     }
 
+    // TODO(C-1/B, 공용 계약 확정 후): HTTP items/skill_id/name과 v1 skills/skill의 변환을 합의한다.
+    // v1 운영본/버전 조회와 달리 여기서는 snapshot_id가 필수다. 진단 중 조회 대상을 고정해야 한다.
+    // saved_at/saved_by/last_working_version은 Registry 연결이 필요하다. snapshot 생성 시각이나
+    // 파일 version 선언만으로 저장 이력·정상 버전을 추측하지 말고, 정상 실행 기준도 함께 합의한다.
     public Map<String, Object> list(UUID id) {
         var snapshot = snapshots.get(id);
         var items = new ArrayList<Map<String, Object>>();
@@ -35,6 +39,9 @@ public class SkillQueryService {
             "partial", !errors.isEmpty(), "parse_errors", errors);
     }
 
+    // TODO(C-1/B, 공용 계약 확정 후): HTTP content/메타데이터 평면 필드와 v1 full_text/header가 다르다.
+    // 호출 측 변환 시 원문 바이트·줄 위치·해시를 유지하고, version -> snapshot/파일 참조는
+    // Registry의 불변 매핑을 사용한다. 동일 version 선언의 다른 후보를 같은 파일로 취급하지 않는다.
     public Map<String, Object> get(UUID id, String skillId) {
         // Validate names before resolving any path. Never resolve an operating-system path here.
         SkillLoader.validateName(skillId);

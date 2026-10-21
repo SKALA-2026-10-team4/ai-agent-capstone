@@ -28,6 +28,8 @@ public class WorkspaceTools {
         this.scenarioRunner = scenarioRunner;
     }
 
+    // TODO(C-2/B, 계약 확정 후): 서버 start_versions/workspace_id와 Python base/ws_id가 다르다.
+    // Python 요청과 응답 파싱(nodes.py 포함)을 함께 변경하고 stub도 동일한 계약으로 맞춘다.
     @McpTool(name = "create_workspace",
             description = "운영 중인 skill 은 그대로 두고 연습용 복사본(연습 공간)을 만든다. "
                     + "돌려준 workspace_id 를 apply_patch, run_scenarios 에 넣는다.")
@@ -37,6 +39,9 @@ public class WorkspaceTools {
         return workspaces.create(start_versions);
     }
 
+    // TODO(C-2/B, 계약 확정 후): 서버 workspace_id/scenario_ids/extra_checks/repeat와 Python ws_id/k가 다르다.
+    // v1 replay_run_ids는 이 시그니처에 아직 없다. 원본 실행 조회·재현 등록 계약을 추가한 뒤 호출한다.
+    // 응답 객체의 results/run_ids/failures.skill/reason을 Python의 결과 배열/runs/step/error 파싱과 맞춘다.
     @McpTool(name = "run_scenarios",
             description = "연습 공간의 skill 로 시험 주문을 모의 실행하고 기대 결과와 비교해 채점한다. "
                     + "같은 주문을 repeat 번(기본 2) 돌려 모두 통과해야 합격이다. 실제 결제·배송은 일어나지 않는다.")
