@@ -120,6 +120,62 @@ class AgentEvidenceIntegrationTest {
         verify(decisions).decide(argThat(q->q.skill()!=null&&q.skill().id().equals("inventory-check")
             &&q.skill().hash().equals(Json.hash(candidate.files().get(path)))));
     }
+    @Test void deletedInventoryOutputFailsAtPaymentBeforeBusinessToolsAndRestorationPasses() throws Exception {
+        String path="skills/inventory-check/SKILL.md";
+        var baseline=snapshots.capture();
+        String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
+        String edited=original.replace("outputs: [inventory.available, inventory.reserved]",
+            "outputs: [inventory.available]");
+        assertThat(edited).isNotEqualTo(original);
+        var files=new TreeMap<>(baseline.files());
+        files.put(path,edited.getBytes(StandardCharsets.UTF_8));
+        var broken=snapshots.publish(files,Map.of("source","s2-output-deletion",
+            "baseline_snapshot_id",baseline.id().toString(),"changed_paths",List.of(path)));
+        baseline.files().forEach((p,bytes)->{
+            if(!p.equals(path))assertThat(broken.files().get(p)).isEqualTo(bytes);
+        });
+        var control=orders.createOrder(UUID.randomUUID(),input(baseline.id())).order();
+        assertThat(control.status().name()).isEqualTo("SHIPPED");
+        jdbc.update("update products set stock_quantity=10 where sku=?",LANTERN);
+
+        UUID requestId=UUID.randomUUID();
+        assertThatThrownBy(()->orders.createOrder(requestId,input(broken.id())))
+            .isInstanceOf(com.capstone4.orderagent.exception.BusinessException.class);
+        UUID failedExecution=jdbc.queryForObject("select execution_id from orders where request_id=?",UUID.class,requestId);
+        var trace=traces.get(failedExecution);
+        assertThat(trace.get("snapshot_id")).isEqualTo(broken.id());
+        assertThat(trace.get("completion")).isEqualTo("FAILED");
+        assertThat(trace.get("error_category")).isEqualTo("CONTRACT_VIOLATION");
+        var error=events(trace).stream().filter(e->"EXECUTION_ERROR".equals(e.get("kind")))
+            .findFirst().orElseThrow();
+        assertThat(error.get("skill_id")).isEqualTo("payment");
+        var details=(Map<?,?>)error.get("data");
+        assertThat(details.get("phase")).isEqualTo("static_validation");
+        assertThat(details.get("missing_inputs")).isEqualTo(List.of("inventory.reserved"));
+        assertThat(events(trace).stream().map(e->e.get("kind")))
+            .doesNotContain("TOOL_REQUEST","TOOL_RESULT","SKILL_STARTED");
+        assertThat(stock()).isEqualTo(10);
+        assertThat(jdbc.queryForObject("select payment_status from orders where request_id=?",
+            String.class,requestId)).isEqualTo("NOT_ATTEMPTED");
+        assertThat(jdbc.queryForObject("select status from orders where request_id=?",
+            String.class,requestId)).isEqualTo("FAILED");
+        mvc.perform(get("/api/executions/"+failedExecution+"/trace"))
+            .andExpect(status().isOk()).andExpect(jsonPath("error_category").value("CONTRACT_VIOLATION"));
+        mvc.perform(get("/api/snapshots/"+broken.id()+"/files").param("path",path))
+            .andExpect(status().isOk()).andExpect(jsonPath("content").value(edited));
+
+        // 수동 복원으로 원인을 비교한다. SkillOps가 생성한 수정안은 아니다.
+        var restoredFiles=new TreeMap<>(broken.files());
+        restoredFiles.put(path,original.getBytes(StandardCharsets.UTF_8));
+        var restored=snapshots.publish(restoredFiles,Map.of("source","s2-output-restoration",
+            "broken_snapshot_id",broken.id().toString()));
+        var repairedOrder=orders.createOrder(UUID.randomUUID(),input(restored.id())).order();
+        assertThat(repairedOrder.status().name()).isEqualTo("SHIPPED");
+        assertThat(stock()).isEqualTo(9);
+        assertThat(snapshots.get(broken.id()).files().get(path)).isEqualTo(edited.getBytes(StandardCharsets.UTF_8));
+        assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
+    }
+
     @Test void brokenContractFailsBeforeBusinessToolsAndRepairedSnapshotPasses(){
         var broken=snapshots.demo("broken-contract");
         assertThatThrownBy(()->orders.createOrder(UUID.randomUUID(),input(broken.id()))).isInstanceOf(RuntimeException.class);
