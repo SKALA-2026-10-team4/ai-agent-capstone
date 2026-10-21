@@ -1,0 +1,2 @@
+# @WebMvcTest 마다 운영과 같은 보안 규칙을 쓰게 한다. 없으면 Spring 기본 보안이 걸려 모든 요청이 401 이 된다.
+com.capstone4.skillops.auth.SecurityConfig

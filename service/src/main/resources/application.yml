@@ -40,6 +40,25 @@ skillops:
   scenarios-dir: ${SKILLOPS_SCENARIOS_DIR:../scenarios}
   # contract-only: SKILL.md 맨 위 칸만 보고 흉내 내는 C-2 가짜 실행기. A 실행기가 붙으면 harness
   flow-runner: ${SKILLOPS_FLOW_RUNNER:contract-only}
+  agent:
+    # SkillOps 진단 Agent(skillops-agent/). 승인 결과를 전달할 때만 부른다.
+    base-url: ${SKILLOPS_AGENT_URL:http://localhost:8000}
+    # skillops-agent 의 X-Service-Token 과 같은 값. 비어 있으면 헤더를 보내지 않는다(Agent 개발 모드).
+    service-token: ${SKILLOPS_SERVICE_TOKEN:}
+  auth:
+    # HS256 서명 키, 32바이트 이상. 비어 있으면 기동할 때마다 임시 키를 만든다(재시작하면 다시 로그인).
+    jwt-secret: ${SKILLOPS_JWT_SECRET:}
+    token-ttl: 2h
+    # 로컬 데모 계정. 기본 비밀번호는 owner1234 / operator1234 이며 env 의 BCrypt 해시로 바꾼다.
+    users:
+      - username: owner
+        display-name: 업무 담당자
+        roles: [OWNER]
+        password-hash: ${SKILLOPS_OWNER_PASSWORD_HASH:$2a$10$mApbyUV.XssNTUQg7FvfmexXvLJlMPRcB4GAGoAadaeD.6pzZCnXC}
+      - username: operator
+        display-name: 운영자
+        roles: [OPERATOR]
+        password-hash: ${SKILLOPS_OPERATOR_PASSWORD_HASH:$2a$10$3vF955z/KEJ7Y2qSrqJWZu9hJ0ssv8ZTh/s/v.BzCymd0vlwgrmdW}
 
 server:
   port: 8080

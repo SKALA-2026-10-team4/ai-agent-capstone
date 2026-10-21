@@ -34,8 +34,33 @@ cd skillops-agent && uv sync && uv run uvicorn skillops_agent.main:app --reload 
 #    MCP 배선 확인(service 가 떠 있을 때): uv run scripts/mcp_smoke.py
 
 # 3) frontend
-cd frontend && npm install && npm run dev    # http://localhost:5173, /api 는 8080 으로 프록시
+cd order-agent && docker compose up --build -d --wait   # 주문 Agent(:8081) — 운영 화면의 데이터 원천
+cd frontend && npm install && npm run dev    # http://localhost:5173 · /api → order-agent 8081, /service → service 8080(로그인·승인)
+#    서버 없이 화면만: npm run dev:mock    (order-agent 와 같은 형식의 메모리 mock: 정상·결함·수정본, 개선안 예시)
+#    패키지를 바꾼 뒤 화면이 멈추면: npm run dev:mock -- --force
 ```
+
+## 로그인 · 승인 (service)
+
+운영 화면 로그인과 수정안 승인만 service(8080)가 JWT(HS256, 2시간)로 보호한다. **그 밖의 API 와 MCP(`/mcp`)는 지금처럼 인증 없이 열려 있다.**
+
+| 로컬 데모 계정 | 비밀번호 | 역할 | 할 수 있는 것 |
+|---|---|---|---|
+| `owner` | `owner1234` | OWNER · 업무 담당자 | 화면 조회, Skill 초안 |
+| `operator` | `operator1234` | OPERATOR · 운영자 | 위 + 수정안 승인·거절 |
+
+| API | 인증 | 설명 |
+|---|---|---|
+| `POST /api/auth/login` | 없음 | `{username, password}` → `{access_token, token_type, expires_in, user}` |
+| `GET /api/auth/me` | 로그인 | 토큰의 사용자 |
+| `POST /api/proposals/{id}/approve` | OPERATOR | 계약 5 v0: `{candidate, intent_confirmed}` → `approval_token`. 의도 확인이 없으면 400 |
+| `POST /api/proposals/{id}/reject` | OPERATOR | 거절 기록 |
+| `GET /api/approvals` | 로그인 | 승인 기록(최근 50건) |
+| 그 밖의 `/api/**`, `/mcp`, Swagger | 없음 | 다른 담당자의 API·MCP 는 인증 때문에 막히지 않는다 |
+
+- 승인·거절은 `approvals` 테이블(계약 5 저장 공간, 담당 A)에 승인자·후보 번호·의도 확인·`approval_token` 을 남긴 뒤 skillops-agent `POST /approve` 로 `X-Service-Token` 과 함께 넘긴다. `used_at` 은 운영 반영(promote_workspace)이 채운다.
+- `@WebMvcTest` 에도 같은 보안 규칙이 자동 적용된다(`service/src/test/resources/META-INF/spring/…AutoConfigureWebMvc.imports`). 새 API 에 로그인이 필요하면 `auth/SecurityConfig` 에 한 줄 추가한다.
+- 키·비밀번호 해시·서비스 토큰은 `.env.example` 참고. `SKILLOPS_JWT_SECRET` 을 비우면 기동마다 임시 키를 만든다(재시작하면 다시 로그인).
 
 ## 검증
 
