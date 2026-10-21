@@ -12,13 +12,13 @@ public class SkillLoader {
     // TODO(A 연동): 공용 Registry/로더의 Skill 정의 타입과 검증 결과로 연결한다.
     // unknown 이름 원문·파일 해시·실제 로드 관찰 계약은 보존한다.
     public record Skill(String id, String description, int version, List<String> inputs,
-                        List<String> outputs, List<String> dependsOn, List<String> steps, String body, String path, String hash) {}
+                        List<String> outputs, List<String> dependsOn, List<String> steps, String body, String path, String hash, String owner) {}
     public Skill load(SortedMap<String,byte[]> files, String id) {
-        if (id==null || !id.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)*") || id.length()>64) throw new AgentException("INVALID_SKILL_NAME");
+        validateName(id);
         String path="skills/"+id+"/SKILL.md"; byte[] bytes=files.get(path);
         if (bytes==null) throw new AgentException("UNKNOWN_SKILL");
         try {
-            String text=new String(bytes,StandardCharsets.UTF_8).replace("\r\n","\n");
+            String text=StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString().replace("\r\n","\n");
             if (!text.startsWith("---\n")) throw new AgentException("INVALID_SKILL_FORMAT");
             int end=text.indexOf("\n---\n",4);
             if(end<0) throw new AgentException("INVALID_SKILL_FORMAT");
@@ -30,8 +30,12 @@ public class SkillLoader {
             String body=text.substring(end+5).strip(); if(body.isEmpty()) throw new AgentException("INVALID_SKILL_FORMAT");
             var steps=strings(m,"steps",false);
             return new Skill(id,d,v,strings(m,"inputs",steps.isEmpty()),strings(m,"outputs",steps.isEmpty()),
-                strings(m,"depends_on",steps.isEmpty()),steps,body,path,Json.hash(bytes));
+                strings(m,"depends_on",steps.isEmpty()),steps,body,path,Json.hash(bytes),owner);
         } catch(AgentException e){throw e;}catch(Exception e){throw new AgentException("INVALID_SKILL_FORMAT");}
+    }
+    public static void validateName(String id) {
+        if (id==null || id.length()>64 || !id.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)*"))
+            throw new AgentException("INVALID_SKILL_NAME");
     }
     private List<String> strings(Map<?,?> m,String key,boolean required){
         Object value=m.get(key);if(value==null&&!required)return List.of();

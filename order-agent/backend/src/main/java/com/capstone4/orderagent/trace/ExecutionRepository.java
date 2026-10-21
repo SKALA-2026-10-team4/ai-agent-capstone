@@ -55,6 +55,39 @@ public class ExecutionRepository {
         }, id));
         return row;
     }
+    /** All operational failures, without the recent-executions limit or per-row trace queries. */
+    public List<Map<String,Object>> failed() {
+        return jdbc.query("""
+            select e.id, e.order_id, e.snapshot_id, s.hash snapshot_hash,
+                   e.completion, e.final_status, e.started_at, e.finished_at, e.error_category,
+                   failure.data_json
+              from agent_executions e
+              left join skill_snapshots s on s.id=e.snapshot_id
+              left join lateral (
+                  select data_json from execution_events
+                   where execution_id=e.id and kind='EXECUTION_ERROR'
+                   order by sequence desc limit 1
+              ) failure on true
+             where e.mode='live' and e.completion in ('FAILED','INTERRUPTED')
+             order by e.finished_at desc nulls last, e.id desc
+            """, (r,n) -> {
+                var row = new LinkedHashMap<String,Object>();
+                row.put("execution_id",r.getObject("id"));
+                row.put("order_id",r.getObject("order_id"));
+                row.put("snapshot_id",r.getObject("snapshot_id"));
+                row.put("snapshot_hash",r.getString("snapshot_hash"));
+                row.put("completion",r.getString("completion"));
+                row.put("final_status",r.getString("final_status"));
+                row.put("started_at",r.getTimestamp("started_at").toInstant().toString());
+                var finished = r.getTimestamp("finished_at");
+                row.put("finished_at",finished==null?null:finished.toInstant().toString());
+                String details = r.getString("data_json");
+                var error = details==null?new LinkedHashMap<String,Object>():new LinkedHashMap<>(Json.object(details));
+                if (!error.containsKey("category")) error.put("category",r.getString("error_category"));
+                row.put("error",error);
+                return row;
+            });
+    }
     public List<Map<String,Object>> recent() {
         return jdbc.query("select id from agent_executions order by started_at desc limit 20", (r,n) -> r.getObject("id", UUID.class))
             .stream().map(this::summary).toList();

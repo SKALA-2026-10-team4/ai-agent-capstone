@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api")
 public class EvidenceController {
-    private final SnapshotService snapshots;private final TraceService traces;private final boolean demo;
-    public EvidenceController(SnapshotService snapshots,TraceService traces,@Value("${order-agent.demo-enabled}") boolean demo){this.snapshots=snapshots;this.traces=traces;this.demo=demo;}
+    private final SnapshotService snapshots;private final TraceService traces;private final SkillQueryService skills;private final boolean demo;
+    public EvidenceController(SnapshotService snapshots,TraceService traces,SkillQueryService skills,@Value("${order-agent.demo-enabled}") boolean demo){this.snapshots=snapshots;this.traces=traces;this.skills=skills;this.demo=demo;}
     @GetMapping("/traces/{runId}") public Map<String,Object> legacyTrace(@PathVariable String runId){
         if(!runId.matches("r_[a-fA-F0-9]{32}"))throw new AgentException("EXECUTION_NOT_FOUND");
         String raw=runId.substring(2);String id=raw.substring(0,8)+"-"+raw.substring(8,12)+"-"+raw.substring(12,16)+"-"+raw.substring(16,20)+"-"+raw.substring(20);
@@ -20,6 +20,9 @@ public class EvidenceController {
     }
     @GetMapping("/executions") public Map<String,Object> recent(){return Map.of("items",traces.recent());}
     @GetMapping("/executions/{id}/trace") public Map<String,Object> trace(@PathVariable UUID id){return traces.get(id);}
+    @GetMapping("/executions/failed") public Map<String,Object> failed(){return Map.of("items",traces.failed());}
+    @GetMapping("/snapshots/{id}/skills") public Map<String,Object> skills(@PathVariable UUID id){return skills.list(id);}
+    @GetMapping("/snapshots/{id}/skills/{skillId}") public Map<String,Object> skill(@PathVariable UUID id,@PathVariable String skillId){return skills.get(id,skillId);}
     public record PublishRequest(String fixture){}
     // TODO(B/C-2 연동): 실제 진단 후보는 검증된 workspace 참조로 받아 SnapshotService에 연결한다.
     // 아래 fixture API는 미리 준비한 시연 데이터뿐이며 진단/수정 생성 기능이 아니다.

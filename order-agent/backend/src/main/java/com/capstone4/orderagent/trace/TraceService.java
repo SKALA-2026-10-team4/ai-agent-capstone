@@ -44,5 +44,6 @@ public class TraceService {
     // TODO(C-1 연동): 공용 get_trace/run_id·snapshot 참조 계약으로 변환한다.
     // 모델의 "사용했다"는 문장 대신 현재 로더·도구 실행 지점의 관찰 이벤트를 그대로 전달한다.
     @Transactional(readOnly=true) public Map<String,Object> get(UUID id) { return store.get(id); }
+    @Transactional(readOnly=true) public List<Map<String,Object>> failed() { return store.failed(); }
     @Transactional(readOnly=true) public List<Map<String,Object>> recent() { return store.recent(); }
 }
