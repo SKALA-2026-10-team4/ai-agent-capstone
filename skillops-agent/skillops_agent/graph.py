@@ -45,7 +45,7 @@ builder.add_edge("rollback",         END)
 builder.add_conditional_edges(
     "check_ablation",
     nodes.route_ablation,
-    {"confirmed": "extract_intent", "retry": "hypothesize", "escalate": END},
+    {"confirmed": "extract_intent", "retry": "hypothesize", "escalate": END, "limit_exceeded": END},
 )
 
 builder.add_conditional_edges(
