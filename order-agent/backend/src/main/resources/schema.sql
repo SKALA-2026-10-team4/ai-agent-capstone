@@ -90,3 +90,14 @@ CREATE INDEX IF NOT EXISTS idx_execution_order ON agent_executions(order_id);
 
 ALTER TABLE agent_executions ADD COLUMN IF NOT EXISTS model_mode VARCHAR(16) NOT NULL DEFAULT 'fixed';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS dry_run BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Durable delivery queue: snapshot save and change event commit together.
+CREATE TABLE IF NOT EXISTS skill_change_events (
+    change_id UUID PRIMARY KEY,
+    snapshot_id UUID NOT NULL REFERENCES skill_snapshots(id),
+    payload TEXT NOT NULL,
+    thread_id UUID,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

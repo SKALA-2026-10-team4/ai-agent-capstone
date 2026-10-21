@@ -14,8 +14,9 @@ public class SnapshotService {
     private final SnapshotRepository store;
     private final Path root;
     private final Clock clock;
-    public SnapshotService(SnapshotRepository store, @Value("${order-agent.skills-root}") String root, Clock clock) {
-        this.store = store; this.root = Path.of(root).toAbsolutePath().normalize(); this.clock = clock;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    public SnapshotService(SnapshotRepository store, @Value("${order-agent.skills-root}") String root, Clock clock, org.springframework.jdbc.core.JdbcTemplate jdbc) {
+        this.store = store; this.root = Path.of(root).toAbsolutePath().normalize(); this.clock = clock; this.jdbc = jdbc;
     }
     /** The release manifest pins every byte; an actively edited/incomplete bundle is rejected. */
     public SortedMap<String, byte[]> readPublishedBundle() {
@@ -72,9 +73,15 @@ public class SnapshotService {
         }
         if(changedPaths.isEmpty())throw new AgentException("NO_SKILL_CHANGES");
         // Invalid contracts/format may intentionally be saved for diagnosis. Execution owns validation.
-        return publish(files,Map.of("source","user-edit","change_id",UUID.randomUUID().toString(),
+        String changeId=UUID.randomUUID().toString();
+        var saved=publish(files,Map.of("source","user-edit","change_id",changeId,
             "baseline_snapshot_id",baselineId.toString(),"baseline_hash",baselineHash,
-            "changed_paths",List.copyOf(changedPaths),"validation_status","NOT_REQUESTED"));
+            "changed_paths",List.copyOf(changedPaths),"validation_status","QUEUED"));
+        jdbc.update("insert into skill_change_events(change_id,snapshot_id,payload) values (?,?,?)",
+            UUID.fromString(changeId),saved.id(),Json.write(Map.of("type","skill_saved","change_id",changeId,
+                "baseline_snapshot_id",baselineId.toString(),"candidate_snapshot_id",saved.id().toString(),
+                "changed_paths",List.copyOf(changedPaths))));
+        return saved;
     }
     // TODO(C-1/C-2 연동): 확정된 버전 집합 또는 SEALED workspace revision을 받아 발행한다.
     // 편집 중인 경로를 직접 읽지 않고 후보 메타데이터와 관련 파일 전체를 함께 넘겨야 한다.

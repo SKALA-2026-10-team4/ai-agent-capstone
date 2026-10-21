@@ -44,3 +44,7 @@ order-agent:
   execution-timeout-ms: ${ORDER_AGENT_TIMEOUT_MS:45000}
   call-timeout-ms: ${ORDER_AGENT_CALL_TIMEOUT_MS:10000}
   demo-enabled: ${ORDER_AGENT_DEMO_ENABLED:true}
+
+skillops:
+  service-url: ${SKILLOPS_SERVICE_URL:http://localhost:8080}
+  service-token: ${SKILLOPS_SERVICE_TOKEN:}
