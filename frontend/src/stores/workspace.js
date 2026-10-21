@@ -2,11 +2,11 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { applyPatch } from 'diff'
 import { USE_MOCK } from '@/api/client'
-import { listExecutions, pinFixture } from '@/api/orderAgent'
+import { listExecutions, pinFixture, saveSkillEdits } from '@/api/orderAgent'
 import { loadSkillSet, skillPath, toSkill } from '@/utils/skillSet'
 
 // 화면들이 함께 보는 작업 상태: 지금 보고 있는 snapshot, 그 Skill 세트, 브라우저에만 있는 초안.
-// 초안은 서버에 저장하지 않는다. TODO(C-1 연동): 초안을 snapshot 으로 저장하는 API 가 생기면 여기서 게시한다.
+// 초안은 브라우저에 보관하고 명시적 저장 시 새 snapshot으로 발행한다.
 // mock 과 실서버는 snapshot id 가 서로 없으므로 따로 저장한다.
 // snapshot metadata(fixture·source) → 담당자가 알아보는 이름
 const SET_LABEL = {
@@ -14,6 +14,7 @@ const SET_LABEL = {
   'broken-contract': '결함본',
   repaired: '수정본',
   'published-bundle': '게시본',
+  'user-edit': '내 수정본',
 }
 
 const STORAGE_KEY = USE_MOCK ? 'skillops.workspace.mock' : 'skillops.workspace'
@@ -36,6 +37,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const sets = ref({}) // snapshotId → { snapshot, skills, others }
   const loading = ref(false)
   const error = ref(null)
+  const saving = ref(false)
+
+  async function saveDrafts() {
+    if (USE_MOCK) throw new Error('수정본 저장은 실제 서버 모드에서 사용할 수 있어요.')
+    if (saving.value) throw new Error('수정본을 저장하고 있어요.')
+    const id = snapshotId.value
+    const base = sets.value[id]
+    const changes = { ...(drafts.value[id] ?? {}) }
+    if (!base || !Object.keys(changes).length) throw new Error('저장할 수정 내용이 없어요.')
+    saving.value = true
+    try {
+      const savedSnapshot = await saveSkillEdits(id, base.snapshot.hash, changes)
+      // Retain edits made while the request was in flight, including edits on another snapshot.
+      const remaining = { ...(drafts.value[id] ?? {}) }
+      for (const [path, text] of Object.entries(changes)) {
+        if (remaining[path] === text) delete remaining[path]
+      }
+      drafts.value = { ...drafts.value, [id]: remaining }
+      pinned.value = [{ snapshot_id: savedSnapshot.snapshot_id, fixture: 'user-edit', created_at: savedSnapshot.created_at }, ...pinned.value].slice(0, 12)
+      if (snapshotId.value === id && !Object.keys(remaining).length) await select(savedSnapshot.snapshot_id)
+      return savedSnapshot
+    } finally {
+      saving.value = false
+    }
+  }
 
   watch(
     [snapshotId, pinned, drafts],
@@ -181,6 +207,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     executions,
     loading,
     error,
+    saving,
+    saveDrafts,
     current,
     currentDrafts,
     draftSkills,

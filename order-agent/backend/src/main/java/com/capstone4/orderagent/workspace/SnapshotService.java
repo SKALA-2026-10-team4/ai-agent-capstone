@@ -51,6 +51,31 @@ public class SnapshotService {
     public SnapshotRepository.Stored capture() {
         return publish(readPublishedBundle(), Map.of("source", "published-bundle", "release", "camping-v1"));
     }
+    /** Save editor overrides without publishing to the live bundle or validating the candidate flow. */
+    @Transactional
+    public SnapshotRepository.Stored saveEdits(UUID baselineId, String baselineHash, Map<String, String> changes) {
+        if(baselineId==null||baselineHash==null||changes==null||changes.isEmpty()||changes.size()>64)
+            throw new AgentException("INVALID_SKILL_EDITS");
+        var baseline=get(baselineId);
+        if(!baseline.hash().equals(baselineHash))throw new AgentException("BASELINE_HASH_MISMATCH");
+        var files=new TreeMap<>(baseline.files());
+        var changedPaths=new TreeSet<String>();
+        for(var entry:changes.entrySet()){
+            String path=entry.getKey(),content=entry.getValue();
+            if(path==null||!path.matches("skills/[a-z0-9][a-z0-9-]*/SKILL\\.md")||content==null)
+                throw new AgentException("INVALID_SKILL_EDITS");
+            byte[] bytes=content.getBytes(StandardCharsets.UTF_8);
+            if(bytes.length>1_000_000)throw new AgentException("INVALID_BUNDLE_SIZE");
+            if(!Arrays.equals(files.get(path),bytes)){
+                files.put(path,bytes);changedPaths.add(path);
+            }
+        }
+        if(changedPaths.isEmpty())throw new AgentException("NO_SKILL_CHANGES");
+        // Invalid contracts/format may intentionally be saved for diagnosis. Execution owns validation.
+        return publish(files,Map.of("source","user-edit","change_id",UUID.randomUUID().toString(),
+            "baseline_snapshot_id",baselineId.toString(),"baseline_hash",baselineHash,
+            "changed_paths",List.copyOf(changedPaths),"validation_status","NOT_REQUESTED"));
+    }
     // TODO(C-1/C-2 연동): 확정된 버전 집합 또는 SEALED workspace revision을 받아 발행한다.
     // 편집 중인 경로를 직접 읽지 않고 후보 메타데이터와 관련 파일 전체를 함께 넘겨야 한다.
     // 현재 저장소는 독립 데모용이다. 공용 저장소가 생기면 이 서비스 경계에서 연결하고 이중 원장을 만들지 않는다.

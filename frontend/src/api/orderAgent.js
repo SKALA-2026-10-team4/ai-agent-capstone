@@ -66,3 +66,10 @@ export const getSnapshotSkill = (snapshotId, skillId) =>
 // 개발용 준비 후보. SkillOps 가 만든 수정안이 아니다.
 export const FIXTURES = ['baseline', 'broken-contract', 'repaired']
 export const pinFixture = (fixture) => post('/api/snapshots', { fixture })
+
+export const saveSkillEdits = (baselineSnapshotId, baselineHash, changes) =>
+  post('/api/snapshots/edits', {
+    baseline_snapshot_id: baselineSnapshotId,
+    baseline_hash: baselineHash,
+    changes,
+  })

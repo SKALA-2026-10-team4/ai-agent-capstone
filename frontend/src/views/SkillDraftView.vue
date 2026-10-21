@@ -9,14 +9,26 @@ import { ENTRY_SKILL, flowSteps, skillPath } from '@/utils/skillSet'
 import DiffView from '@/components/DiffView.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import SnapshotPicker from '@/components/SnapshotPicker.vue'
+import { USE_MOCK } from '@/api/client'
 
-// Skill 초안 검사기. snapshot 은 불변이라 여기서 고친 내용은 브라우저에만 남는다.
+// 편집 중인 초안은 브라우저에 남고 저장 시 별도 불변 snapshot이 된다.
 // 원본과 초안의 차이, 그리고 초안을 반영한 전체 세트의 계약 검사 결과를 바로 보여 준다.
 const route = useRoute()
 const router = useRouter()
 const ws = useWorkspaceStore()
 const toast = useToastStore()
 const tab = ref('edit')
+const saveError = ref(null)
+const saved = ref(null)
+async function save() {
+  saveError.value = null
+  try {
+    saved.value = await ws.saveDrafts()
+    toast.show('수정본을 저장했어요. 주문 실행에서 이 세트를 사용할 수 있어요.', 'info')
+  } catch (e) {
+    saveError.value = e.message
+  }
+}
 
 const newName = ref('')
 const NAME_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -103,10 +115,21 @@ version: 1
 <template>
   <PageHeader
     title="Skill 편집"
-    description="고친 내용은 이 브라우저의 초안으로만 남아요. 오른쪽에서 주문 흐름이 깨지지 않는지 바로 점검해요."
+    description="초안을 새 Skill 세트로 저장하고 주문 실행에서 확인해요. 오른쪽에서 입력·출력 연결을 점검할 수 있어요."
     :icon="FilePen"
   />
-  <div class="card toolbar"><SnapshotPicker /></div>
+  <div class="card toolbar">
+    <SnapshotPicker />
+    <button :disabled="USE_MOCK || ws.saving || !Object.keys(ws.currentDrafts).length" @click="save">
+      {{ ws.saving ? '저장 중…' : '전체 수정본 저장' }}
+    </button>
+    <p v-if="USE_MOCK" class="muted small">수정본 저장은 실제 서버 모드에서 사용할 수 있어요.</p>
+    <p v-if="saveError" role="alert" class="error-text">{{ saveError }}</p>
+    <p v-if="saved" role="status" class="small">
+      수정본 저장 완료 · {{ saved.snapshot_id }} · {{ saved.changed_paths.length }}개 파일 변경.
+      자동 검증은 아직 연결되지 않았어요. <RouterLink to="/orders">주문 실행</RouterLink>에서 저장한 세트를 선택해 주세요.
+    </p>
+  </div>
 
   <div v-if="ws.current" class="layout">
     <!-- Skill 목록 -->
@@ -206,7 +229,7 @@ version: 1
         <h3>저장 전 점검</h3>
         <div v-if="!problems" class="callout ok">
           <CircleCheck :size="18" />
-          <p>모든 Skill 이 필요한 값을 앞 단계에서 받아요. 주문 흐름이 깨지지 않아요.</p>
+          <p>선언된 입력·출력 연결에서 문제를 찾지 못했어요. 실제 업무 결과는 주문 실행으로 확인해 주세요.</p>
         </div>
         <template v-else>
           <div class="callout err">
@@ -230,7 +253,7 @@ version: 1
             </li>
           </ul>
         </template>
-        <p class="muted small">초안은 서버에 저장되지 않아요. 실제 실행은 준비된 Skill 세트로만 할 수 있어요.</p>
+        <p class="muted small">전체 수정본 저장을 누르면 새 세트로 저장돼요. 연결 오류가 있는 수정본도 저장할 수 있으며, 자동 검증·진단은 아직 연결되지 않았어요.</p>
       </div>
     </aside>
   </div>
