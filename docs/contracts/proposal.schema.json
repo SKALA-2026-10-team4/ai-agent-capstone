@@ -2,82 +2,93 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://capstone4.local/skillops/proposal.schema.json",
   "title": "Proposal",
-  "description": "계약 4 · SkillOps Agent 의 수정안. v0 (초안). W3 가 만들고 save_proposal 로 저장, W4 가 비교·승인 화면에 그린다. evidence 가 비면 서비스가 저장을 거부한다.",
+  "description": "계약 4 · SkillOps Agent 가 save_proposal 로 보내는 제안서(v1). 제안서 번호·저장 시각·본문은 service 가 붙인다. 합격 판정과 근거 실행 대조도 service 가 다시 한다(계약 5 §10).",
   "type": "object",
-  "required": ["id", "created_at", "trigger", "root_cause", "intent", "candidates", "recommended"],
+  "required": ["trigger", "candidates", "status"],
   "properties": {
-    "id": { "type": "string", "pattern": "^p_[A-Za-z0-9]+$" },
-    "created_at": { "type": "string", "format": "date-time" },
-    "status": { "enum": ["proposed", "approved", "applied", "rolled_back", "no_valid_fix"], "default": "proposed" },
-    "trigger": {
-      "type": "object",
-      "required": ["type"],
+    "thread_id": { "type": ["string", "null"], "description": "진단 번호. 같은 번호로 다시 저장하면 처음 제안서를 돌려준다" },
+    "trigger": { "type": "object", "description": "/diagnose 가 받은 요청 그대로" },
+    "baseline_snapshot_id": { "type": ["string", "null"] },
+    "snapshot_id": { "type": ["string", "null"] },
+    "failure": {
+      "type": ["object", "null"],
       "properties": {
-        "type": { "enum": ["failure", "skill_saved"] },
-        "run_id": { "type": ["string", "null"] },
+        "execution_id": { "type": ["string", "null"] },
         "skill": { "type": ["string", "null"] },
-        "version": { "type": ["integer", "null"] }
+        "category": { "type": ["string", "null"] },
+        "message": { "type": ["string", "null"] },
+        "missing_inputs": { "type": "array", "items": { "type": "string" } },
+        "at": { "type": ["string", "null"], "format": "date-time" }
       }
     },
     "root_cause": {
-      "type": "object",
-      "required": ["skill", "from_version", "to_version", "hunk", "summary", "confirmed_by"],
+      "type": ["object", "null"],
+      "required": ["skill", "change_no", "proof_run_ids"],
       "properties": {
         "skill": { "type": "string" },
+        "change_no": { "type": "integer", "minimum": 1 },
+        "hunk_id": { "type": "string" },
         "from_version": { "type": "integer" },
         "to_version": { "type": "integer" },
-        "hunk": { "type": "integer", "description": "diff_skill 이 돌려준 hunk 번호. ablation 으로 확정된 것" },
         "summary": { "type": "string" },
-        "confirmed_by": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "ablation 실행의 run_id 들" }
+        "before": { "type": ["string", "null"] },
+        "after": { "type": ["string", "null"] },
+        "proof_run_ids": { "type": "array", "items": { "type": "string" } }
       }
     },
     "intent": {
-      "type": "object",
-      "required": ["text", "assertions", "confirmed"],
+      "type": ["object", "null"],
       "properties": {
-        "text": { "type": "string", "description": "담당자가 이 변경으로 바꾸려던 업무 규칙. 승인 화면에서 담당자가 확인" },
-        "assertions": { "type": "array", "items": { "type": "string" }, "description": "scenario.expect.assertions 형식" },
-        "confirmed": { "type": ["boolean", "null"] }
+        "text": { "type": "string" },
+        "checks": { "type": "array", "items": { "type": "string" } },
+        "confirmed": { "type": ["boolean", "null"], "description": "Agent 는 보내지 않는다. 승인할 때 service 가 true 로 채운다" }
       }
     },
     "candidates": {
-      "type": "array", "minItems": 1,
-      "items": { "$ref": "#/$defs/candidate" }
-    },
-    "recommended": { "type": ["integer", "null"], "description": "candidates 인덱스. 유효 후보가 없으면 null + status=no_valid_fix" }
-  },
-  "$defs": {
-    "candidate": {
-      "type": "object",
-      "required": ["id", "kind", "patches", "results", "evidence", "rank", "explanation"],
-      "properties": {
-        "id": { "type": "string" },
-        "kind": { "enum": ["local", "contract", "flow"], "description": "국소 수정 · 계약 전파 · 흐름 재구성" },
-        "workspace": { "type": "string", "description": "검증에 쓴 ws_id. promote 대상" },
-        "patches": {
-          "type": "array", "minItems": 1,
-          "items": {
-            "type": "object",
-            "required": ["skill", "base_version", "diff"],
-            "properties": { "skill": { "type": "string" }, "base_version": { "type": "integer" }, "diff": { "type": "string", "description": "unified diff" } }
-          }
-        },
-        "results": {
-          "type": "object",
-          "required": ["functional", "regression", "intent", "contract", "footprint"],
-          "properties": {
-            "functional": { "type": "boolean", "description": "기준 1" },
-            "regression": { "type": "object", "required": ["passed", "total"], "properties": { "passed": { "type": "integer" }, "total": { "type": "integer" } }, "description": "기준 2" },
-            "intent": { "type": "boolean", "description": "기준 3" },
-            "contract": { "type": "boolean", "description": "기준 4" },
-            "footprint": { "type": "integer", "description": "기준 5 · 수정한 skill 수" }
-          }
-        },
-        "valid": { "type": "boolean", "description": "functional && regression.passed==total && intent" },
-        "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "검증 실행 run_id / 시나리오 id. 설명은 이것만 인용한다" },
-        "rank": { "type": "integer", "minimum": 1 },
-        "explanation": { "type": "string" }
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["candidate_no", "kind", "patches"],
+        "properties": {
+          "candidate_no": { "type": "integer", "minimum": 1 },
+          "kind": { "enum": ["same_skill", "linked_skills", "run_order"] },
+          "workspace_id": { "type": ["string", "null"] },
+          "patches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["skill", "base_version", "patch"],
+              "properties": {
+                "skill": { "type": "string" },
+                "base_version": { "type": "integer" },
+                "patch": { "type": "string" }
+              }
+            }
+          },
+          "results": {
+            "type": ["object", "null"],
+            "properties": {
+              "fixes_failure": { "type": "boolean" },
+              "keeps_old_orders": {
+                "type": "object",
+                "required": ["passed", "total"],
+                "properties": { "passed": { "type": "integer" }, "total": { "type": "integer" } }
+              },
+              "keeps_intent": { "type": "boolean" },
+              "no_broken_links": { "type": "boolean" },
+              "changed_skill_count": { "type": "integer" },
+              "tools_called": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "valid": { "type": ["boolean", "null"] },
+          "validation_error": { "type": ["string", "null"] },
+          "evidence_run_ids": { "type": "array", "items": { "type": "string" } },
+          "rank": { "type": ["integer", "null"] },
+          "explanation": { "type": ["string", "null"] }
+        }
       }
-    }
+    },
+    "recommended_candidate_no": { "type": ["integer", "null"], "minimum": 1 },
+    "status": { "enum": ["proposed", "no_valid_fix"] }
   }
 }

@@ -51,9 +51,9 @@ POST /diagnose. 서비스 토큰이 설정되면 X-Service-Token 필요.
 9. 도구 증거는 TOOL_REQUEST.data.tool에서 읽는다. C가 반환한 r_ 별칭은 UUID로 변환한 뒤 HTTP trace를 조회한다.
 10. 계약 연결·재현·회귀·의도를 모두 통과해야 valid다. MCP 오류·잘못된 응답·미실행은 ERROR이며 원인 확정/수정 성공으로 처리하지 않는다.
 
-## 현재 C에 없는 기능
+## 제안서 저장 (C save_proposal)
 
-현재 C는 save_proposal 도구를 제공하지 않는다. B는 이 도구를 호출하거나 외부 proposal ID를 만들지 않는다. 그래프 state에 평가 결과를 보존하고 proposal.id=null, storage_status=NOT_SAVED로 종료한다. 승인 대기·운영 반영으로 진입하지 않는다. 제안 저장 도구가 구현되면 별도 계약에 맞춰 연결해야 한다.
+save_proposal은 이제 C에 있다. B의 save_proposal 노드는 제안서(`nodes.proposal_payload`)를 보내고 `{proposal_id, status, valid_candidate_nos}`를 받아 `proposal.id`, `storage_status=SAVED`로 남긴다. C가 근거 실행이나 합격 조건으로 거부하면 진단은 ERROR로 끝난다. 승인·거절은 화면과 service가 맡고 B로는 오지 않는다. 운영 반영(promote_workspace)은 아직 없다.
 
 ## 정상 변경과 S5
 
