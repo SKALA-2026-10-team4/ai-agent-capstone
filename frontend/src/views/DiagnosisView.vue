@@ -84,6 +84,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
       <p v-if="run.error" class="error-text">{{ run.error }}</p>
       <p v-if="run.diagnosis_status === 'VALIDATED'">등록된 기본 주문 검증을 통과했어요. 자연어 정책 전체의 검증이나 운영 반영을 의미하지 않아요.</p>
       <p v-if="run.proposal?.storage_status === 'NOT_SAVED'">평가 결과를 확인할 수 있어요. 제안 승인·운영 반영은 아직 연결되지 않았어요.</p>
+      <p v-if="run.proposal?.storage_status === 'SAVED'">제안서를 저장했어요. 운영자가 검토하면 승인 여부가 정해져요.</p>
+      <RouterLink v-if="run.proposal?.id" :to="`/proposals/${run.proposal.id}`">제안서 보기</RouterLink>
     </section>
     <section class="card">
       <h2>진행 로그</h2>

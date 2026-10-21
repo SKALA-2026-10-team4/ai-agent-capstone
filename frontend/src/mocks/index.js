@@ -26,7 +26,7 @@ const products = [
 const snapshots = {} // id → { snapshot_id, hash, created_at, metadata, files: {path: {content, hash}} }
 const orders = {}
 const executions = {}
-const proposals = { [proposalF1.id]: clone(proposalF1) }
+const proposals = { [proposalF1.proposal_id]: clone(proposalF1) }
 
 async function publish(files, metadata) {
   const id = uuid()
@@ -410,6 +410,19 @@ function mockUser(headers) {
 }
 const notFound = (code) => new ApiError(404, `실행 자료를 확인할 수 없습니다: ${code}`, { code })
 
+// 목록 한 줄(service api/ProposalController.ProposalSummary 와 같은 모양)
+const summaryOf = (p) => ({
+  proposal_id: p.proposal_id,
+  status: p.status,
+  created_at: p.created_at,
+  title: p.document.title,
+  summary: p.document.summary,
+  root_cause_skill: p.proposal.root_cause?.skill ?? null,
+  recommended_candidate_no: p.recommended_candidate_no,
+  valid_candidate_nos: clone(p.valid_candidate_nos),
+  candidate_count: p.proposal.candidates.length,
+})
+
 const routes = [
   ['GET', /^\/api\/products$/, () => ({ items: clone(products) })],
   ['POST', /^\/api\/orders$/, (_, body, headers) => createOrder(body, headers)],
@@ -506,19 +519,27 @@ const routes = [
       return { snapshot_id: id, path, encoding: 'utf-8', hash: file.hash, size: byteSize(file.content), content: file.content }
     },
   ],
-  // skillops-agent: 실제로는 조회 API 가 없다(연결 대기). 형식만 state.py 에 맞춘 mock.
-  ['GET', /^\/agent\/proposals$/, () => Object.values(proposals).map(clone)],
+  // SkillOps service: 로그인, 제안서 조회와 승인 (service/auth, api/ProposalController·ApprovalController 와 같은 규칙)
+  ['POST', /^\/service\/api\/auth\/login$/, (_, body) => mockLogin(body)],
+  ['GET', /^\/service\/api\/auth\/me$/, (_, __, headers) => mockUser(headers)],
   [
     'GET',
-    /^\/agent\/proposals\/([^/]+)$/,
-    ([id]) => {
-      if (!proposals[id]) throw new ApiError(404, `Proposal '${id}' not found`)
+    /^\/service\/api\/proposals$/,
+    (_, __, headers) => {
+      mockUser(headers)
+      const items = Object.values(proposals).sort((a, b) => b.created_at.localeCompare(a.created_at))
+      return { items: items.map(summaryOf) }
+    },
+  ],
+  [
+    'GET',
+    /^\/service\/api\/proposals\/([^/]+)$/,
+    ([id], __, headers) => {
+      mockUser(headers)
+      if (!proposals[id]) throw new ApiError(404, '제안서를 찾을 수 없습니다.', { code: 'PROPOSAL_NOT_FOUND' })
       return clone(proposals[id])
     },
   ],
-  // SkillOps service: 로그인과 승인 중계 (service/auth, service/api/ApprovalController 와 같은 규칙)
-  ['POST', /^\/service\/api\/auth\/login$/, (_, body) => mockLogin(body)],
-  ['GET', /^\/service\/api\/auth\/me$/, (_, __, headers) => mockUser(headers)],
   [
     'POST',
     /^\/service\/api\/proposals\/([^/]+)\/(approve|reject)$/,
@@ -530,25 +551,30 @@ const routes = [
         throw new ApiError(400, '의도 확인 없이 승인할 수 없습니다.', { code: 'INTENT_NOT_CONFIRMED' })
       }
       const p = proposals[proposalId]
+      if (!p) throw new ApiError(404, '제안서를 찾을 수 없습니다.', { code: 'PROPOSAL_NOT_FOUND' })
+      if (p.status === 'approved' || p.status === 'rejected') {
+        throw new ApiError(409, '이미 결정한 제안서입니다.', { code: 'PROPOSAL_ALREADY_DECIDED' })
+      }
+      if (approve && p.status === 'no_valid_fix') {
+        throw new ApiError(409, '승인할 수 있는 수정안이 없는 제안서입니다.', { code: 'NO_VALID_FIX' })
+      }
+      if (approve && !p.valid_candidate_nos.includes(body.candidate_no)) {
+        throw new ApiError(400, '모든 확인을 통과한 후보만 승인할 수 있습니다.', { code: 'CANDIDATE_NOT_VALID' })
+      }
       const record = {
         proposal_id: proposalId,
         decision: approve ? 'approved' : 'rejected',
-        candidate: approve ? body.candidate : null,
+        candidate_no: approve ? body.candidate_no : null,
         intent_confirmed: approve,
         approval_token: approve ? `a_${uuid().replaceAll('-', '').slice(0, 10).toUpperCase()}` : null,
         approved_by: user.username,
         approver_name: user.display_name,
         decided_at: now(),
         used_at: null,
-        agent_result: 'ACCEPTED',
-        agent_message: approve ? 'approved' : 'rejected',
       }
-      if (!p || p.approval_status !== 'pending') {
-        record.agent_result = 'PROPOSAL_NOT_FOUND'
-        approvals.unshift(record)
-        throw new ApiError(404, `Proposal '${proposalId}' not found or already processed`, { code: 'PROPOSAL_NOT_FOUND' })
-      }
-      p.approval_status = record.decision
+      p.status = record.decision
+      p.decided_at = record.decided_at
+      p.decision = record
       approvals.unshift(record)
       return clone(record)
     },
