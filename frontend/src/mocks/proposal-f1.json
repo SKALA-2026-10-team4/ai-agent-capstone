@@ -1,0 +1,141 @@
+{
+  "id": "p_stub_001",
+  "status": "proposed",
+  "approval_status": "pending",
+  "trigger": {
+    "type": "failure",
+    "run_id": "r_stub_F1",
+    "skill": null,
+    "version": null
+  },
+  "root_cause": {
+    "skill": "inventory-check",
+    "from_version": 1,
+    "to_version": 2,
+    "hunk": 0,
+    "summary": "inventory-check 가 outputs 에서 inventory.reserved 를 지워, payment 의 선언 입력 inventory.reserved 를 공급하는 단계가 없어졌다. 실패 Skill 은 payment 지만 수정 원인은 inventory-check 다.",
+    "confirmed_by": [
+      "r_stub_abl_01",
+      "r_stub_abl_02"
+    ]
+  },
+  "intent": {
+    "text": "재고 결과에 예약 가능 수량(inventory.reservable_quantity)을 표현하고 싶다.",
+    "assertions": [
+      "inventory.reservable_quantity != null"
+    ],
+    "confirmed": null
+  },
+  "candidates": [
+    {
+      "id": "c-local-01",
+      "kind": "local",
+      "workspace": "ws_stub_001",
+      "patches": [
+        {
+          "skill": "inventory-check",
+          "base_version": 2,
+          "diff": "--- a/skills/inventory-check/SKILL.md\n+++ b/skills/inventory-check/SKILL.md\n@@ -3,3 +3,3 @@\n inputs: [order.id, order.items]\n-outputs: [inventory.reservable_quantity]\n+outputs: [inventory.available, inventory.reserved]\n depends_on: [order-intake]\n"
+        }
+      ],
+      "results": {
+        "functional": true,
+        "regression": {
+          "passed": 6,
+          "total": 6
+        },
+        "intent": false,
+        "contract": true,
+        "footprint": 1
+      },
+      "valid": false,
+      "evidence": [
+        "r_stub_v_local_01",
+        "g-01",
+        "g-02",
+        "g-03",
+        "g-04",
+        "g-05",
+        "g-06"
+      ],
+      "rank": 3,
+      "explanation": "출력 선언을 원래대로 되돌리면 f-01 은 통과(r_stub_v_local_01)하지만 의도 assertion 'inventory.reservable_quantity != null' 이 실패해 의도 보존에서 불합격이다."
+    },
+    {
+      "id": "c-contract-01",
+      "kind": "contract",
+      "workspace": "ws_stub_002",
+      "patches": [
+        {
+          "skill": "inventory-check",
+          "base_version": 2,
+          "diff": "--- a/skills/inventory-check/SKILL.md\n+++ b/skills/inventory-check/SKILL.md\n@@ -3,3 +3,3 @@\n inputs: [order.id, order.items]\n-outputs: [inventory.reservable_quantity]\n+outputs: [inventory.reservable_quantity, inventory.reserved]\n depends_on: [order-intake]\n@@ -12,1 +12,3 @@\n 재고 예약 도구에 주문번호와 모든 상품·수량을 전달합니다. 하나라도 부족하면 전체 거절하고 종료합니다. 충분하면 전체 수량을 예약하고 실제 예약 결과를 기록합니다.\n+\n+예약 가능 수량이 주문 수량 이상이면 inventory.reserved를 true로 기록한다.\n"
+        }
+      ],
+      "results": {
+        "functional": true,
+        "regression": {
+          "passed": 6,
+          "total": 6
+        },
+        "intent": true,
+        "contract": true,
+        "footprint": 1
+      },
+      "valid": true,
+      "evidence": [
+        "r_stub_v_contract_01",
+        "r_stub_v_contract_02",
+        "g-01",
+        "g-02",
+        "g-03",
+        "g-04",
+        "g-05",
+        "g-06"
+      ],
+      "rank": 1,
+      "explanation": "예약 가능 수량 출력은 유지하고 inventory.reserved 선언과 기록 규칙을 함께 복구했다. f-01 이 k=2 회 통과(r_stub_v_contract_01, r_stub_v_contract_02)했고 골든 6/6. payment·shipping-reserve 는 건드리지 않아 footprint 1."
+    },
+    {
+      "id": "c-contract-02",
+      "kind": "contract",
+      "workspace": "ws_stub_003",
+      "patches": [
+        {
+          "skill": "payment",
+          "base_version": 1,
+          "diff": "--- a/skills/payment/SKILL.md\n+++ b/skills/payment/SKILL.md\n@@ -3,3 +3,3 @@\n description: 예약된 주문 금액을 결제한다\n-inputs: [order.id, order.total, order.payment_method, inventory.reserved]\n+inputs: [order.id, order.total, order.payment_method, inventory.reservable_quantity]\n outputs: [payment.id, payment.status]\n"
+        },
+        {
+          "skill": "shipping-reserve",
+          "base_version": 1,
+          "diff": "--- a/skills/shipping-reserve/SKILL.md\n+++ b/skills/shipping-reserve/SKILL.md\n@@ -3,3 +3,3 @@\n description: 결제 완료 주문의 배송을 예약한다\n-inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]\n+inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reservable_quantity]\n outputs: [shipping.id, shipping.eta]\n"
+        }
+      ],
+      "results": {
+        "functional": true,
+        "regression": {
+          "passed": 6,
+          "total": 6
+        },
+        "intent": true,
+        "contract": true,
+        "footprint": 2
+      },
+      "valid": true,
+      "evidence": [
+        "r_stub_v_contract2_01",
+        "r_stub_v_contract2_02",
+        "g-01",
+        "g-02",
+        "g-03",
+        "g-04",
+        "g-05",
+        "g-06"
+      ],
+      "rank": 2,
+      "explanation": "하위 단계 입력을 inventory.reservable_quantity 로 바꿔 계약을 맞췄다. 통과했지만 두 Skill 을 고쳐 footprint 2 로 c-contract-01 보다 순위가 낮다."
+    }
+  ],
+  "recommended": 1
+}

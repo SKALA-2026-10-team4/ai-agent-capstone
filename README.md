@@ -34,7 +34,10 @@ cd skillops-agent && uv sync && uv run uvicorn skillops_agent.main:app --reload 
 #    MCP 배선 확인(service 가 떠 있을 때): uv run scripts/mcp_smoke.py
 
 # 3) frontend
-cd frontend && npm install && npm run dev    # http://localhost:5173, /api 는 8080 으로 프록시
+cd order-agent && docker compose up --build -d --wait   # 주문 Agent(:8081) — 운영 화면의 데이터 원천
+cd frontend && npm install && npm run dev    # http://localhost:5173 · /api → order-agent 8081, /service → service 8080(로그인·승인)
+#    서버 없이 화면만: npm run dev:mock    (order-agent 와 같은 형식의 메모리 mock: 정상·결함·수정본, 개선안 예시)
+#    패키지를 바꾼 뒤 화면이 멈추면: npm run dev:mock -- --force
 ```
 
 ## 검증

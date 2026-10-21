@@ -1,0 +1,443 @@
+/* SkillOps 디자인 시스템 — 색·글꼴·간격 토큰과 공용 요소(버튼·입력·카드·배지·알림).
+   기존 변수 이름(--bg, --surface, --accent, --ok, --err, --add-bg …)은 그대로 두고 확장했다. */
+
+:root {
+  /* 바탕과 면 */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --border: #e2e5ea;
+  --border-strong: #c9ced6;
+
+  /* 글자 */
+  --text: #171a1f;
+  --text-2: #424955;
+  --muted: #737b88;
+
+  /* 의미 색: 진한 색(글자·테두리) + 옅은 색(배경) */
+  --accent: #3b5bdb;
+  --accent-strong: #2f4ac0;
+  --accent-soft: #eef1fd;
+  --ok: #1e7d4f;
+  --ok-soft: #e6f5ed;
+  --warn: #a35f00;
+  --warn-soft: #fff3df;
+  --err: #c2332d;
+  --err-soft: #fdecea;
+  --add-bg: #e3f5e9;
+  --del-bg: #fde8e6;
+
+  /* 글꼴 */
+  --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR',
+    'Malgun Gothic', system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'D2Coding', Menlo, Consolas, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+
+  /* 모양 */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%);
+  --shadow: 0 1px 3px rgb(16 24 40 / 8%), 0 4px 12px rgb(16 24 40 / 5%);
+  --shadow-lg: 0 12px 32px rgb(16 24 40 / 14%);
+  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+
+  --sidebar-w: 232px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121418;
+    --surface: #1b1e24;
+    --surface-2: #23272e;
+    --border: #2e333b;
+    --border-strong: #414854;
+    --text: #e8eaee;
+    --text-2: #c2c7d0;
+    --muted: #8d95a3;
+    --accent: #7c95ff;
+    --accent-strong: #98abff;
+    --accent-soft: #232b4a;
+    --ok: #4cc386;
+    --ok-soft: #173327;
+    --warn: #f0a94a;
+    --warn-soft: #3a2a12;
+    --err: #ff746c;
+    --err-soft: #3d1d1b;
+    --add-bg: #173327;
+    --del-bg: #3d1d1b;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow: 0 1px 3px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 25%);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 45%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0 0 12px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+}
+
+h2 {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+
+h3 {
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+h4 {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+p {
+  margin: 0 0 8px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+pre,
+textarea {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+}
+
+code {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* ── 버튼 ─────────────────────────────────────────── */
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.2;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.05s;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+button.danger {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, var(--border));
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--err-soft);
+}
+
+button.sm {
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+}
+
+button.lg {
+  padding: 11px 18px;
+  font-size: var(--fs-md);
+}
+
+button.block {
+  width: 100%;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 입력 ─────────────────────────────────────────── */
+
+input:not([type='checkbox'], [type='radio']),
+select,
+textarea {
+  font: inherit;
+  font-size: var(--fs-md);
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+textarea {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
+/* ── 카드·레이아웃 ─────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.page {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px 28px 64px;
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 16px 16px 48px;
+  }
+
+  .card {
+    padding: 14px 16px;
+  }
+}
+
+/* ── 글자 도우미 ───────────────────────────────────── */
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: var(--fs-xs);
+}
+
+.error-text {
+  color: var(--err);
+}
+
+.ok-text {
+  color: var(--ok);
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+/* ── 알림 상자 ─────────────────────────────────────── */
+
+.callout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.callout > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.callout p:last-child {
+  margin: 0;
+}
+
+.callout.info {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.callout.info > svg {
+  color: var(--accent);
+}
+
+.callout.ok {
+  background: var(--ok-soft);
+  border-color: color-mix(in srgb, var(--ok) 25%, transparent);
+}
+
+.callout.ok > svg {
+  color: var(--ok);
+}
+
+.callout.warn {
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
+.callout.warn > svg {
+  color: var(--warn);
+}
+
+.callout.err {
+  background: var(--err-soft);
+  border-color: color-mix(in srgb, var(--err) 25%, transparent);
+}
+
+.callout.err > svg {
+  color: var(--err);
+}
+
+/* ── 칩(키 이름·번호) ──────────────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 4px 2px 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.chip.add {
+  background: var(--ok-soft);
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+  color: var(--ok);
+}
+
+.chip.del {
+  background: var(--err-soft);
+  border-color: color-mix(in srgb, var(--err) 30%, transparent);
+  color: var(--err);
+  text-decoration: line-through;
+}
+
+/* ── 단계 번호 ─────────────────────────────────────── */
+
+.step-no {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  flex: none;
+}
