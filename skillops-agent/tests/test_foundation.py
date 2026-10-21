@@ -105,22 +105,24 @@ def test_stub_get_trace_returns_failed_trace():
 
     trace = asyncio.run(_run())
     assert trace["final_status"] == "FAILED"
-    error_steps = [s for s in trace["steps"] if s["status"] == "error"]
-    assert len(error_steps) == 1
-    assert "inventory.reserved" in error_steps[0]["error"]
+    # v1: steps[] → events[] 형식
+    error_events = [e for e in trace["events"] if e["kind"] == "EXECUTION_ERROR"]
+    assert len(error_events) == 1
+    assert "inventory.reserved" in error_events[0]["error"]["message"]
 
 
-def test_stub_diff_skill_returns_hunks():
+def test_stub_diff_skill_returns_changes():
     async def _run():
         async with StubMCPTools() as t:
-            return await t.diff_skill("inventory-check", 4, 5)
+            return await t.diff_skill("inventory-check", "snap_v4", "snap_v5")
 
     diff = asyncio.run(_run())
-    assert len(diff["hunks"]) >= 1
-    hunk = diff["hunks"][0]
-    assert "index" in hunk
-    assert "before" in hunk
-    assert "after" in hunk
+    # v1: hunks[] → changes[]
+    assert len(diff["changes"]) >= 1
+    change = diff["changes"][0]
+    assert "change_no" in change
+    assert "before" in change
+    assert "after" in change
 
 
 # ── 프롬프트 파일 로드 ─────────────────────────────────────────────────────────
