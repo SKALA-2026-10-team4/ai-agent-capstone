@@ -86,7 +86,7 @@ async def main():
                     ]
                 },
                 "_IntentOutput": {
-                    "text": "keep reservable quantity",
+                    "text": "예약 가능 수량을 계속 내놓고 싶다.",
                     "checks": ["inventory.reservable_quantity != null"],
                 },
                 "_CandidatesOutput": {
@@ -101,7 +101,14 @@ async def main():
                 },
                 "_RankExplanationsOutput": {
                     "explanations": [
-                        SimpleNamespace(candidate_no=1, explanation="C trial references retained")
+                        SimpleNamespace(
+                            candidate_no=1,
+                            explanation=(
+                                "재고 확인 Skill이 예약 여부(inventory.reserved)를 "
+                                "다시 내놓게 했습니다. 실패했던 주문과 "
+                                "기준 주문 3건이 모두 통과했습니다."
+                            ),
+                        )
                     ]
                 },
             }
@@ -182,6 +189,7 @@ async def main():
             "root_cause": result.get("root_cause"),
             "candidates": result.get("candidates"),
             "storage_status": (result.get("proposal") or {}).get("storage_status"),
+            "proposal_id": (result.get("proposal") or {}).get("id"),
             "stock_and_live_failures_unchanged": invariant,
             "normal_saved_change": {
                 "snapshot_id": normal["snapshot_id"],
@@ -200,6 +208,7 @@ async def main():
             result.get("error")
             or not result.get("candidates")
             or not all(c["valid"] for c in result["candidates"])
+            or (result.get("proposal") or {}).get("storage_status") != "SAVED"
             or not invariant
             or normal_result.get("diagnosis_status") != "VALIDATED"
             or policy_result.get("diagnosis_status") != "INTENT_VIOLATION"

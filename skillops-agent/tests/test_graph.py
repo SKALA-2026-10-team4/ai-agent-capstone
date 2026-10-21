@@ -8,6 +8,7 @@ import pytest
 from skillops_agent import nodes
 from skillops_agent.graph import graph
 from skillops_agent.stub_tools import StubMCPTools
+from skillops_agent.tools import MCPToolError
 
 
 def initial(**extra):
@@ -78,8 +79,9 @@ async def test_real_event_shape_and_changed_skill_are_used(tools):
     assert result["root_cause"]["hunk_id"] == "fixture-hunk"
     assert result["root_cause"]["proof_run_ids"]
     assert result["candidates"][0]["valid"]
-    assert result["proposal"]["id"] is None
-    assert result["proposal"]["storage_status"] == "NOT_SAVED"
+    assert result["proposal"]["id"].startswith("p_stub")
+    assert result["proposal"]["storage_status"] == "SAVED"
+    assert result["proposal"]["valid_candidate_nos"] == [1]
     assert result["diagnosis_status"] == "EVALUATED"
     assert "__interrupt__" not in result
 
@@ -358,3 +360,37 @@ async def test_generation_prompt_contains_real_current_sources(tools, monkeypatc
     assert not result["error"]
     assert prompts and "outputs: []" in prompts[0]
     assert "full_text" in prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_proposal_is_saved_with_contract_payload(tools):
+    result = await run(initial())
+    saved = tools.saved[-1]
+    assert saved["status"] == "proposed"
+    assert saved["failure"]["skill"] == "payment"
+    assert saved["failure"]["category"] == "CONTRACT_VIOLATION"
+    assert saved["failure"]["missing_inputs"] == ["inventory.reserved"]
+    assert saved["failure"]["execution_id"] == StubMCPTools.EXECUTION
+    assert saved["root_cause"]["skill"] == "inventory-check"
+    assert saved["root_cause"]["before"] and saved["root_cause"]["after"]
+    assert saved["snapshot_id"] == StubMCPTools.CANDIDATE
+    assert saved["baseline_snapshot_id"] == StubMCPTools.BASELINE
+    assert saved["recommended_candidate_no"] == 1
+    assert all(c["workspace_id"].startswith("w_") for c in saved["candidates"])
+    assert "workspace" not in saved["candidates"][0]
+    assert result["proposal"]["storage_status"] == "SAVED"
+    assert result["proposal"]["id"].startswith("p_stub")
+    assert result["diagnosis_status"] == "EVALUATED"
+
+
+@pytest.mark.asyncio
+async def test_rejected_save_ends_in_error(tools, monkeypatch):
+    async def reject(proposal):
+        raise MCPToolError(
+            "save_proposal", {"code": "INVALID_INPUT", "message": "후보 1 의 근거 실행"}
+        )
+
+    monkeypatch.setattr(tools, "save_proposal", reject)
+    result = await run(initial())
+    assert result["diagnosis_status"] == "ERROR"
+    assert "save_proposal" in result["error"]

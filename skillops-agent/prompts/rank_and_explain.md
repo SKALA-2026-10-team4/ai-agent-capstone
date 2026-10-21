@@ -18,6 +18,9 @@
 
 ### explanation 규칙
 - evidence_run_ids[] 에 있는 run_id 또는 scenario_id 만 인용할 수 있습니다.
-- 예: "시나리오 g-01(r_ws_c01_g01)에서 통과함"
+- 예: "실패했던 주문(r_…)과 기준 주문 3건이 모두 통과했습니다."
 - 증거 없는 주장은 금지입니다.
 - recommended는 rank=1 후보의 candidates 인덱스입니다.
+- explanation은 운영자가 읽는 한두 문장입니다. 아래 문체 규칙을 지킵니다.
+
+{style}

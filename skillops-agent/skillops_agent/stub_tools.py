@@ -17,6 +17,10 @@ class StubMCPTools:
     _traces: dict = {}
     _workspaces: dict = {}
 
+    def __init__(self):
+        # save_proposal 로 받은 제안서. 테스트가 보낸 값을 확인한다.
+        self.saved: list[dict] = []
+
     async def __aenter__(self):
         return self
 
@@ -200,4 +204,14 @@ class StubMCPTools:
             "workspace_id": workspace_id,
             "all_passed": all(r["passed"] for r in results),
             "results": results,
+        }
+
+    async def save_proposal(self, proposal):
+        self.saved.append(proposal)
+        return {
+            "proposal_id": "p_stub" + uuid4().hex[:12],
+            "status": proposal["status"],
+            "valid_candidate_nos": [
+                c["candidate_no"] for c in proposal["candidates"] if c.get("valid")
+            ],
         }
