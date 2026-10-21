@@ -36,7 +36,7 @@ public class ScenarioRunner {
             Integer repeat) {
         int times = repeat == null ? DEFAULT_REPEAT : repeat;
         if (times < 1 || times > MAX_REPEAT) {
-            throw new IllegalArgumentException("repeat 는 1~" + MAX_REPEAT + " 사이여야 합니다 (받은 값 " + repeat + ")");
+            throw new IllegalArgumentException("k 는 1~" + MAX_REPEAT + " 사이여야 합니다 (받은 값 " + repeat + ")");
         }
         if (scenarioIds == null || scenarioIds.isEmpty()) {
             throw new IllegalArgumentException(
@@ -63,7 +63,7 @@ public class ScenarioRunner {
                             String.join("; ", grade.reasons())));
                 }
             }
-            results.add(new ScenarioRunReport.ScenarioResult(scenario.id(), null, failures.isEmpty(),
+            results.add(new ScenarioRunReport.ScenarioResult(scenario.id(), failures.isEmpty(),
                     List.copyOf(runIds), List.copyOf(failures)));
         }
         boolean allPassed = results.stream().allMatch(ScenarioRunReport.ScenarioResult::passed);
