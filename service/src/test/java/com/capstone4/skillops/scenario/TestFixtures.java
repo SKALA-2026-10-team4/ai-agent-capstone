@@ -50,4 +50,30 @@ public final class TestFixtures {
         skills.put("inventory-check", new WorkspaceSkill(2, text));
         return skills;
     }
+
+    /** 테스트용 {@link RunLedger}. 메모리에만 둔다. */
+    public static final class InMemoryRunLedger implements RunLedger {
+
+        private final java.util.Map<String, String> workspaceOf = new java.util.LinkedHashMap<>();
+
+        @Override
+        public void record(String workspaceId, String scenarioId, String runId, boolean passed) {
+            workspaceOf.put(runId, workspaceId);
+        }
+
+        @Override
+        public java.util.Set<String> runIdsOf(String workspaceId) {
+            return workspaceOf.entrySet().stream().filter(e -> e.getValue().equals(workspaceId))
+                    .map(java.util.Map.Entry::getKey).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+
+        @Override
+        public boolean known(String runId) {
+            return workspaceOf.containsKey(runId);
+        }
+
+        public void clear() {
+            workspaceOf.clear();
+        }
+    }
 }

@@ -23,7 +23,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties={"spring.datasource.url=jdbc:postgresql://localhost:5434/order_agent_test",
+@SpringBootTest(properties={"order-agent.skill-change-dispatch-enabled=false","spring.datasource.url=jdbc:postgresql://localhost:5434/order_agent_test",
     "spring.datasource.username=order_test","spring.datasource.password=order_test_local"})
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named="ORDER_DEMO_INTEGRATION_TESTS",matches="true")
@@ -52,10 +52,14 @@ class AgentEvidenceIntegrationTest {
             .andExpect(status().isCreated())
             .andExpect(jsonPath("baseline_snapshot_id").value(baseline.id().toString()))
             .andExpect(jsonPath("changed_paths[0]").value(path))
-            .andExpect(jsonPath("validation_status").value("NOT_REQUESTED"))
+            .andExpect(jsonPath("validation_status").value("QUEUED"))
             .andExpect(jsonPath("change_id").isNotEmpty()).andReturn();
         var payload=Json.object(response.getResponse().getContentAsString());
         UUID id=UUID.fromString((String)payload.get("snapshot_id"));
+        mvc.perform(get("/api/skill-changes/"+payload.get("change_id")))
+            .andExpect(status().isOk()).andExpect(jsonPath("delivery_status").value("PENDING"));
+        assertThat(jdbc.queryForObject("select snapshot_id from skill_change_events where change_id=?",
+            UUID.class,UUID.fromString((String)payload.get("change_id")))).isEqualTo(id);
         assertThat(id).isNotEqualTo(baseline.id());
         var candidate=snapshots.get(id);
         assertThat(candidate.files().get(path)).isEqualTo(edited.getBytes(StandardCharsets.UTF_8));
@@ -77,6 +81,7 @@ class AgentEvidenceIntegrationTest {
         String path="skills/payment/SKILL.md";
         String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
         int count=jdbc.queryForObject("select count(*) from skill_snapshots",Integer.class);
+        int eventCount=jdbc.queryForObject("select count(*) from skill_change_events",Integer.class);
         for(var changes:List.of(Map.of(path,original),Map.of(path,original+"\n", "skills/../SKILL.md","bad"),
                 Map.<String,String>of())){
             mvc.perform(post("/api/snapshots/edits").contentType("application/json")
@@ -87,6 +92,7 @@ class AgentEvidenceIntegrationTest {
             .content(Json.write(Map.of("baseline_snapshot_id",baseline.id(),"baseline_hash","wrong", "changes",Map.of(path,"changed")))))
             .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("BASELINE_HASH_MISMATCH"));
         assertThat(jdbc.queryForObject("select count(*) from skill_snapshots",Integer.class)).isEqualTo(count);
+        assertThat(jdbc.queryForObject("select count(*) from skill_change_events",Integer.class)).isEqualTo(eventCount);
     }
 
     @Test void normalExecutionActuallyLoadsSixSkillsAndSharesSnapshotReferences() throws Exception {

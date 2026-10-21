@@ -1,0 +1,108 @@
+{
+  "method": "real C MCP and order-agent HTTP; deterministic LLM substitute",
+  "execution_id": "c6e53b4f-51b8-4a13-bc49-84f1539df4d1",
+  "snapshots": {
+    "baseline": "4805a5dd-60b0-450f-828a-5c028c90efdb",
+    "broken-contract": "216f5d62-9cf8-4f52-85b9-72acd319f715",
+    "repaired": "dbc8e1f3-20e8-4519-a8cd-c69c897080cd"
+  },
+  "diagnosis_status": "EVALUATED",
+  "error": null,
+  "root_cause": {
+    "skill": "inventory-check",
+    "change_no": 1,
+    "hunk_id": "h_a8ea63df0666",
+    "from_version": 1,
+    "to_version": 1,
+    "summary": "outputs: [inventory.available, inventory.reserved] → outputs: [inventory.reservable_quantity]",
+    "proof_run_ids": [
+      "r_a6cb2034021d4fb3b8188285bd9e611c",
+      "r_70fff3529b614435a5dac966c49284f4"
+    ]
+  },
+  "candidates": [
+    {
+      "candidate_no": 1,
+      "kind": "same_skill",
+      "workspace": "w_9b5rlrzs",
+      "patches": [
+        {
+          "skill": "inventory-check",
+          "base_version": 1,
+          "patch": "@@ -2,7 +2,7 @@\n name: inventory-check\n description: 상품 전체 재고를 확인하고 예약한다\n inputs: [order.id, order.items]\n-outputs: [inventory.reservable_quantity]\n+outputs: [inventory.reservable_quantity, inventory.reserved]\n depends_on: [order-intake]\n owner: 주문운영팀\n version: 1\n@@ -10,3 +10,5 @@\n # 상품 전체 재고를 확인하고 예약한다\n \n 재고 예약 도구에 주문번호와 모든 상품·수량을 전달합니다. 하나라도 부족하면 전체 거절하고 종료합니다. 충분하면 전체 수량을 예약하고 실제 예약 결과를 기록합니다.\n+\n+예약 가능 수량이 주문 수량 이상이면 inventory.reserved를 true로 기록한다.\n"
+        }
+      ],
+      "results": {
+        "fixes_failure": true,
+        "keeps_old_orders": {
+          "passed": 3,
+          "total": 3
+        },
+        "keeps_intent": true,
+        "no_broken_links": true,
+        "changed_skill_count": 1,
+        "tools_called": [
+          "order.inspect",
+          "inventory.reserve",
+          "payment.charge",
+          "shipping.reserve",
+          "notify.send",
+          "order.inspect",
+          "inventory.reserve",
+          "payment.charge",
+          "shipping.reserve",
+          "notify.send"
+        ]
+      },
+      "valid": true,
+      "evidence_run_ids": [
+        "r_5fbffeb4603d40e19f4eb2510bcb5c7e",
+        "r_9ff5470b70e541edbaf2cbbc4f0b2b78",
+        "r_83bdaf213c5741d9a1cf92353ab12346",
+        "r_cd4fc799665e4bdc8ee045a9b92cc354",
+        "r_4fe33a33031e4d5eb5d96fc0d8d0a5bd",
+        "r_5afcc646770c4b739c7d87ae02a3a11f",
+        "r_01e790395ac74cf5a263d4e686f75f78",
+        "r_829bbb8413f8452eb025e8de5f4b87cd",
+        "r_e941258d14d7457dbb4c1bcd2be1d38b",
+        "r_f9e16fd98f3d4cc1bc7fa8407bcfebff"
+      ],
+      "rank": 1,
+      "explanation": "C trial references retained"
+    }
+  ],
+  "storage_status": "NOT_SAVED",
+  "stock_and_live_failures_unchanged": true,
+  "normal_saved_change": {
+    "snapshot_id": "4c7d6185-bd10-4d2f-9165-85b7ce2daeb6",
+    "status": "VALIDATED",
+    "error": null
+  },
+  "policy_violation": {
+    "snapshot_id": "e19e8bdb-108a-4cbf-8ce6-889b5eb9914f",
+    "status": "INTENT_VIOLATION",
+    "error": null,
+    "diagnosis": {
+      "intent_checks": [
+        "payment.status != 'PAID'"
+      ],
+      "failures": [
+        {
+          "run_id": "r_7a7db6f2aeb747eb8e40b84328956878",
+          "skill": null,
+          "reason": "확인 조건 실패: payment.status != 'PAID' (실제 'PAID')"
+        },
+        {
+          "run_id": "r_7d27c42ebad34ef7b8fa5e750e671453",
+          "skill": null,
+          "reason": "확인 조건 실패: payment.status != 'PAID' (실제 'PAID')"
+        }
+      ],
+      "evidence_run_ids": [
+        "r_7a7db6f2aeb747eb8e40b84328956878",
+        "r_7d27c42ebad34ef7b8fa5e750e671453"
+      ],
+      "explanation": "변경 정책의 확인 조건과 실제 실행 결과가 일치하지 않습니다."
+    }
+  }
+}

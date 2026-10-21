@@ -10,6 +10,6 @@
 
 ## 지시사항
 - diff의 각 hunk가 장애와 어떻게 연결되는지 분석하세요.
-- hunk_index, summary, confidence(0.0~1.0)를 가진 가설 목록을 반환하세요.
+- change_no(입력 목록의 1부터 시작하는 번호), summary, confidence(0.0~1.0)를 가진 가설 목록을 반환하세요.
 - confidence가 높은 것을 먼저 배치하세요.
 - 이전 시도에서 기각된 가설이 있으면 참고하세요: {previous_failures}

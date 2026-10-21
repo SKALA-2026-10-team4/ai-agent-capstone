@@ -1,27 +1,23 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ChevronRight, Inbox, PlugZap, Star } from 'lucide-vue-next'
-import { listProposals, PROPOSALS_AVAILABLE } from '@/api/proposals'
-import { APPROVAL, KIND, TRIGGER } from '@/utils/proposalView'
+import { ChevronRight, Inbox, Star } from 'lucide-vue-next'
+import { listProposals } from '@/api/proposals'
+import { awaitsDecision, STATUS } from '@/utils/proposalView'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 
-// 받은 개선안 목록. 담당자가 가장 먼저 보는 화면이라 "무엇이 깨졌고 AI 가 무엇을 추천하는지" 를 한 장에 보여 준다.
+// 받은 제안서 목록. service 가 저장한 제안서의 제목과 개요를 보여 주고, 아직 결정하지 않은 제안서를 먼저 고른다.
 const proposals = ref([])
 const error = ref(null)
 const filter = ref('pending')
 
-const shown = computed(() =>
-  filter.value === 'pending' ? proposals.value.filter((p) => p.approval_status === 'pending') : proposals.value,
-)
-const pendingCount = computed(() => proposals.value.filter((p) => p.approval_status === 'pending').length)
-const recommendedOf = (p) => p.candidates[p.recommended] ?? null
-const validCount = (p) => p.candidates.filter((c) => c.valid).length
+const pendingOnly = (items) => items.filter(awaitsDecision)
+const shown = computed(() => (filter.value === 'pending' ? pendingOnly(proposals.value) : proposals.value))
+const pendingCount = computed(() => pendingOnly(proposals.value).length)
 
 onMounted(async () => {
-  if (!PROPOSALS_AVAILABLE) return
   try {
-    proposals.value = await listProposals()
+    proposals.value = (await listProposals()).items
   } catch (e) {
     error.value = e.message
   }
@@ -30,11 +26,11 @@ onMounted(async () => {
 
 <template>
   <PageHeader
-    title="받은 개선안"
-    description="Skill 을 고친 뒤 주문이 깨지면 AI 가 원인을 찾아 실제로 검증한 개선안을 보내요. 검토하고 직접 다듬어 보세요."
+    title="받은 제안서"
+    description="SkillOps가 실제로 시험한 수정 제안서예요. 내용을 읽고 승인하거나 거절해 주세요."
     :icon="Inbox"
   >
-    <template v-if="PROPOSALS_AVAILABLE" #actions>
+    <template #actions>
       <div class="tabs" role="tablist">
         <button class="ghost sm" :class="{ on: filter === 'pending' }" @click="filter = 'pending'">
           검토 대기 <span class="n">{{ pendingCount }}</span>
@@ -46,31 +42,23 @@ onMounted(async () => {
     </template>
   </PageHeader>
 
-  <EmptyState v-if="!PROPOSALS_AVAILABLE" title="아직 개선안을 불러올 수 없어요" :icon="PlugZap">
-    진단 에이전트에 개선안 조회 기능이 생기면 여기에 나타나요. 지금은 <code>npm run dev:mock</code> 으로 예시를 볼 수
-    있어요.
-  </EmptyState>
   <p v-if="error" class="error-text">{{ error }}</p>
-  <EmptyState v-else-if="PROPOSALS_AVAILABLE && !shown.length" title="검토할 개선안이 없어요" :icon="Inbox">
-    주문이 실패하거나 Skill 을 저장하면 AI 가 점검해서 이곳으로 보내요.
+  <EmptyState v-else-if="!shown.length" title="검토할 제안서가 없어요" :icon="Inbox">
+    Skill 수정본을 저장하면 SkillOps가 시험한 뒤 제안서를 이곳으로 보내요.
   </EmptyState>
 
   <div class="list">
-    <RouterLink v-for="p in shown" :key="p.id" :to="`/proposals/${p.id}`" class="item card">
+    <RouterLink v-for="p in shown" :key="p.proposal_id" :to="`/proposals/${p.proposal_id}`" class="item card">
       <div class="head">
-        <span class="status" :class="APPROVAL[p.approval_status]?.tone">
-          {{ APPROVAL[p.approval_status]?.label ?? p.status }}
-        </span>
-        <strong class="title">{{ p.root_cause.skill }} 개선안</strong>
-        <span class="muted small">{{ TRIGGER[p.trigger.type] ?? p.trigger.type }}</span>
+        <span class="status" :class="STATUS[p.status]?.tone">{{ STATUS[p.status]?.label ?? p.status }}</span>
+        <strong class="title">{{ p.title }}</strong>
       </div>
-      <p class="summary">{{ p.root_cause.summary }}</p>
-      <p v-if="p.intent?.text" class="intent">AI 가 이해한 의도: “{{ p.intent.text }}”</p>
+      <p class="summary">{{ p.summary }}</p>
       <div class="foot">
-        <span v-if="recommendedOf(p)" class="rec">
-          <Star :size="14" /> 추천: {{ KIND[recommendedOf(p).kind]?.label ?? recommendedOf(p).kind }}
+        <span v-if="p.recommended_candidate_no" class="rec">
+          <Star :size="14" /> 추천 후보 {{ p.recommended_candidate_no }}번
         </span>
-        <span class="muted small">후보 {{ p.candidates.length }}개 중 {{ validCount(p) }}개 적용 가능</span>
+        <span class="muted small">합격 {{ p.valid_candidate_nos.length }} / 후보 {{ p.candidate_count }}</span>
         <span class="spacer" />
         <span class="go">검토하기 <ChevronRight :size="16" /></span>
       </div>
@@ -160,15 +148,6 @@ onMounted(async () => {
 .summary {
   margin: 0;
   color: var(--text-2);
-}
-
-.intent {
-  margin: 0;
-  padding: 8px 12px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  font-size: var(--fs-sm);
 }
 
 .foot {

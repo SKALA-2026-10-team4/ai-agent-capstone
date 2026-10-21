@@ -44,7 +44,7 @@ skillops:
   #            연습 공간을 create_workspace 의 snapshot_id 로 만들어야 하고, 재현 주문도 돌린다
   flow-runner: ${SKILLOPS_FLOW_RUNNER:contract-only}
   agent:
-    # SkillOps 진단 Agent(skillops-agent/). 승인 결과를 전달할 때만 부른다.
+    # SkillOps 진단 Agent(skillops-agent/). 진단 요청 중계와 진단 기록 조회(DiagnosisController)에 쓴다.
     base-url: ${SKILLOPS_AGENT_URL:http://localhost:8000}
     # skillops-agent 의 X-Service-Token 과 같은 값. 비어 있으면 헤더를 보내지 않는다(Agent 개발 모드).
     service-token: ${SKILLOPS_SERVICE_TOKEN:}

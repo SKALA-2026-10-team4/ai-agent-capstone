@@ -815,116 +815,88 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 
 ## 10. 제안서 저장하기 · `save_proposal`
 
-진단 결과를 수정 제안서로 저장합니다. 제안서에는 확정된 원인, 담당자의 의도, 후보 수정안과 각각의 시험 결과, 추천 순위가 들어갑니다. 근거로 삼은 시험 실행 번호가 없거나 실제와 맞지 않으면 저장을 거부합니다. 시험을 거치지 않은 수정안이 운영자 화면에 올라가는 일을 막기 위해서입니다. 돌려주는 모양은 계약 4(제안서)와 같습니다.
+진단을 마친 결과를 수정 제안서로 저장합니다. 제안서에는 실패 내용, 확정된 원인, 담당자의 의도, 후보 수정안과 각각의 시험 결과, 추천 후보가 들어갑니다. 서비스는 근거로 적은 실행 번호가 실제로 `run_scenarios`로 돌린 모의 실행인지 확인하고, 합격 후보를 다시 계산한 뒤에만 저장합니다. 시험을 거치지 않은 수정안이 운영자 화면에 올라가는 일을 막기 위해서입니다. 저장할 때 운영자가 읽을 본문(목차와 문장)도 함께 만들어 보관합니다.
 
-부르는 쪽: Agent · 담당: C-2
+부르는 쪽: Agent · 담당: C-2 · 구현: `service/.../mcp/ProposalTools.java`, `proposal/ProposalService.java`
 
 ### 보내는 값
 
-제안서 번호, 저장 시각, 상태는 서비스가 붙이므로 보내지 않습니다.
-
 | 필드 | 한글 이름 | 형식 | 꼭 필요 | 설명 |
 |---|---|---|---|---|
-| `proposal` | 제안서 | 묶음 | 예 | 아래 칸들을 담은 묶음입니다. |
-| `proposal.trigger` | 진단을 시작한 알림 | 묶음 | 예 | 어떤 알림으로 진단을 시작했는지입니다. |
-| `proposal.trigger.type` | 알림 종류 | 글자 | 예 | `failure`는 주문 실패 알림, `skill_saved`는 skill 저장 알림입니다. |
-| `proposal.trigger.run_id` | 실패한 실행 번호 | 글자 | 아니오 | 주문 실패 알림이면 그 실행 번호, 아니면 `null`입니다. |
-| `proposal.trigger.skill` | 저장된 skill | 글자 | 아니오 | skill 저장 알림이면 그 skill 이름, 아니면 `null`입니다. |
-| `proposal.trigger.version` | 저장된 버전 | 정수 | 아니오 | skill 저장 알림이면 그 버전, 아니면 `null`입니다. |
-| `proposal.root_cause` | 확정된 원인 | 묶음 | 예 | 원인 확인 단계에서 실행으로 확정한 원인입니다. |
-| `proposal.root_cause.skill` | 원인 skill | 글자 | 예 | 원인이 된 변경이 들어 있는 skill입니다. |
-| `proposal.root_cause.from_version` | 예전 버전 | 정수 | 예 | 비교한 예전 버전입니다. |
-| `proposal.root_cause.to_version` | 새 버전 | 정수 | 예 | 비교한 새 버전입니다. |
-| `proposal.root_cause.change_no` | 원인 변경 번호 | 정수 | 예 | `diff_skill`이 매긴 변경 번호 가운데 원인으로 확정된 것입니다. |
-| `proposal.root_cause.summary` | 원인 요약 | 글자 | 예 | 운영자가 읽을 한두 문장입니다. |
-| `proposal.root_cause.proof_run_ids` | 원인 증거 | 목록 | 예 | 이 변경만 넣었을 때 실패가 다시 나타난 모의 실행 번호입니다. 하나 이상 있어야 합니다. |
-| `proposal.intent` | 담당자의 의도 | 묶음 | 예 | 담당자가 이 변경으로 바꾸려던 업무 규칙입니다. 맞는지는 승인 화면에서 담당자가 확인합니다. |
-| `proposal.intent.text` | 의도 한 문장 | 글자 | 예 | 담당자의 의도를 한 문장으로 정리한 것입니다. |
-| `proposal.intent.checks` | 의도 확인 조건 | 목록 | 예 | 의도가 지켜졌는지 보는 확인 조건입니다. 시험할 때 `extra_checks`에 넣은 것과 같아야 합니다. |
+| `proposal` | 제안서 | 묶음 | 예 | 아래 칸들을 담은 묶음입니다. 아래에 없는 칸이 더 있어도 그대로 보관합니다. |
+| `proposal.thread_id` | 진단 번호 | 글자 | 아니오 | 이 제안서를 만든 진단입니다. 같은 번호로 다시 저장하면 처음 저장한 제안서를 그대로 돌려줍니다. |
+| `proposal.trigger` | 진단을 시작한 요청 | 묶음 | 예 | `/diagnose`가 받은 요청 그대로입니다(`type`, `execution_id`, `change_id` 등). |
+| `proposal.baseline_snapshot_id` | 수정 전 Skill 세트 | 글자 | 아니오 | 비교한 기준 snapshot입니다. |
+| `proposal.snapshot_id` | 수정 후 Skill 세트 | 글자 | 아니오 | 진단한 snapshot입니다. |
+| `proposal.failure` | 실패 내용 | 묶음 | 아니오 | 실패한 실행의 `EXECUTION_ERROR`에서 옮긴 `{execution_id, skill, category, message, missing_inputs, at}`입니다. |
+| `proposal.root_cause` | 확정된 원인 | 묶음 | 상태에 따라 | `proposed`면 꼭 필요합니다. `{skill, change_no, hunk_id, from_version, to_version, summary, before, after, proof_run_ids}`입니다. |
+| `proposal.root_cause.before` · `after` | 바뀌기 전·뒤 | 글자 | 아니오 | 원인이 된 hunk의 원문입니다. 본문의 "원인" 절에 나옵니다. |
+| `proposal.root_cause.proof_run_ids` | 원인 증거 | 목록 | `proposed`면 예 | 원인을 확정한 모의 실행 번호입니다. 모두 이 서비스가 돌린 실행이어야 합니다. |
+| `proposal.intent` | 담당자의 의도 | 묶음 | 아니오 | `{text, checks}`입니다. `confirmed`는 Agent가 보내지 않고, 운영자가 승인할 때 서비스가 `true`로 채웁니다. |
 | `proposal.candidates` | 후보 수정안 | 목록 | 예 | 시험한 후보 전부입니다. 떨어진 후보도 넣습니다. |
-| `proposal.candidates[].candidate_no` | 후보 번호 | 정수 | 예 | 1부터 셉니다. |
-| `proposal.candidates[].kind` | 고치는 범위 | 글자 | 예 | `same_skill`은 바뀐 skill만 고침, `linked_skills`는 값을 주고받는 skill까지 함께 맞춤, `run_order`는 실행 순서를 다시 짬입니다. |
-| `proposal.candidates[].workspace_id` | 시험한 연습 공간 | 글자 | 예 | 이 후보를 시험한 연습 공간입니다. 승인되면 이 공간이 운영에 반영됩니다. |
-| `proposal.candidates[].patches` | 수정 내용 | 목록 | 예 | 이 후보의 수정 내용입니다. 모양은 `apply_patch`의 `patches`와 같습니다. |
-| `proposal.candidates[].results` | 기준별 결과 | 묶음 | 예 | 아래 다섯 기준의 결과입니다. |
-| `proposal.candidates[].results.fixes_failure` | 실패가 고쳐졌나 | 참·거짓 | 예 | 재현 주문이 모두 합격했으면 `true`입니다. |
-| `proposal.candidates[].results.keeps_old_orders` | 잘 되던 주문이 그대로인가 | 묶음 | 예 | 기준 주문 가운데 합격한 수(`passed`)와 전체 수(`total`)입니다. |
-| `proposal.candidates[].results.keeps_intent` | 의도가 지켜졌나 | 참·거짓 | 예 | 의도 확인 조건을 모두 통과했으면 `true`입니다. |
-| `proposal.candidates[].results.no_broken_links` | 연결이 모두 이어졌나 | 참·거짓 | 예 | `apply_patch`가 돌려준 끊긴 연결이 비어 있었으면 `true`입니다. |
-| `proposal.candidates[].results.changed_skill_count` | 손댄 skill 수 | 정수 | 예 | 이 후보가 고친 skill의 개수입니다. 적을수록 좋습니다. |
-| `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 예 | 이 후보를 시험한 모의 실행 번호입니다. 하나 이상 있어야 합니다. |
-| `proposal.candidates[].rank` | 순위 | 정수 | 아니오 | 합격한 후보에만 1부터 붙입니다. 떨어진 후보는 `null`입니다. |
-| `proposal.candidates[].explanation` | 설명 | 글자 | 예 | 운영자에게 보여 줄 설명입니다. 근거로는 `evidence_run_ids`에 있는 실행 번호만 인용합니다. |
-| `proposal.recommended_candidate_no` | 추천 후보 번호 | 정수 | 아니오 | 추천하는 후보의 번호입니다. 합격한 후보가 없으면 `null`이고, 그러면 제안서 상태가 "쓸 수 있는 수정안 없음"이 됩니다. |
+| `proposal.candidates[].candidate_no` | 후보 번호 | 정수 | 예 | 1부터 빠짐없이 셉니다. |
+| `proposal.candidates[].kind` | 고치는 범위 | 글자 | 예 | `same_skill`, `linked_skills`, `run_order` 가운데 하나입니다. |
+| `proposal.candidates[].workspace_id` | 시험한 연습 공간 | 글자 | 적용한 후보면 예 | 이 후보를 시험한 연습 공간입니다. |
+| `proposal.candidates[].patches` | 수정 내용 | 목록 | 예 | `apply_patch`의 `patches`와 같은 모양입니다. |
+| `proposal.candidates[].results` | 기준별 결과 | 묶음 | 적용한 후보면 예 | `{fixes_failure, keeps_old_orders{passed, total}, keeps_intent, no_broken_links, changed_skill_count}`입니다. |
+| `proposal.candidates[].valid` | Agent가 본 합격 여부 | 참·거짓 | 아니오 | 서비스가 다시 계산한 값과 다르면 저장하지 않습니다. |
+| `proposal.candidates[].validation_error` | 적용하지 못한 이유 | 글자 | 아니오 | 원문에 적용하지 못해 시험하지 않은 후보입니다. 이 후보는 근거 실행이 없어도 됩니다. |
+| `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 적용한 후보면 예 | 이 후보를 시험한 모의 실행 번호입니다. 모두 그 후보의 연습 공간에서 돌린 실행이어야 합니다. |
+| `proposal.candidates[].rank` · `explanation` | 순위·설명 | 정수·글자 | 아니오 | 설명은 본문의 "AI 설명" 칸에 그대로 나옵니다. |
+| `proposal.recommended_candidate_no` | 추천 후보 번호 | 정수 | `proposed`면 예 | 합격 후보 가운데 하나여야 합니다. |
+| `proposal.status` | 상태 | 글자 | 예 | 합격 후보가 있으면 `proposed`, 없으면 `no_valid_fix`입니다. |
+
+**합격 조건(서비스가 다시 계산):** 적용에 실패하지 않았고, `fixes_failure`가 참이고, `keeps_old_orders`의 `passed`와 `total`이 같고 `total`이 1 이상이고, `keeps_intent`가 참이고, `no_broken_links`가 참입니다.
 
 ### 돌려받는 값
 
 | 필드 | 한글 이름 | 형식 | 꼭 필요 | 설명 |
 |---|---|---|---|---|
-| `proposal_id` | 제안서 번호 | 글자 | 예 | 저장된 제안서의 번호입니다. 운영자 화면과 승인 API가 이 번호를 씁니다. |
-| `status` | 제안서 상태 | 글자 | 예 | `proposed`는 승인을 기다림, `no_valid_fix`는 쓸 수 있는 수정안이 없음입니다. |
-| `valid_candidate_nos` | 합격 후보 번호 | 목록 | 예 | 서비스가 다시 계산한 합격 후보입니다. 실패가 고쳐지고, 잘 되던 주문이 모두 통과하고, 의도가 지켜진 후보만 들어갑니다. |
+| `proposal_id` | 제안서 번호 | 글자 | 예 | `p_` 뒤에 32자리 16진수입니다. 운영자 화면과 승인 API가 이 번호를 씁니다. |
+| `status` | 제안서 상태 | 글자 | 예 | `proposed` 또는 `no_valid_fix`입니다. |
+| `valid_candidate_nos` | 합격 후보 번호 | 목록 | 예 | 서비스가 다시 계산한 합격 후보입니다. |
 
-**저장을 거부하는 경우**
+**저장을 거부하는 경우(`INVALID_INPUT`)**
 
-- `proof_run_ids`나 `evidence_run_ids`가 비어 있을 때
-- 근거로 적은 실행 번호가 없거나, 모의 실행이 아니거나, 그 후보의 연습 공간에서 돌린 것이 아닐 때
-- `recommended_candidate_no`가 합격 후보가 아닐 때
+- `status`가 `proposed`나 `no_valid_fix`가 아닐 때, 또는 합격 후보가 있는지와 맞지 않을 때
+- `candidate_no`가 1부터 빠짐없이 매겨지지 않았을 때
+- 적용한 후보에 `workspace_id`, `results`, `evidence_run_ids`가 없거나, 근거 실행이 그 후보의 연습 공간에서 돌린 것이 아닐 때
+- 후보의 `valid`가 다시 계산한 값과 다를 때
+- `proposed`인데 `root_cause.proof_run_ids`가 비었거나 돌린 적 없는 실행일 때, `recommended_candidate_no`가 합격 후보가 아닐 때
 
 ### 예시
 
-후보 두 개 가운데 하나만 적었습니다.
-
 ```json
-{
-  "proposal": {
-    "trigger": { "type": "failure", "run_id": "r_8KQ2", "skill": null, "version": null },
-    "root_cause": {
-      "skill": "inventory-check",
-      "from_version": 1,
-      "to_version": 2,
-      "change_no": 1,
-      "summary": "재고 확인 skill이 '예약 여부'를 더 이상 내놓지 않아 결제 skill이 멈췄습니다.",
-      "proof_run_ids": ["r_C201", "r_C202"]
-    },
-    "intent": {
-      "text": "재고 수량이 아니라 예약 가능 수량으로 판단하고 싶다.",
-      "checks": ["inventory.예약가능수량 != null"]
-    },
-    "candidates": [
-      {
-        "candidate_no": 1,
-        "kind": "linked_skills",
-        "workspace_id": "w_B22",
-        "patches": [{ "skill": "inventory-check", "base_version": 2, "patch": "--- ...\n+++ ...\n@@ -5,1 +5,1 @@\n-outputs:    [inventory.예약가능수량]\n+outputs:    [inventory.예약가능수량, inventory.reserved]\n" }],
-        "results": { "fixes_failure": true, "keeps_old_orders": { "passed": 6, "total": 6 }, "keeps_intent": true, "no_broken_links": true, "changed_skill_count": 1 },
-        "evidence_run_ids": ["r_D301", "r_D302", "r_D313", "r_D314"],
-        "rank": 1,
-        "explanation": "재고 확인 skill이 '예약 가능 수량'과 함께 '예약 여부'도 내놓게 했습니다. 실패했던 주문(r_D313, r_D314)과 기준 주문 6건이 모두 통과했습니다."
-      }
-    ],
-    "recommended_candidate_no": 1
-  }
-}
+{ "proposal": { "thread_id": "5b0c2f3e-…", "trigger": { "type": "skill_saved", "change_id": "c_20261021_01" },
+  "failure": { "execution_id": "33333333-…", "skill": "payment", "category": "CONTRACT_VIOLATION", "missing_inputs": ["inventory.reserved"] },
+  "root_cause": { "skill": "inventory-check", "change_no": 1, "before": "outputs: [inventory.available, inventory.reserved]", "after": "outputs: [inventory.available]", "proof_run_ids": ["r_a0…01", "r_a0…02"] },
+  "intent": { "text": "예약 가능 수량을 계속 내놓고 싶다.", "checks": ["inventory.reservable_quantity != null"] },
+  "candidates": [ { "candidate_no": 1, "kind": "same_skill", "workspace_id": "w_c1", "patches": [ … ],
+    "results": { "fixes_failure": true, "keeps_old_orders": { "passed": 3, "total": 3 }, "keeps_intent": true, "no_broken_links": true, "changed_skill_count": 1 },
+    "valid": true, "evidence_run_ids": ["r_c1…01", "r_c1…02"], "rank": 1, "explanation": "재고 확인 Skill이 예약 여부를 다시 내놓게 했습니다." } ],
+  "recommended_candidate_no": 1, "status": "proposed" } }
 ```
 
 ```json
-{ "proposal_id": "p_0007", "status": "proposed", "valid_candidate_nos": [1] }
+{ "proposal_id": "p_3f9c…", "status": "proposed", "valid_candidate_nos": [1] }
 ```
+
+### 제안서 본문
+
+저장할 때 서비스가 정해진 목차(개요, 발생 경위, 원인, 변경 의도, 수정안과 시험 결과, 추천과 결정 요청, 참고 정보)와 문장 틀로 본문을 만들어 함께 보관합니다(`ProposalDocumentWriter`). 화면은 `GET /api/proposals/{id}`의 `document`를 그대로 그립니다. 후보의 `explanation`에서 번역투·과장 표현이 보이면 `document.tone_warnings`에 남기고, 글은 고치지 않습니다.
 
 ### 읽고 쓰는 저장 공간
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `trace_run`, `scenario_results` | 읽기 | 근거 실행이 실제로 있는지, 어느 연습 공간에서 돌았는지, 합격했는지 |
-| `proposals` | 쓰기 | 제안서 한 줄(알림, 원인, 의도, 추천 후보, 상태) |
-| `proposal_candidates` | 쓰기 | 후보마다 한 줄 |
+| `scenario_runs` | 읽기 | `run_scenarios`가 돌린 실행 번호와 연습 공간. 근거 실행을 대조합니다. |
+| `proposals` | 쓰기 | 제안서 한 줄(받은 제안서, 본문, 합격 후보, 상태, 결정 시각) |
 
 ### v0에서 바뀐 점
 
-- 제안서 번호와 저장 시각은 서비스가 붙입니다. `intent.confirmed`는 Agent가 보내지 않고 승인할 때 채워집니다.
-- 이름 변경은 위의 "이름만 바꾼 것" 표의 계약 4 부분을 보세요.
-- 결과에 `status`와 `valid_candidate_nos`를 더했습니다.
+- 제안서 번호와 저장 시각은 서비스가 붙입니다. `intent.confirmed`는 승인할 때 채워집니다.
+- 합격 조건에 "끊긴 연결 없음"(`no_broken_links`)을 넣었습니다. B(#60)의 판정과 같습니다.
+- 결과에 `status`와 `valid_candidate_nos`를 더했습니다. 근거 대조는 `scenario_results` 대신 `scenario_runs`에서 합니다.
 
 ---
 

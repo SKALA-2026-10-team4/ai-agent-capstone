@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
@@ -15,10 +16,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.capstone4.skillops.approval.AgentException;
 import com.capstone4.skillops.approval.Approval;
 import com.capstone4.skillops.approval.ApprovalService;
 import com.capstone4.skillops.auth.TokenService;
+import com.capstone4.skillops.proposal.ProposalException;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -28,9 +29,10 @@ import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.annotation.JsonNaming;
 
 /**
- * 운영자의 수정안 승인/거절. 계약 5 REST `POST /api/proposals/{id}/approve {candidate, intent_confirmed}` →
- * `{approval_token}`. 거절(`/reject`)과 승인 기록 조회(`GET /api/approvals`)는 화면에 필요해 덧붙였다.
- * OPERATOR 역할만 결정할 수 있다(SecurityConfig). 결정은 SkillOps Agent POST /approve 로 서비스 토큰과 함께 넘긴다.
+ * 운영자의 수정안 승인/거절. `POST /api/proposals/{id}/approve {candidate_no, intent_confirmed}` → 승인 기록과
+ * `approval_token`. candidate_no 는 제안서의 후보 번호(1부터)이고 합격한 후보만 받는다. 거절(`/reject`)과 승인 기록 조회
+ * (`GET /api/approvals`)는 화면에 필요해 덧붙였다. OPERATOR 역할만 결정할 수 있다(SecurityConfig).
+ * 결정은 저장된 제안서에 표시하며, 같은 제안서는 한 번만 결정할 수 있다.
  */
 @RestController
 @Validated
@@ -53,7 +55,7 @@ public class ApprovalController {
                     .body(Map.of("code", "INTENT_NOT_CONFIRMED", "message", "의도 확인 없이 승인할 수 없습니다."));
         }
         return ResponseEntity.ok(ApprovalView.of(
-                approvals.approve(proposalId, request.candidate(), true, TokenService.userOf(jwt))));
+                approvals.approve(proposalId, request.candidateNo(), true, TokenService.userOf(jwt))));
     }
 
     @PostMapping("/api/proposals/{proposalId}/reject")
@@ -67,24 +69,29 @@ public class ApprovalController {
         return Map.of("items", approvals.recent().stream().map(ApprovalView::of).toList());
     }
 
-    @ExceptionHandler(AgentException.class)
-    ResponseEntity<Map<String, String>> agentFailed(AgentException e) {
+    @ExceptionHandler(ProposalException.class)
+    ResponseEntity<Map<String, String>> proposalRefused(ProposalException e) {
         return ResponseEntity.status(e.httpStatus()).body(Map.of("code", e.code(), "message", e.getMessage()));
     }
 
-    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    public record ApproveRequest(@NotNull @Min(0) Integer candidate, @NotNull Boolean intentConfirmed) {
+    /** 두 운영자가 같은 제안서를 동시에 결정하면 늦게 끝난 쪽이 여기로 온다 */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    ResponseEntity<Map<String, String>> decidedConcurrently() {
+        return ResponseEntity.status(409)
+                .body(Map.of("code", "PROPOSAL_ALREADY_DECIDED", "message", "이미 결정한 제안서입니다."));
     }
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    public record ApprovalView(String proposalId, String decision, Integer candidate, boolean intentConfirmed,
-            String approvalToken, String approvedBy, String approverName, Instant decidedAt, Instant usedAt,
-            String agentResult, String agentMessage) {
+    public record ApproveRequest(@NotNull @Min(1) Integer candidateNo, @NotNull Boolean intentConfirmed) {
+    }
 
-        static ApprovalView of(Approval a) {
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record ApprovalView(String proposalId, String decision, Integer candidateNo, boolean intentConfirmed,
+            String approvalToken, String approvedBy, String approverName, Instant decidedAt, Instant usedAt) {
+
+        public static ApprovalView of(Approval a) {
             return new ApprovalView(a.getProposalId(), a.getDecision(), a.getCandidateNo(), a.isIntentConfirmed(),
-                    a.getApprovalToken(), a.getApprovedBy(), a.getApproverName(), a.getDecidedAt(), a.getUsedAt(),
-                    a.getAgentResult(), a.getAgentMessage());
+                    a.getApprovalToken(), a.getApprovedBy(), a.getApproverName(), a.getDecidedAt(), a.getUsedAt());
         }
     }
 }

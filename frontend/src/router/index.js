@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
     { path: '/skills/:skill?', name: 'skills', component: () => import('@/views/SkillDraftView.vue') },
     { path: '/compare', name: 'compare', component: () => import('@/views/SnapshotCompareView.vue') },
+    { path: '/diagnoses/:threadId?', name: 'diagnoses', component: () => import('@/views/DiagnosisView.vue') },
     { path: '/orders', name: 'orders', component: () => import('@/views/OrderView.vue') },
     { path: '/executions/:id', name: 'execution', component: () => import('@/views/ExecutionView.vue') },
     { path: '/proposals', name: 'proposals', component: () => import('@/views/ProposalListView.vue') },

@@ -18,8 +18,10 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def patch_pipeline(monkeypatch):
     """HTTP 응답 코드 테스트에서 실제 파이프라인 실행을 방지한다."""
-    async def _noop(req):
+
+    async def _noop(req, thread_id):
         pass
+
     monkeypatch.setattr(_main_module, "_run_pipeline", _noop)
 
 
@@ -50,18 +52,22 @@ def test_make_structured_llm_wraps_schema():
 def test_diagnose_no_token_passes_when_token_not_configured(monkeypatch):
     monkeypatch.setattr(cfg, "SERVICE_TOKEN", "")
     import skillops_agent.main as m
+
     monkeypatch.setattr(m, "SERVICE_TOKEN", "")
-    res = client.post("/diagnose", json={"type": "failure", "run_id": "r_01"})
+    res = client.post(
+        "/diagnose", json={"type": "failure", "run_id": "33333333-3333-4333-8333-333333333333"}
+    )
     assert res.status_code == 202
 
 
 def test_diagnose_wrong_token_returns_401(monkeypatch):
     monkeypatch.setattr(cfg, "SERVICE_TOKEN", "secret")
     import skillops_agent.main as m
+
     monkeypatch.setattr(m, "SERVICE_TOKEN", "secret")
     res = client.post(
         "/diagnose",
-        json={"type": "failure", "run_id": "r_01"},
+        json={"type": "failure", "run_id": "33333333-3333-4333-8333-333333333333"},
         headers={"x-service-token": "wrong"},
     )
     assert res.status_code == 401
@@ -70,10 +76,11 @@ def test_diagnose_wrong_token_returns_401(monkeypatch):
 def test_diagnose_correct_token_returns_202(monkeypatch):
     monkeypatch.setattr(cfg, "SERVICE_TOKEN", "secret")
     import skillops_agent.main as m
+
     monkeypatch.setattr(m, "SERVICE_TOKEN", "secret")
     res = client.post(
         "/diagnose",
-        json={"type": "failure", "run_id": "r_01"},
+        json={"type": "failure", "run_id": "33333333-3333-4333-8333-333333333333"},
         headers={"x-service-token": "secret"},
     )
     assert res.status_code == 202
@@ -101,26 +108,28 @@ def test_stub_ping():
 def test_stub_get_trace_returns_failed_trace():
     async def _run():
         async with StubMCPTools() as t:
-            return await t.get_trace("r_stub_F1")
+            return await t.get_trace("33333333-3333-4333-8333-333333333333")
 
     trace = asyncio.run(_run())
     assert trace["final_status"] == "FAILED"
     # v1: steps[] → events[] 형식
     error_events = [e for e in trace["events"] if e["kind"] == "EXECUTION_ERROR"]
     assert len(error_events) == 1
-    assert "inventory.reserved" in error_events[0]["error"]["message"]
+    assert "inventory.reserved" in error_events[0]["data"]["missing_inputs"][0]
 
 
 def test_stub_diff_skill_returns_changes():
     async def _run():
         async with StubMCPTools() as t:
-            return await t.diff_skill("inventory-check", "snap_v4", "snap_v5")
+            return await t.diff_skill(
+                "inventory-check", StubMCPTools.BASELINE, StubMCPTools.CANDIDATE
+            )
 
     diff = asyncio.run(_run())
     # v1: hunks[] → changes[]
-    assert len(diff["changes"]) >= 1
-    change = diff["changes"][0]
-    assert "change_no" in change
+    assert len(diff["hunks"]) >= 1
+    change = diff["hunks"][0]
+    assert "hunk_id" in change
     assert "before" in change
     assert "after" in change
 
@@ -128,7 +137,23 @@ def test_stub_diff_skill_returns_changes():
 # ── 프롬프트 파일 로드 ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("name", ["hypothesize", "extract_intent", "generate_candidates", "rank_and_explain"])
+@pytest.mark.parametrize(
+    "name", ["hypothesize", "extract_intent", "generate_candidates", "rank_and_explain", "style"]
+)
 def test_prompt_files_exist(name):
     text = load_prompt(name)
     assert len(text) > 0
+
+
+@pytest.mark.parametrize("name", ["rank_and_explain", "extract_intent"])
+def test_style_rules_reach_operator_facing_prompts(name):
+    text = load_prompt(name).format(
+        root_cause={},
+        intent={},
+        candidates=[],
+        diff={},
+        context_keys=[],
+        style=load_prompt("style"),
+    )
+    assert "을 통해" in text
+    assert "이 기능으로 데이터를 모을 수 있습니다" in text

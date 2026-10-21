@@ -18,6 +18,8 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
+      SKILLOPS_SERVICE_URL: ${SKILLOPS_SERVICE_URL:-http://host.docker.internal:8080}
+      SKILLOPS_SERVICE_TOKEN: ${SKILLOPS_SERVICE_TOKEN:-}
       ORDER_AGENT_SKILLS_ROOT: /app/skills
       ORDER_AGENT_DEMO_ENABLED: ${ORDER_AGENT_DEMO_ENABLED:-true}
       ORDER_AGENT_MAX_API_CALLS: ${ORDER_AGENT_MAX_API_CALLS:-12}

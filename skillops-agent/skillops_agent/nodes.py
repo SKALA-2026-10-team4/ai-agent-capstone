@@ -11,57 +11,74 @@ v1 변경:
 - State 의 일부만 반환 (LangGraph 가 merge 한다).
 """
 
-from datetime import datetime, timezone
+import difflib
+from datetime import UTC, datetime
 
 from langgraph.types import interrupt
 from pydantic import BaseModel as _PydanticModel
 
+from .config import GOLDEN_IDS
+from .contracts import (
+    ContractError,
+    check_problem,
+    context_keys,
+    event_data,
+    execution_uuid,
+    reverse_hunk,
+    tools_called,
+    validate_report,
+)
 from .llm import make_structured_llm
 from .prompts import load as load_prompt
 from .state import (
-    AgentState,
     AblationRun,
+    AgentState,
     Candidate,
     CandidateResults,
     Hypothesis,
     Intent,
     Patch,
     ProgressEvent,
-    RootCause,
 )
-from .tools import get_tools
-
+from .tools import MCPToolError, get_tools
 
 # ── LLM 출력 스키마 ────────────────────────────────────────────────────────────
 
+
 class _HypothesisItem(_PydanticModel):
-    change_no: int       # v1: hunk_index → change_no
+    change_no: int  # v1: hunk_index → change_no
     summary: str
     confidence: float
+
 
 class _HypothesesOutput(_PydanticModel):
     hypotheses: list[_HypothesisItem]
 
+
 class _IntentOutput(_PydanticModel):
     text: str
-    checks: list[str]    # v1: assertions → checks
+    checks: list[str]  # v1: assertions → checks
+
 
 class _PatchSpec(_PydanticModel):
     skill: str
-    base_version: int
-    patch: str           # v1: diff → patch
+    full_text: str  # Revised entire file; B builds the patch against the fixed source.
+
 
 class _CandidateSpec(_PydanticModel):
-    kind: str            # same_skill | linked_skills | run_order
+    kind: str  # same_skill | linked_skills | run_order
 
     patches: list[_PatchSpec]
+
 
 class _CandidatesOutput(_PydanticModel):
     candidates: list[_CandidateSpec]
 
+
 class _ExplanationItem(_PydanticModel):
-    candidate_no: int    # v1: id(str) → candidate_no(int)
+    candidate_no: int  # v1: id(str) → candidate_no(int)
     explanation: str
+
 
 class _RankExplanationsOutput(_PydanticModel):
     explanations: list[_ExplanationItem]
@@ -69,51 +86,23 @@ class _RankExplanationsOutput(_PydanticModel):
 
 # ── check 평가 헬퍼 ────────────────────────────────────────────────────────────
 
-def _eval_check(check: str, context: dict) -> bool:
-    """'<key> <op> <literal>' 형식을 평가한다. op: ==, !=, in."""
-    parts = check.split(None, 2)
-    if len(parts) != 3:
-        return True
-    key, op, literal = parts
-    value = context.get(key)
-    if value is None:
-        return False
-    clean = literal.strip("'\"")
-    if op == "==":
-        return str(value) == clean
-    if op == "!=":
-        return str(value) != clean
-    if op == "in":
-        return clean in str(value)
-    return True
-
 
 def _error_event(trace: dict) -> dict:
-    """v1 events에서 EXECUTION_ERROR 이벤트를 반환한다."""
-    return next(
-        (e for e in trace.get("events", []) if e.get("kind") == "EXECUTION_ERROR"), {}
-    )
+    return next((e for e in trace.get("events", []) if e.get("kind") == "EXECUTION_ERROR"), {})
 
 
-async def _check_intent(checks: list[str], run_ids: list[str], tools) -> bool:
-    """repro 실행 execution_id 의 trace 출력으로 check 을 검증한다."""
-    if not checks:
-        return True
-    if not run_ids:
-        return False
-    trace = await tools.get_trace(run_ids[0])
-    context: dict = {}
-    for event in trace.get("events", []):
-        if event.get("kind") == "EXECUTION_FINISHED":
-            context.update(event.get("output", {}))
-    return all(_eval_check(c, context) for c in checks)
+async def _run(tools, workspace_id, ids, repeat=2, checks=None):
+    if not ids:
+        raise ContractError("at least one configured scenario is required")
+    report = await tools.run_scenarios(workspace_id, ids, repeat=repeat, extra_checks=checks)
+    return validate_report(report, workspace_id, ids, repeat)
 
 
 # ── 공통 헬퍼 ──────────────────────────────────────────────────────────────────
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _event(node: str, msg: str, run_id: str | None = None) -> ProgressEvent:
@@ -147,6 +136,12 @@ def init(state: AgentState) -> dict:
         "diff": None,
         "skill_versions": {},
         "snapshot_id": None,
+        "baseline_snapshot_id": None,
+        "execution_id": None,
+        "changes": [],
+        "diagnosis_status": "RUNNING",
+        "diagnosis": None,
+        "preflight_run_ids": [],
         "hypotheses": [],
         "ablation_runs": [],
         "root_cause": None,
@@ -168,45 +163,161 @@ def init(state: AgentState) -> dict:
 
 async def fetch_evidence(state: AgentState) -> dict:
     trigger = state["trigger"]
-    base = _tick(state, "fetch_evidence", "증거 수집 시작")
-
+    base = _tick(state, "fetch_evidence", "실제 snapshot과 실행 증거 수집")
+    candidate = trigger.get("candidate_snapshot_id")
+    baseline = trigger.get("baseline_snapshot_id")
+    execution = trigger.get("execution_id") or trigger.get("run_id")
+    trace = None
     async with get_tools() as t:
-        trace = None
-        diff = None
-        skill_versions: dict = {}
-        snapshot_id: str | None = None
-
-        if trigger.get("run_id"):
-            trace = await t.get_trace(trigger["run_id"])
-            snapshot_id = trace.get("snapshot_id")
-
-            # v1: SKILL_SELECTED events에서 실행 당시 버전 맵 추출
-            for event in trace.get("events", []):
-                if event.get("kind") == "SKILL_SELECTED":
-                    skill_versions[event["skill"]] = event["version"]
-
-            # v1: EXECUTION_ERROR event에서 실패 skill 추출
-            failed_ev = _error_event(trace)
-            if failed_ev:
-                skill = failed_ev["skill"]
-                current_v = skill_versions.get(skill, 1)
-                if current_v > 1:
-                    prev_snap = f"{snapshot_id}_prev" if snapshot_id else "snap_prev"
-                    diff = await t.diff_skill(skill, prev_snap, snapshot_id or "snap_cur")
-
-        elif trigger.get("skill") and trigger.get("version"):
-            skill = trigger["skill"]
-            version = trigger["version"]
-            if version > 1:
-                diff = await t.diff_skill(skill, f"snap_v{version - 1}", f"snap_v{version}")
-
-    base.update({
-        "trace": trace,
-        "diff": diff,
-        "skill_versions": skill_versions,
-        "snapshot_id": snapshot_id,
-        "events": state["events"] + [_event("fetch_evidence", "증거 수집 완료")],
-    })
+        if execution:
+            execution = execution_uuid(execution)
+            trace = await t.get_trace(execution)
+            if candidate and candidate != trace.get("snapshot_id"):
+                raise ContractError("trigger snapshot and execution snapshot differ")
+            candidate = trace.get("snapshot_id")
+        if not candidate:
+            raise ContractError("candidate_snapshot_id or an execution with snapshot is required")
+        manifest = await t.get_snapshot(candidate)
+        if manifest.get("snapshot_id") != candidate or not manifest.get("hash"):
+            raise ContractError("invalid candidate snapshot manifest")
+        metadata = manifest.get("metadata", {})
+        baseline = baseline or metadata.get("baseline_snapshot_id")
+        if not baseline:
+            raise ContractError("baseline_snapshot_id is required; version cannot identify it")
+        before = await t.get_snapshot(baseline)
+        if before.get("snapshot_id") != baseline or not before.get("hash"):
+            raise ContractError("invalid baseline snapshot manifest")
+        for side in (baseline, candidate):
+            execution_uuid(side)
+        if trace and trace.get("snapshot_hash") != manifest["hash"]:
+            raise ContractError("trace and candidate snapshot hash differ")
+        listing = await t.list_skills(candidate)
+        if (
+            listing.get("snapshot_id") != candidate
+            or listing.get("snapshot_hash") != manifest["hash"]
+        ):
+            raise ContractError("skill list and snapshot differ")
+        if listing.get("partial") or listing.get("parse_errors"):
+            raise ContractError("candidate skill metadata is incomplete")
+        versions = {item["skill_id"]: item["version"] for item in listing["items"]}
+        # Actual manifest differences, never failure location or version arithmetic.
+        old = {f["path"]: f["hash"] for f in before["files"]}
+        new = {f["path"]: f["hash"] for f in manifest["files"]}
+        paths = sorted(path for path in old.keys() | new.keys() if old.get(path) != new.get(path))
+        announced = trigger.get("changed_paths")
+        if announced is not None and set(announced) != set(paths):
+            raise ContractError("changed_paths does not match the two snapshot manifests")
+        changes = []
+        diffs = []
+        for path in paths:
+            parts = path.split("/")
+            if len(parts) != 3 or parts[0] != "skills" or parts[2] != "SKILL.md":
+                raise ContractError(f"resource/additional path diagnosis is not supported: {path}")
+            if path not in old or path not in new:
+                raise ContractError("added/removed skills need a separate ablation policy")
+            skill = parts[1]
+            diff = await t.diff_skill(skill, baseline, candidate)
+            for key, expected in (("before", baseline), ("after", candidate)):
+                side = diff.get(key, {})
+                file_hash = old[path] if key == "before" else new[path]
+                snap_hash = before["hash"] if key == "before" else manifest["hash"]
+                if (
+                    side.get("snapshot_id") != expected
+                    or side.get("file_hash") != file_hash
+                    or side.get("snapshot_hash") != snap_hash
+                ):
+                    raise ContractError("diff evidence does not match the fixed snapshots")
+            if not isinstance(diff.get("hunks"), list) or not diff["hunks"]:
+                raise ContractError("changed file returned no C hunks")
+            diffs.append(diff)
+            for hunk in diff["hunks"]:
+                if not hunk.get("hunk_id") or not hunk.get("diff"):
+                    raise ContractError("C hunk identity/patch missing")
+                changes.append({**hunk, "change_no": len(changes) + 1, "skill": skill})
+        ids = []
+        if not execution:
+            baseline_ws = await t.create_workspace(snapshot_id=baseline)
+            baseline_results = await _run(t, baseline_ws["workspace_id"], GOLDEN_IDS)
+            baseline_ids = [i for r in baseline_results for i in r["run_ids"]]
+            if not all(r["passed"] for r in baseline_results):
+                base.update(
+                    diagnosis_status="BASELINE_FAILED",
+                    snapshot_id=candidate,
+                    baseline_snapshot_id=baseline,
+                    preflight_run_ids=baseline_ids,
+                    diagnosis={
+                        "explanation": (
+                            "기준 세트의 주문도 검증을 통과하지 못했습니다. "
+                            "재고 등 검증 환경을 확인하세요. 수정본 결함으로 확정하지 않습니다."
+                        ),
+                        "failures": [f for r in baseline_results for f in r["failures"]],
+                    },
+                )
+                return base
+            ws = await t.create_workspace(snapshot_id=candidate)
+            results = await _run(t, ws["workspace_id"], GOLDEN_IDS)
+            ids = [r for result in results for r in result["run_ids"]]
+            if all(result["passed"] for result in results):
+                base.update(diagnosis_status="VALIDATED", preflight_run_ids=ids)
+            else:
+                failed = next(result for result in results if not result["passed"])
+                execution = execution_uuid(failed["failures"][0]["run_id"])
+                trace = await t.get_trace(execution)
+                if trace.get("completion") != "FAILED":
+                    base.update(
+                        diagnosis_status="VALIDATION_FAILED",
+                        snapshot_id=candidate,
+                        baseline_snapshot_id=baseline,
+                        preflight_run_ids=ids,
+                        diagnosis={
+                            "explanation": (
+                                "기대 결과와 실제 업무 결과가 다릅니다. "
+                                "실행 오류 없이 끝나 자동 원인 확정은 진행하지 않습니다."
+                            ),
+                            "failures": [f for r in results for f in r["failures"]],
+                        },
+                    )
+                    return base
+                # C publishes a derived snapshot for the workspace. Confirm every file hash.
+                replay_manifest = await t.get_snapshot(trace["snapshot_id"])
+                if {f["path"]: f["hash"] for f in replay_manifest["files"]} != new:
+                    raise ContractError("preflight executed different candidate files")
+        base.update(
+            trace=trace,
+            diff={"files": diffs, "hunks": changes},
+            changes=changes,
+            skill_versions=versions,
+            snapshot_id=candidate,
+            baseline_snapshot_id=baseline,
+            execution_id=execution,
+            preflight_run_ids=ids,
+        )
+        if (
+            not changes
+            and not trigger.get("diagnosis_only")
+            and base.get("diagnosis_status") != "VALIDATED"
+        ):
+            base["diagnosis_status"] = "NO_SKILL_CHANGES"
+        if trigger.get("diagnosis_only"):
+            checks = trigger.get("intent_checks", [])
+            if not execution or not checks:
+                raise ContractError("diagnosis_only requires an execution and intent_checks")
+            ws = await t.create_workspace(snapshot_id=candidate)
+            results = await _run(t, ws["workspace_id"], [f"f-{execution}"], checks=checks)
+            failed_checks = [f for r in results for f in r["failures"]]
+            # Only assertion mismatches support an intent-violation diagnosis.
+            violated = any("확인 조건 실패:" in f["reason"] for f in failed_checks)
+            base.update(
+                diagnosis_status="INTENT_VIOLATION" if violated else "EVALUATED",
+                diagnosis={
+                    "intent_checks": checks,
+                    "failures": failed_checks,
+                    "evidence_run_ids": [i for r in results for i in r["run_ids"]],
+                    "explanation": "변경 정책의 확인 조건과 실제 실행 결과가 일치하지 않습니다."
+                    if violated
+                    else "실행 결과를 확인했습니다. 의도 위반 확정 여부는 failures를 확인하세요.",
+                },
+            )
     return base
 
 
@@ -214,7 +325,6 @@ async def fetch_evidence(state: AgentState) -> dict:
 
 
 async def hypothesize(state: AgentState) -> dict:
-    diff = state.get("diff") or {}
     trace = state.get("trace") or {}
     retry = state.get("hypothesis_retry", 0)
 
@@ -230,7 +340,7 @@ async def hypothesize(state: AgentState) -> dict:
 
     prompt_text = load_prompt("hypothesize").format(
         trace=trace,
-        diff=diff,
+        diff=state.get("changes", []),
         previous_failures=previous_failures,
     )
 
@@ -240,7 +350,9 @@ async def hypothesize(state: AgentState) -> dict:
     hypotheses: list[Hypothesis] = [
         Hypothesis(change_no=h.change_no, summary=h.summary, confidence=h.confidence)
         for h in (result.hypotheses if result else [])
-    ] or [Hypothesis(change_no=0, summary="(LLM 응답 없음) 기본 가설", confidence=0.5)]
+    ]
+    if not hypotheses:
+        raise ContractError("LLM returned no hypotheses")
 
     base = _tick(state, "hypothesize", f"가설 {len(hypotheses)}개 생성 (retry={retry})")
     base["hypotheses"] = hypotheses
@@ -251,85 +363,73 @@ async def hypothesize(state: AgentState) -> dict:
 
 
 async def ablate(state: AgentState) -> dict:
-    """각 가설의 change 를 되돌린 뒤 재현 시나리오를 실행한다. confirmed=True 면 원인 확정."""
-    trigger = state["trigger"]
-    diff = state.get("diff") or {}
-    changes: list[dict] = diff.get("changes", [])
-    skill_versions = state.get("skill_versions", {})
-
-    trace = state.get("trace") or {}
-    failed_ev = _error_event(trace)
-    skill_name = failed_ev.get("skill") or trigger.get("skill") or "unknown"
-    base_v = skill_versions.get(skill_name, 1)
-
-    ablation_runs: list[AblationRun] = []
+    execution = state.get("execution_id")
+    if not execution:
+        raise ContractError("ablation requires an actual execution")
+    runs = []
     async with get_tools() as t:
-        for hypo in state["hypotheses"]:
-            ws = await t.create_workspace()
-            workspace_id = ws["workspace_id"]
-
-            # 해당 change 를 되돌리는 역방향 패치 적용 (before ↔ after 반전)
-            change = next((c for c in changes if c["change_no"] == hypo["change_no"]), None)
-            if change:
-                reverse_patch = (
-                    f"--- a/{skill_name}/SKILL.md\n+++ b/{skill_name}/SKILL.md\n"
-                    f"@@ -1 +1 @@\n-{change.get('after', '')}\n+{change.get('before', '')}\n"
+        control = await t.create_workspace(snapshot_id=state["snapshot_id"])
+        control_results = await _run(t, control["workspace_id"], [f"f-{execution}"], repeat=1)
+        category = event_data(_error_event(state["trace"])).get("category")
+        if control_results[0]["passed"]:
+            raise ContractError("unmodified candidate no longer reproduces the failure")
+        if category and not any(category in f["reason"] for f in control_results[0]["failures"]):
+            raise ContractError("replay reproduced a different error category")
+        control_ids = control_results[0]["run_ids"]
+        for hypothesis in state["hypotheses"]:
+            change = next(
+                (c for c in state["changes"] if c["change_no"] == hypothesis["change_no"]), None
+            )
+            if change is None:
+                raise ContractError("hypothesis references an unknown change_no")
+            ws = await t.create_workspace(snapshot_id=state["snapshot_id"])
+            skill = change["skill"]
+            patch = Patch(
+                skill=skill,
+                base_version=ws["skill_versions"][skill],
+                patch=reverse_hunk(change["diff"]),
+            )
+            applied = await t.apply_patch(ws["workspace_id"], [patch])
+            if applied.get("workspace_id") != ws["workspace_id"] or not applied.get(
+                "changed_skills"
+            ):
+                raise ContractError("ablation patch was not applied")
+            results = await _run(t, ws["workspace_id"], [f"f-{execution}"], repeat=1)
+            runs.append(
+                AblationRun(
+                    change_no=change["change_no"],
+                    workspace_id=ws["workspace_id"],
+                    run_ids=[i for r in results for i in r["run_ids"]],
+                    control_run_ids=control_ids,
+                    confirmed=all(r["passed"] for r in results),
                 )
-                await t.apply_patch(workspace_id, [Patch(
-                    skill=skill_name, base_version=base_v, patch=reverse_patch
-                )])
-
-            result = await t.run_scenarios(workspace_id, ["f-01"], repeat=1)
-            results = result.get("results", [])
-            run_ids = [run_id for res in results for run_id in res.get("run_ids", [])]
-            confirmed = all(res.get("passed", False) for res in results)
-
-            ablation_runs.append(AblationRun(
-                change_no=hypo["change_no"],
-                workspace_id=workspace_id,
-                run_ids=run_ids,
-                confirmed=confirmed,
-            ))
-
-    base = _tick(state, "ablate", f"ablation {len(ablation_runs)}개 실행")
-    base["ablation_runs"] = ablation_runs
-    return base
+            )
+    return {**_tick(state, "ablate", f"실제 hunk 복원 실험 {len(runs)}개"), "ablation_runs": runs}
 
 
 # ── Node 5: check_ablation (라우터) ──────────────────────────────────────────
 
 
 def check_ablation(state: AgentState) -> dict:
-    confirmed = [r for r in state["ablation_runs"] if r["confirmed"]]
-    if confirmed:
-        run = confirmed[0]
-        diff = state.get("diff") or {}
-        changes = diff.get("changes", [])
-        change = next((c for c in changes if c["change_no"] == run["change_no"]), {})
-        skill_versions = state.get("skill_versions", {})
-
-        # 실패 skill 이름 추출
-        trace = state.get("trace") or {}
-        failed_ev = _error_event(trace)
-        skill_name = failed_ev.get("skill", state["trigger"].get("skill", "unknown"))
-        current_v = skill_versions.get(skill_name, 1)
-
-        root_cause = RootCause(
-            skill=skill_name,
-            from_version=max(1, current_v - 1),
-            to_version=current_v,
-            change_no=run["change_no"],
-            summary=change.get("before", "") + " → " + change.get("after", ""),
-            proof_run_ids=run["run_ids"] or ["r_ablation_stub"],
-        )
-        base = _tick(state, "check_ablation", f"원인 확정: {skill_name} change {run['change_no']}")
-        base["root_cause"] = root_cause
-        return base
-
-    retry = state["hypothesis_retry"] + 1
-    base = _tick(state, "check_ablation", f"가설 기각, 재시도 {retry}/3")
-    base["hypothesis_retry"] = retry
-    return base
+    for run in state["ablation_runs"]:
+        if run["confirmed"] and run["run_ids"]:
+            change = next(c for c in state["changes"] if c["change_no"] == run["change_no"])
+            return {
+                **_tick(state, "check_ablation", f"원인 실험 통과: {change['skill']}"),
+                "root_cause": {
+                    "skill": change["skill"],
+                    "change_no": change["change_no"],
+                    "hunk_id": change["hunk_id"],
+                    "from_version": state["skill_versions"][change["skill"]],
+                    "to_version": state["skill_versions"][change["skill"]],
+                    "summary": change["before"] + " → " + change["after"],
+                    "proof_run_ids": run["control_run_ids"] + run["run_ids"],
+                },
+            }
+    return {
+        **_tick(state, "check_ablation", "가설 기각"),
+        "hypothesis_retry": state["hypothesis_retry"] + 1,
+    }
 
 
 def route_ablation(state: AgentState) -> str:
@@ -345,25 +445,54 @@ def route_ablation(state: AgentState) -> str:
 # ── Node 6: extract_intent ────────────────────────────────────────────────────
 
 
+async def _known_values(state: AgentState) -> list[str]:
+    """원인을 되돌려 통과한 실행에서 값 이름을 모은다.
+
+    정상 흐름이 실제로 만드는 값만 확인 조건에 쓸 수 있다.
+    """
+    passing = next(
+        (r for r in state.get("ablation_runs", []) if r["confirmed"] and r["run_ids"]), None
+    )
+    if passing is None:
+        return context_keys(state.get("trace") or {})
+    async with get_tools() as t:
+        return context_keys(await t.get_trace(passing["run_ids"][0]))
+
+
 async def extract_intent(state: AgentState) -> dict:
     diff = state.get("diff") or {}
     root_cause = state.get("root_cause") or {}
+    known = await _known_values(state)
 
     prompt_text = load_prompt("extract_intent").format(
         root_cause=root_cause,
         diff=diff,
+        context_keys=", ".join(known) or "(없음)",
+        style=load_prompt("style"),
     )
 
     llm = make_structured_llm(_IntentOutput)
     result = await llm.ainvoke(prompt_text)
 
+    # C 가 읽지 못하는 조건이 하나라도 있으면 run_scenarios 전체가 거절된다.
+    # 미리 걸러서 이유와 함께 남긴다.
+    kept, dropped = [], []
+    for check in result.checks if result else []:
+        problem = check_problem(check, set(known))
+        if problem:
+            dropped.append({"check": check, "reason": problem})
+        else:
+            kept.append(check)
+
     intent = Intent(
         text=result.text if result else "의도 추출 실패",
-        checks=result.checks if result else [],
+        checks=kept,
+        dropped_checks=dropped,
         confirmed=None,
     )
 
-    base = _tick(state, "extract_intent", "의도 추출 완료")
+    message = f"의도 추출 완료 (조건 {len(kept)}개, 버린 조건 {len(dropped)}개)"
+    base = _tick(state, "extract_intent", message)
     base["intent"] = intent
     return base
 
@@ -376,9 +505,7 @@ async def generate_candidates(state: AgentState) -> dict:
     intent = state.get("intent") or {}
     diff = state.get("diff") or {}
     retry = state.get("candidate_retry", 0)
-    skill = root_cause.get("skill", "unknown")
-    base_v = root_cause.get("from_version", 1)
-    snapshot_id = state.get("snapshot_id") or "snap_unknown"
+    snapshot_id = state["snapshot_id"]
 
     previous_failures = "없음"
     if retry > 0 and state.get("candidates"):
@@ -388,7 +515,8 @@ async def generate_candidates(state: AgentState) -> dict:
             if not c.get("valid"):
                 lines.append(
                     f"{c['candidate_no']}({c['kind']}): fixes_failure={r.get('fixes_failure')}, "
-                    f"keeps_old_orders={r.get('keeps_old_orders')}, keeps_intent={r.get('keeps_intent')}"
+                    f"keeps_old_orders={r.get('keeps_old_orders')}, "
+                    f"keeps_intent={r.get('keeps_intent')}, error={c.get('validation_error')}"
                 )
         if lines:
             previous_failures = "\n".join(lines)
@@ -396,14 +524,27 @@ async def generate_candidates(state: AgentState) -> dict:
     async with get_tools() as t:
         dep_graph = await t.get_dependency_graph(
             snapshot_id=snapshot_id,
-            entry_skill_id=skill,
+            entry_skill_id=state["trigger"].get("entry_skill_id", "order-flow"),
         )
 
+        sources = {}
+        for skill in state["skill_versions"]:
+            source = await t.get_skill(snapshot_id, skill)
+            if source.get("snapshot_id") != snapshot_id or not isinstance(
+                source.get("content"), str
+            ):
+                raise ContractError("candidate source does not match the fixed snapshot")
+            sources[skill] = {"content": source["content"], "version": source["version"]}
+
+    if dep_graph.get("complete") is not True:
+        raise ContractError("dependency graph is incomplete")
+
     prompt_text = load_prompt("generate_candidates").format(
-        root_cause=root_cause,
+        root_cause={**root_cause, "skill_versions": state["skill_versions"]},
         intent=intent,
         diff=diff,
         dependency_graph=dep_graph,
+        current_files=sources,
         previous_failures=previous_failures,
     )
 
@@ -412,35 +553,51 @@ async def generate_candidates(state: AgentState) -> dict:
 
     candidates: list[Candidate] = []
     for i, spec in enumerate(result.candidates if result else []):
-        patches = [
-            Patch(skill=p.skill, base_version=p.base_version, patch=p.patch)
-            for p in spec.patches
-        ]
-        candidates.append(Candidate(
-            candidate_no=i + 1,
-            kind=spec.kind,
-            workspace=None,
-            patches=patches,
-            results=None,
-            valid=None,
-            evidence_run_ids=[],
-            rank=None,
-            explanation=None,
-        ))
-
-    # LLM 응답 없을 때 fallback
-    if not candidates:
-        stub_patch = (
-            f"--- a/{skill}/SKILL.md\n+++ b/{skill}/SKILL.md\n"
-            f"@@ -1 +1 @@\n-stub before\n+stub after\n"
+        patches = []
+        validation_error = None
+        seen = set()
+        for revision in spec.patches:
+            if revision.skill not in sources or revision.skill in seen:
+                validation_error = "수정 대상이 없거나 같은 파일을 여러 번 제안했습니다."
+                break
+            seen.add(revision.skill)
+            source = sources[revision.skill]
+            if not revision.full_text.strip() or not revision.full_text.startswith("---\n"):
+                validation_error = "수정 후 전체 SKILL.md 원문이 필요합니다."
+                break
+            path = f"skills/{revision.skill}/SKILL.md"
+            patch = "\n".join(
+                difflib.unified_diff(
+                    source["content"].splitlines(),
+                    revision.full_text.splitlines(),
+                    fromfile=f"a/{path}",
+                    tofile=f"b/{path}",
+                    lineterm="",
+                )
+            )
+            if patch:
+                patches.append(
+                    Patch(skill=revision.skill, base_version=source["version"], patch=patch + "\n")
+                )
+        if not patches and not validation_error:
+            validation_error = "현재 수정본과 달라진 내용이 없는 후보입니다."
+        candidates.append(
+            Candidate(
+                candidate_no=i + 1,
+                kind=spec.kind,
+                workspace=None,
+                patches=patches,
+                results=None,
+                valid=None,
+                evidence_run_ids=[],
+                rank=None,
+                explanation=None,
+                validation_error=validation_error,
+            )
         )
-        for i, kind in enumerate(("same_skill", "linked_skills", "run_order")):
-            base_patches = [Patch(skill=skill, base_version=base_v, patch=stub_patch)]
-            candidates.append(Candidate(
-                candidate_no=i + 1, kind=kind, workspace=None,
-                patches=base_patches, results=None, valid=None,
-                evidence_run_ids=[], rank=None, explanation=None,
-            ))
+
+    if not candidates:
+        raise ContractError("LLM returned no candidates")
 
     base = _tick(state, "generate_candidates", f"후보 {len(candidates)}개 생성 (retry={retry})")
     base["candidates"] = candidates
@@ -451,61 +608,81 @@ async def generate_candidates(state: AgentState) -> dict:
 
 
 async def verify_candidates(state: AgentState) -> dict:
-    """각 후보를 격리 workspace 에서 골든 + 재현 시나리오로 검증한다."""
-    golden_ids = ["g-01", "g-02", "g-03", "g-04", "g-05", "g-06"]
-
-    trace = state.get("trace") or {}
-    repro_id = f"f-{trace.get('execution_id', 'repro')}"
-    all_scenario_ids = golden_ids + [repro_id]
-
+    execution = state["execution_id"]
+    repro_id = f"f-{execution}"
     checks = (state.get("intent") or {}).get("checks", [])
-
-    updated: list[Candidate] = []
+    updated = []
     async with get_tools() as t:
-        for cand in state["candidates"]:
-            ws = await t.create_workspace()
-            workspace_id = ws["workspace_id"]
-            patch_result = await t.apply_patch(workspace_id, cand["patches"])
-            contract_ok = len(patch_result.get("broken_links", [])) == 0
-
-            run_result = await t.run_scenarios(workspace_id, all_scenario_ids, repeat=2)
-            results = run_result.get("results", [])
-
-            repro_result = next((r for r in results if r["scenario_id"] == repro_id), None)
-            functional = repro_result.get("passed", False) if repro_result else False
-
-            golden_results = [r for r in results if r["scenario_id"] != repro_id]
-            passed_count = sum(1 for r in golden_results if r.get("passed"))
-            regression_ok = passed_count == len(golden_results)
-
-            repro_run_ids = repro_result.get("run_ids", []) if repro_result else []
-            intent_ok = await _check_intent(checks, repro_run_ids, t)
-
-            evidence_run_ids = [run_id for r in results for run_id in r.get("run_ids", [])]
-
-            # PB-007: repro 트레이스 TOOL_REQUEST 이벤트에서 도구 호출 목록 추출
-            tools_called: list[str] = []
-            if repro_run_ids:
-                repro_trace = await t.get_trace(repro_run_ids[0])
-                tools_called = [
-                    ev["tool"] for ev in repro_trace.get("events", [])
-                    if ev.get("kind") == "TOOL_REQUEST" and ev.get("tool")
-                ]
-
-            candidate_results = CandidateResults(
+        for candidate in state["candidates"]:
+            if candidate.get("validation_error"):
+                updated.append({**candidate, "valid": False})
+                continue
+            ws = await t.create_workspace(snapshot_id=state["snapshot_id"])
+            for patch in candidate["patches"]:
+                if patch["base_version"] != ws["skill_versions"].get(patch["skill"]):
+                    raise ContractError("candidate patch base_version differs from workspace")
+            try:
+                applied = await t.apply_patch(ws["workspace_id"], candidate["patches"])
+            except MCPToolError as exc:
+                if exc.code != "INVALID_INPUT":
+                    raise
+                updated.append(
+                    {
+                        **candidate,
+                        "workspace": ws["workspace_id"],
+                        "valid": False,
+                        "validation_error": exc.payload.get("message", str(exc)),
+                    }
+                )
+                continue
+            if applied.get("workspace_id") != ws["workspace_id"] or not isinstance(
+                applied.get("broken_links"), list
+            ):
+                raise ContractError("invalid apply_patch response")
+            expected_skills = {p["skill"] for p in candidate["patches"]}
+            if (
+                not expected_skills
+                or {p["skill"] for p in applied.get("changed_skills", [])} != expected_skills
+            ):
+                raise ContractError("candidate patches were not all applied")
+            regression = await _run(t, ws["workspace_id"], GOLDEN_IDS)
+            repro = await _run(t, ws["workspace_id"], [repro_id])
+            # C extra_checks applies to every requested scenario: scope intent to repro only.
+            intent_results = (
+                await _run(t, ws["workspace_id"], [repro_id], checks=checks) if checks else []
+            )
+            evidence = [i for r in regression + repro + intent_results for i in r["run_ids"]]
+            functional = all(r["passed"] for r in repro)
+            regression_ok = all(r["passed"] for r in regression)
+            intent_ok = all(r["passed"] for r in intent_results)
+            contract_ok = not applied["broken_links"]
+            called = []
+            for run_id in repro[0]["run_ids"]:
+                called.extend(tools_called(await t.get_trace(run_id)))
+            results = CandidateResults(
                 fixes_failure=functional,
-                keeps_old_orders={"passed": passed_count, "total": len(golden_results)},
+                keeps_old_orders={
+                    "passed": sum(r["passed"] for r in regression),
+                    "total": len(regression),
+                },
                 keeps_intent=intent_ok,
                 no_broken_links=contract_ok,
-                changed_skill_count=len(cand["patches"]),
-                tools_called=tools_called,
+                changed_skill_count=len(expected_skills),
+                tools_called=called,
             )
-            valid = functional and regression_ok and intent_ok
-            updated.append({**cand, "workspace": workspace_id, "results": candidate_results, "valid": valid, "evidence_run_ids": evidence_run_ids})
-
-    base = _tick(state, "verify_candidates", f"후보 {len(updated)}개 검증 완료")
-    base["candidates"] = updated
-    return base
+            updated.append(
+                {
+                    **candidate,
+                    "workspace": ws["workspace_id"],
+                    "results": results,
+                    "valid": functional and regression_ok and intent_ok and contract_ok,
+                    "evidence_run_ids": evidence,
+                }
+            )
+    return {
+        **_tick(state, "verify_candidates", f"후보 {len(updated)}개 실제 C 계약 검증"),
+        "candidates": updated,
+    }
 
 
 # ── Node 9: check_valid (라우터) ──────────────────────────────────────────────
@@ -551,10 +728,13 @@ async def rank_and_explain(state: AgentState) -> dict:
         root_cause=state.get("root_cause") or {},
         intent=state.get("intent") or {},
         candidates=[{**c, "rank": rank_map.get(c["candidate_no"])} for c in ranked],
+        style=load_prompt("style"),
     )
     llm = make_structured_llm(_RankExplanationsOutput)
     result = await llm.ainvoke(prompt_text)
-    explanation_map = {e.candidate_no: e.explanation for e in (result.explanations if result else [])}
+    explanation_map = {
+        e.candidate_no: e.explanation for e in (result.explanations if result else [])
+    }
 
     updated = list(state["candidates"])
     recommended: int | None = None
@@ -577,42 +757,71 @@ async def rank_and_explain(state: AgentState) -> dict:
 # ── Node 11: save_proposal ────────────────────────────────────────────────────
 
 
-async def save_proposal(state: AgentState) -> dict:
-    root_cause = state.get("root_cause") or {}
-    intent = state.get("intent") or {}
-    recommended = state.get("recommended")
-    candidates = state.get("candidates", [])
-    valid_candidates = [c for c in candidates if c.get("valid")]
-
-    # 유효 후보 중 evidence_run_ids 가 비어 있으면 400 거부로 간주하고 오류 기록
-    empty_evidence_nos = [c["candidate_no"] for c in valid_candidates if not c.get("evidence_run_ids")]
-    if empty_evidence_nos:
-        base = _tick(state, "save_proposal", f"evidence_run_ids 없음(400): {empty_evidence_nos}")
-        base["error"] = f"save_proposal 400: evidence_run_ids 없는 후보 {empty_evidence_nos}"
-        return base
-
-    status = "proposed" if valid_candidates else "no_valid_fix"
-
-    recommended_candidate_no = None
-    if recommended is not None and recommended < len(candidates):
-        recommended_candidate_no = candidates[recommended].get("candidate_no")
-
-    proposal = {
-        "trigger": state["trigger"],
-        "root_cause": root_cause,
-        "intent": intent,
-        "candidates": candidates,
-        "recommended_candidate_no": recommended_candidate_no,
-        "status": status,
+def _failure_of(trace: dict | None) -> dict | None:
+    """실행 기록의 EXECUTION_ERROR 를 제안서의 failure 묶음으로 옮긴다. 오류가 없으면 None."""
+    event = _error_event(trace or {})
+    if not event:
+        return None
+    data = event_data(event)
+    return {
+        "execution_id": (trace or {}).get("execution_id"),
+        "skill": data.get("skill_id") or event.get("skill_id"),
+        "category": data.get("category"),
+        "message": data.get("message"),
+        "missing_inputs": data.get("missing_inputs", []),
+        "at": event.get("at"),
     }
 
-    async with get_tools() as t:
-        saved = await t.save_proposal(proposal)
 
-    full_proposal = {**proposal, "id": saved.get("id", "p_unknown")}
-    base = _tick(state, "save_proposal", f"proposal 저장: {full_proposal['id']} (status={status})")
-    base["proposal"] = full_proposal
-    return base
+def proposal_payload(state: AgentState) -> dict:
+    """save_proposal 로 보낼 제안서(계약 5 §10). 합격 판정과 본문 작성은 service 가 다시 한다."""
+    root_cause = state.get("root_cause")
+    if root_cause:
+        change = next(
+            (c for c in state.get("changes", []) if c["change_no"] == root_cause["change_no"]), {}
+        )
+        root_cause = {**root_cause, "before": change.get("before"), "after": change.get("after")}
+    candidates = []
+    for c in state.get("candidates", []):
+        candidate = {k: v for k, v in c.items() if k != "workspace"}
+        candidates.append({**candidate, "workspace_id": c.get("workspace")})
+    recommended = state.get("recommended")
+    recommended_no = (
+        candidates[recommended]["candidate_no"]
+        if recommended is not None and recommended < len(candidates)
+        else None
+    )
+    return {
+        "thread_id": state.get("pipeline_thread_id"),
+        "trigger": state["trigger"],
+        "baseline_snapshot_id": state.get("baseline_snapshot_id"),
+        "snapshot_id": state.get("snapshot_id"),
+        "failure": _failure_of(state.get("trace")),
+        "root_cause": root_cause,
+        "intent": state.get("intent"),
+        "candidates": candidates,
+        "recommended_candidate_no": recommended_no,
+        "status": "proposed" if any(c.get("valid") for c in candidates) else "no_valid_fix",
+    }
+
+
+async def save_proposal(state: AgentState) -> dict:
+    payload = proposal_payload(state)
+    # 근거 실행과 합격 조건은 service 가 확인한다.
+    # 거부되면 MCPToolError 가 그대로 올라가 ERROR 로 남는다.
+    async with get_tools() as t:
+        saved = await t.save_proposal(payload)
+    proposal = {
+        **payload,
+        "id": saved["proposal_id"],
+        "storage_status": "SAVED",
+        "valid_candidate_nos": saved["valid_candidate_nos"],
+    }
+    return {
+        **_tick(state, "save_proposal", f"제안서 저장: {saved['proposal_id']}"),
+        "proposal": proposal,
+        "diagnosis_status": "EVALUATED",
+    }
 
 
 # ── Node 12: wait_for_approval ────────────────────────────────────────────────

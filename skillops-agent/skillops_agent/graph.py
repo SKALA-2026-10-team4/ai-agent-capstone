@@ -1,64 +1,106 @@
-"""LangGraph StateGraph 정의 (v1).
+"""B diagnosis graph using the current C contract; proposals are saved via C save_proposal."""
 
-v1 변경: promote_workspace / smoke_check / rollback → 서비스 담당.
-Agent 는 save_proposal → wait_for_approval 이후 END 로 종료한다.
-"""
+import inspect
+from functools import wraps
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from . import nodes
+from .run_store import RunStore
 from .state import AgentState
 
+
+def error_text(exc):
+    if isinstance(exc, BaseExceptionGroup):
+        return "; ".join(error_text(child) for child in exc.exceptions)
+    return f"{type(exc).__name__}: {exc}"
+
+
+def guarded(fn):
+    @wraps(fn)
+    async def run(state):
+        try:
+            if inspect.iscoroutinefunction(fn):
+                result = await fn(state)
+            else:
+                result = fn(state)
+        except Exception as exc:
+            result = {"error": error_text(exc), "diagnosis_status": "ERROR"}
+        if state.get("pipeline_thread_id"):
+            RunStore().update(state["pipeline_thread_id"], result)
+        return result
+
+    return run
+
+
+def next_node(target):
+    def route(state):
+        return END if state.get("error") else target
+
+    return route
+
+
 builder = StateGraph(AgentState)
-
-# ── Node 등록 (12개) ───────────────────────────────────────────────────────────
-builder.add_node("init",                nodes.init)
-builder.add_node("fetch_evidence",      nodes.fetch_evidence)
-builder.add_node("hypothesize",         nodes.hypothesize)
-builder.add_node("ablate",              nodes.ablate)
-builder.add_node("check_ablation",      nodes.check_ablation)
-builder.add_node("extract_intent",      nodes.extract_intent)
-builder.add_node("generate_candidates", nodes.generate_candidates)
-builder.add_node("verify_candidates",   nodes.verify_candidates)
-builder.add_node("check_valid",         nodes.check_valid)
-builder.add_node("rank_and_explain",    nodes.rank_and_explain)
-builder.add_node("save_proposal",       nodes.save_proposal)
-builder.add_node("wait_for_approval",   nodes.wait_for_approval)
-
-# ── 진입점 ────────────────────────────────────────────────────────────────────
-builder.set_entry_point("init")
-
-# ── 고정 간선 ──────────────────────────────────────────────────────────────────
-builder.add_edge("init",                "fetch_evidence")
-builder.add_edge("fetch_evidence",      "hypothesize")
-builder.add_edge("hypothesize",         "ablate")
-builder.add_edge("ablate",              "check_ablation")
-builder.add_edge("extract_intent",      "generate_candidates")
-builder.add_edge("generate_candidates", "verify_candidates")
-builder.add_edge("verify_candidates",   "check_valid")
-builder.add_edge("rank_and_explain",    "save_proposal")
-builder.add_edge("save_proposal",       "wait_for_approval")
-
-# ── 조건 분기 ─────────────────────────────────────────────────────────────────
-builder.add_conditional_edges(
+for name in (
+    "init",
+    "fetch_evidence",
+    "hypothesize",
+    "ablate",
     "check_ablation",
-    nodes.route_ablation,
-    {"confirmed": "extract_intent", "retry": "hypothesize", "escalate": END, "limit_exceeded": END},
-)
-
-builder.add_conditional_edges(
+    "extract_intent",
+    "generate_candidates",
+    "verify_candidates",
     "check_valid",
-    nodes.route_valid,
-    {"has_valid": "rank_and_explain", "retry": "generate_candidates", "no_valid_fix": "save_proposal"},
-)
+    "rank_and_explain",
+    "save_proposal",
+):
+    builder.add_node(name, guarded(getattr(nodes, name)))
+builder.set_entry_point("init")
+builder.add_conditional_edges("init", next_node("fetch_evidence"))
 
-# v1: 승인/거부 모두 END — promote/smoke/rollback 은 서비스가 처리한다
-builder.add_conditional_edges(
-    "wait_for_approval",
-    nodes.route_approval,
-    {"approved": END, "rejected": END},
-)
 
-# ── 컴파일 ────────────────────────────────────────────────────────────────────
+def evidence_route(state):
+    if state.get("error") or state.get("diagnosis_status") != "RUNNING":
+        return END
+    if not state.get("changes"):
+        return END
+    return "hypothesize"
+
+
+builder.add_conditional_edges("fetch_evidence", evidence_route)
+for source, target in (
+    ("hypothesize", "ablate"),
+    ("ablate", "check_ablation"),
+    ("extract_intent", "generate_candidates"),
+    ("generate_candidates", "verify_candidates"),
+    ("verify_candidates", "check_valid"),
+    ("rank_and_explain", "save_proposal"),
+):
+    builder.add_conditional_edges(source, next_node(target))
+
+
+def ablation_route(state):
+    if state.get("error"):
+        return END
+    route = nodes.route_ablation(state)
+    if route in ("escalate", "limit_exceeded"):
+        return "save_proposal"
+    return "extract_intent" if route == "confirmed" else "hypothesize"
+
+
+def valid_route(state):
+    if state.get("error"):
+        return END
+    route = nodes.route_valid(state)
+    return {
+        "has_valid": "rank_and_explain",
+        "retry": "generate_candidates",
+        "no_valid_fix": "save_proposal",
+    }[route]
+
+
+builder.add_conditional_edges("check_ablation", ablation_route)
+builder.add_conditional_edges("check_valid", valid_route)
+builder.add_edge("save_proposal", END)
 graph = builder.compile(checkpointer=MemorySaver())
