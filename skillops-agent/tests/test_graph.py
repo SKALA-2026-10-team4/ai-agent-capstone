@@ -20,31 +20,31 @@ class _FakeChain:
         return self._val
 
 
-_STUB_DIFF = "--- a/inventory-check/SKILL.md\n+++ b/inventory-check/SKILL.md\n@@ -1 +1 @@\n-old\n+new\n"
+_STUB_PATCH = "--- a/inventory-check/SKILL.md\n+++ b/inventory-check/SKILL.md\n@@ -1 +1 @@\n-old\n+new\n"
 
 
 def _fake_structured_llm(schema):
     name = schema.__name__
     if "Hypothes" in name:
         val = SimpleNamespace(hypotheses=[
-            SimpleNamespace(hunk_index=0, summary="inventory-check 출력 필드명 변경", confidence=0.95),
+            SimpleNamespace(change_no=0, summary="inventory-check 출력 필드명 변경", confidence=0.95),
         ])
     elif "Intent" in name:
         val = SimpleNamespace(
             text="결제 서비스가 inventory.reserved 필드를 필요로 함",
-            assertions=["payment.status == 'PAID'"],
+            checks=["payment.status == 'PAID'"],
         )
     elif "Candidates" in name:
         val = SimpleNamespace(candidates=[
-            SimpleNamespace(kind="local",    patches=[SimpleNamespace(skill="inventory-check", base_version=4, diff=_STUB_DIFF)]),
-            SimpleNamespace(kind="contract", patches=[SimpleNamespace(skill="inventory-check", base_version=4, diff=_STUB_DIFF), SimpleNamespace(skill="payment", base_version=4, diff=_STUB_DIFF)]),
-            SimpleNamespace(kind="flow",     patches=[SimpleNamespace(skill="inventory-check", base_version=4, diff=_STUB_DIFF)]),
+            SimpleNamespace(kind="same_skill",    patches=[SimpleNamespace(skill="inventory-check", base_version=4, patch=_STUB_PATCH)]),
+            SimpleNamespace(kind="linked_skills", patches=[SimpleNamespace(skill="inventory-check", base_version=4, patch=_STUB_PATCH), SimpleNamespace(skill="payment", base_version=4, patch=_STUB_PATCH)]),
+            SimpleNamespace(kind="run_order",     patches=[SimpleNamespace(skill="inventory-check", base_version=4, patch=_STUB_PATCH)]),
         ])
     elif "RankExplan" in name:
         val = SimpleNamespace(explanations=[
-            SimpleNamespace(id="c-local-01",    explanation="g-01~g-06 및 재현 시나리오 통과"),
-            SimpleNamespace(id="c-contract-01", explanation="계약 일관성 확보 후 통과"),
-            SimpleNamespace(id="c-flow-01",     explanation="전체 흐름 재구성 후 통과"),
+            SimpleNamespace(candidate_no=1, explanation="g-01~g-06 및 재현 시나리오 통과"),
+            SimpleNamespace(candidate_no=2, explanation="계약 일관성 확보 후 통과"),
+            SimpleNamespace(candidate_no=3, explanation="전체 흐름 재구성 후 통과"),
         ])
     else:
         val = SimpleNamespace()
@@ -63,20 +63,23 @@ class _OnceFailAblationStub(StubMCPTools):
         super().__init__()
         self._ablation_calls = 0
 
-    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
-        # ablation 은 scenario_id "f-01" 하나만 실행한다
+    async def run_scenarios(
+        self, workspace_id: str, scenario_ids: list[str], repeat: int = 2, **kwargs
+    ) -> dict:
         if scenario_ids == ["f-01"]:
             self._ablation_calls += 1
             if self._ablation_calls == 1:
-                return [{"scenario_id": "f-01", "passed": False, "runs": [], "failures": ["첫 ablation 실패"]}]
-        return await StubMCPTools.run_scenarios(self, ws_id, scenario_ids, k)
+                return {"results": [{"scenario_id": "f-01", "passed": False, "all_passed": False, "run_ids": [], "failures": ["첫 ablation 실패"]}]}
+        return await StubMCPTools.run_scenarios(self, workspace_id, scenario_ids, repeat)
 
 
 class _AlwaysFailAblationStub(StubMCPTools):
-    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
+    async def run_scenarios(
+        self, workspace_id: str, scenario_ids: list[str], repeat: int = 2, **kwargs
+    ) -> dict:
         if scenario_ids == ["f-01"]:
-            return [{"scenario_id": "f-01", "passed": False, "runs": [], "failures": ["ablation 항상 실패"]}]
-        return await StubMCPTools.run_scenarios(self, ws_id, scenario_ids, k)
+            return {"results": [{"scenario_id": "f-01", "passed": False, "all_passed": False, "run_ids": [], "failures": ["ablation 항상 실패"]}]}
+        return await StubMCPTools.run_scenarios(self, workspace_id, scenario_ids, repeat)
 
 
 def _initial_state(run_id: str = "r_stub_F1") -> dict:
@@ -88,7 +91,7 @@ def _initial_state(run_id: str = "r_stub_F1") -> dict:
 
 def test_agent_state_has_all_fields():
     required = {
-        "trigger", "trace", "diff", "skill_versions",
+        "trigger", "trace", "diff", "skill_versions", "snapshot_id",
         "hypotheses", "ablation_runs", "root_cause", "hypothesis_retry",
         "intent", "candidates", "candidate_retry", "recommended",
         "proposal", "approval_status", "approval_token", "smoke_passed",
@@ -101,11 +104,11 @@ def test_agent_state_has_all_fields():
 
 
 def test_graph_has_all_nodes():
+    # v1: promote_workspace / smoke_check / rollback 제거됨
     expected = {
         "init", "fetch_evidence", "hypothesize", "ablate", "check_ablation",
         "extract_intent", "generate_candidates", "verify_candidates", "check_valid",
         "rank_and_explain", "save_proposal", "wait_for_approval",
-        "promote_workspace", "smoke_check", "rollback",
     }
     registered = set(graph.nodes.keys())
     assert expected.issubset(registered)
@@ -120,7 +123,6 @@ async def test_graph_runs_to_approval_interrupt():
     config = {"configurable": {"thread_id": "test-cycle-1"}}
     result = await graph.ainvoke(_initial_state(), config=config)
 
-    # interrupt 로 중단됐거나 approval_status 가 아직 없는 상태
     events = result.get("events", [])
     node_names = [e["node"] for e in events]
 
@@ -133,7 +135,9 @@ async def test_graph_runs_to_approval_interrupt():
 
 @pytest.mark.asyncio
 async def test_graph_resumes_after_approval():
-    """승인 응답으로 재개하면 promote_workspace 까지 실행된다."""
+    """승인 응답으로 재개하면 approval_status 가 approved 로 종료된다.
+    v1: promote_workspace / smoke_check 는 서비스가 처리한다.
+    """
     config = {"configurable": {"thread_id": "test-cycle-2"}}
 
     # interrupt 까지 실행
@@ -147,13 +151,14 @@ async def test_graph_resumes_after_approval():
 
     assert final.get("approval_status") == "approved"
     node_names = [e["node"] for e in final.get("events", [])]
-    assert "promote_workspace" in node_names
-    assert "smoke_check" in node_names
+    # v1: 서비스가 promote 담당 → agent 에서 호출하지 않음
+    assert "promote_workspace" not in node_names
+    assert "smoke_check" not in node_names
 
 
 @pytest.mark.asyncio
 async def test_graph_ends_on_rejection():
-    """거부 응답이면 promote 없이 종료된다."""
+    """거부 응답이면 proposal 없이 종료된다."""
     config = {"configurable": {"thread_id": "test-cycle-3"}}
     await graph.ainvoke(_initial_state(), config=config)
 
@@ -208,9 +213,7 @@ async def test_hypothesis_retries_after_ablation_failure(monkeypatch):
     result = await graph.ainvoke(_initial_state(), config=config)
 
     node_names = [e["node"] for e in result.get("events", [])]
-    # 재시도가 발생했으므로 hypothesize 가 2회 이상 실행되어야 한다
     assert node_names.count("hypothesize") >= 2
-    # 두 번째 ablation 은 통과하므로 root_cause 가 확정되어야 한다
     assert result.get("root_cause") is not None
 
 
@@ -233,11 +236,13 @@ async def test_hypothesis_exhaustion_escalates_to_end(monkeypatch):
 class _AllInvalidVerifyStub(StubMCPTools):
     """ablation 은 통과, verify_candidates 는 모두 실패."""
 
-    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
+    async def run_scenarios(
+        self, workspace_id: str, scenario_ids: list[str], repeat: int = 2, **kwargs
+    ) -> dict:
         if len(scenario_ids) == 1:  # ablation 단건 실행 → 통과
-            return [{"scenario_id": scenario_ids[0], "passed": True, "runs": [f"r_ok_{i}" for i in range(k)], "failures": []}]
+            return {"results": [{"scenario_id": scenario_ids[0], "passed": True, "all_passed": True, "run_ids": [f"r_ok_{i}" for i in range(repeat)], "failures": []}]}
         # verify: 골든 + 재현 → 전부 실패
-        return [{"scenario_id": sid, "passed": False, "runs": [], "failures": ["검증 실패"]} for sid in scenario_ids]
+        return {"results": [{"scenario_id": sid, "passed": False, "all_passed": False, "run_ids": [], "failures": ["검증 실패"]} for sid in scenario_ids]}
 
 
 @pytest.mark.asyncio
@@ -266,40 +271,6 @@ async def test_candidate_exhaustion_saves_no_valid_fix_proposal(monkeypatch):
     assert "save_proposal" in node_names
 
 
-# ── PB-005: smoke 실패 → rollback 경로 ───────────────────────────────────────
-
-
-class _SmokeFailStub(StubMCPTools):
-    """ablation/verify 는 통과, smoke_check 에서 사용하는 ws_id='live' 실행은 실패."""
-
-    async def run_scenarios(self, ws_id: str, scenario_ids: list[str], k: int = 2) -> list[dict]:
-        if ws_id == "live":
-            return [{"scenario_id": sid, "passed": False, "runs": [], "failures": ["스모크 실패"]} for sid in scenario_ids]
-        return await StubMCPTools.run_scenarios(self, ws_id, scenario_ids, k)
-
-
-@pytest.mark.asyncio
-async def test_smoke_failure_triggers_rollback(monkeypatch):
-    """promote 후 smoke 실패 시 rollback 노드가 실행된다."""
-    stub = _SmokeFailStub()
-    monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
-    config = {"configurable": {"thread_id": "test-smoke-fail-pb005-1"}}
-
-    # interrupt 까지 실행
-    await graph.ainvoke(_initial_state(), config=config)
-
-    # 승인으로 재개
-    final = await graph.ainvoke(
-        Command(resume={"status": "approved", "token": "tok_smoke_test"}),
-        config=config,
-    )
-
-    node_names = [e["node"] for e in final.get("events", [])]
-    assert "smoke_check" in node_names
-    assert "rollback" in node_names
-    assert "promote_workspace" in node_names
-
-
 # ── PB-006: 실행 제어·진행 이벤트 ────────────────────────────────────────────
 
 
@@ -309,13 +280,11 @@ async def test_step_limit_stops_ablation_loop(monkeypatch):
     stub = _AlwaysFailAblationStub()
     monkeypatch.setattr("skillops_agent.nodes.get_tools", lambda: stub)
     config = {"configurable": {"thread_id": "test-step-limit-ablation-1"}}
-    # ablation 루프가 max_steps=5 에서 조기 종료
     state = {"trigger": {"type": "failure", "run_id": "r_stub_F1", "skill": None, "version": None}, "max_steps": 5}
     result = await graph.ainvoke(state, config=config)
 
     node_names = [e["node"] for e in result.get("events", [])]
     assert "save_proposal" not in node_names
-    # 3회 소진(escalate)이 아닌 step limit 으로 종료 → hypothesis_retry < 3
     assert result.get("hypothesis_retry", 0) < 3
 
 
@@ -329,7 +298,7 @@ async def test_step_limit_stops_candidate_loop(monkeypatch):
     result = await graph.ainvoke(state, config=config)
 
     node_names = [e["node"] for e in result.get("events", [])]
-    assert "save_proposal" in node_names  # no_valid_fix 로 save_proposal 까지는 도달
+    assert "save_proposal" in node_names
 
 
 @pytest.mark.asyncio
@@ -340,10 +309,11 @@ async def test_events_accumulate_across_nodes():
 
     events = result.get("events", [])
     node_names = [e["node"] for e in events]
-    # 이벤트에 필수 필드가 있는지 확인
     for e in events:
         assert "at" in e
         assert "node" in e
         assert "msg" in e
+    assert "init" in node_names
+    assert "fetch_evidence" in node_names
     # init 은 step_count=0 이지만 event 는 1개 추가하므로 step_count = len(events) - 1
     assert result.get("step_count", 0) == len(events) - 1
