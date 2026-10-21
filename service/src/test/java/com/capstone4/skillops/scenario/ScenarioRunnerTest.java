@@ -21,6 +21,7 @@ class ScenarioRunnerTest {
     WorkspaceService workspaces = mock(WorkspaceService.class);
     OrderAgentRunClient orderAgent = mock(OrderAgentRunClient.class);
     AtomicInteger calls = new AtomicInteger();
+    TestFixtures.InMemoryRunLedger ledger = new TestFixtures.InMemoryRunLedger();
     ScenarioRunner runner;
 
     @BeforeEach
@@ -33,7 +34,29 @@ class ScenarioRunnerTest {
             return real.runDryRun(req);
         };
         runner = new ScenarioRunner(workspaces, new ScenarioCatalog("../scenarios", TestFixtures.JSON),
-                counting, new ScenarioGrader(), orderAgent);
+                counting, new ScenarioGrader(), orderAgent, ledger);
+    }
+
+    @Test
+    void everyRunIsRecordedForItsWorkspace() {
+        var passed = runner.run("w_ok", List.of("g-01"), null, null, 2);
+        var failed = runner.run("w_f1", List.of("g-01"), null, null, 1);
+        List<String> okRuns = passed.results().get(0).runIds();
+        List<String> f1Runs = failed.results().get(0).runIds();
+
+        assertThat(ledger.runIdsOf("w_ok")).containsExactlyInAnyOrderElementsOf(okRuns);
+        assertThat(ledger.runIdsOf("w_f1")).containsExactlyInAnyOrderElementsOf(f1Runs);
+        assertThat(ledger.runIdsOf("w_other")).isEmpty();
+        assertThat(ledger.known(okRuns.get(0))).isTrue();
+        assertThat(ledger.known(f1Runs.get(0))).isTrue();
+        assertThat(ledger.known("r_" + "0".repeat(32))).isFalse();
+    }
+
+    @Test
+    void nothingIsRecordedWhenInputIsRejectedBeforeRunning() {
+        assertThatThrownBy(() -> runner.run("w_ok", List.of("g-99"), null, null, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(ledger.runIdsOf("w_ok")).isEmpty();
     }
 
     @Test
@@ -103,7 +126,7 @@ class ScenarioRunnerTest {
             return new ContractOnlyFlowRunner().runDryRun(req);
         };
         var withBadFile = new ScenarioRunner(workspaces, new ScenarioCatalog(dir.toString(), TestFixtures.JSON),
-                counting, new ScenarioGrader(), orderAgent);
+                counting, new ScenarioGrader(), orderAgent, ledger);
 
         assertThatThrownBy(() -> withBadFile.run("w_ok", List.of("g-01", "g-02"), null, null, 2))
                 .hasMessageStartingWith("시험 주문 g-02 파일의 확인 조건을 읽을 수 없습니다: payment.status = 'PAID'");

@@ -29,14 +29,16 @@ public class ScenarioRunner {
     private final FlowRunner flowRunner;
     private final ScenarioGrader grader;
     private final OrderAgentRunClient orderAgent;
+    private final RunLedger ledger;
 
     public ScenarioRunner(WorkspaceService workspaces, ScenarioCatalog catalog, FlowRunner flowRunner,
-            ScenarioGrader grader, OrderAgentRunClient orderAgent) {
+            ScenarioGrader grader, OrderAgentRunClient orderAgent, RunLedger ledger) {
         this.workspaces = workspaces;
         this.catalog = catalog;
         this.flowRunner = flowRunner;
         this.grader = grader;
         this.orderAgent = orderAgent;
+        this.ledger = ledger;
     }
 
     /**
@@ -78,6 +80,8 @@ public class ScenarioRunner {
                         new FlowRunner.DryRunRequest(scenario.scenarioId(), scenario.order(), workspaceId, skills));
                 runIds.add(outcome.runId());
                 GradeResult grade = grader.grade(scenario.expectation(), checks, outcome);
+                // 제안서의 근거 실행 번호를 save_proposal 이 확인할 수 있게 남긴다.
+                ledger.record(workspaceId, scenario.scenarioId(), outcome.runId(), grade.passed());
                 if (!grade.passed()) {
                     failures.add(new ScenarioRunReport.Failure(outcome.runId(), grade.skill(),
                             String.join("; ", grade.reasons())));

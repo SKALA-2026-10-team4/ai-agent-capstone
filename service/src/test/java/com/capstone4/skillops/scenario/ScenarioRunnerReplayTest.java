@@ -45,7 +45,8 @@ class ScenarioRunnerReplayTest {
             return true;
         }
     };
-    ScenarioRunner runner = new ScenarioRunner(workspaces, catalog, harness, new ScenarioGrader(), orderAgent);
+    ScenarioRunner runner = new ScenarioRunner(workspaces, catalog, harness, new ScenarioGrader(), orderAgent,
+            new TestFixtures.InMemoryRunLedger());
 
     @BeforeEach
     void setUp() {
@@ -125,7 +126,7 @@ class ScenarioRunnerReplayTest {
     @Test
     void replayNeedsHarnessRunner() {
         var contractOnly = new ScenarioRunner(workspaces, catalog, new ContractOnlyFlowRunner(), new ScenarioGrader(),
-                orderAgent);
+                orderAgent, new TestFixtures.InMemoryRunLedger());
 
         assertThatThrownBy(() -> contractOnly.run("w_snap", List.of("f-" + EXECUTION), null, null, 1))
                 .isInstanceOf(IllegalArgumentException.class)
