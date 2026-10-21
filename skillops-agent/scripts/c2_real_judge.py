@@ -16,6 +16,9 @@
 다른 포트의 service 나 주문 Agent 를 쓰려면 환경 변수로 가리킨다(기본값은 skillops_agent.config).
     SKILLOPS_MCP_URL=http://localhost:8090/mcp       service MCP 주소 (기본 http://localhost:8080/mcp)
     SKILLOPS_ORDER_AGENT_URL=http://localhost:8081   주문 Agent 주소 (기본 http://localhost:8081)
+service 의 ORDER_AGENT_BASE_URL 과 이 스크립트의 SKILLOPS_ORDER_AGENT_URL 은 같은 주문 Agent 를
+가리켜야 한다. 다르면 재고·실패 목록(이 스크립트)과 모의 실행(service)이 서로 다른 주문 Agent 를
+보게 되어 불변량 비교가 의미 없어진다.
 
 하는 일
   1. baseline·broken-contract·repaired 시연 snapshot 을 고정한다(부를 때마다 새 id 가 생긴다).
@@ -36,7 +39,11 @@
      코드 1 이다. 2단계의 실패 1건이 들어간 뒤를 '시작'으로 잰다. 판정이 실제 주문 상태를
      건드리지 않았는지 보는 것이다.
 
-종료 코드: 0 = 실험을 끝냈고 재고·실패 목록이 그대로, 1 = 바뀌었거나 실험을 이어갈 수 없음.
+종료 코드
+  0  실험을 끝냈고, 모든 후보를 판정했고, 재고·실패 목록이 그대로
+  1  판정이 재고·실패 목록을 바꿨거나, 연결 실패 등으로 실험을 이어갈 수 없음
+  3  재고·실패 목록은 그대로지만 판정하지 못한 후보가 있음(표의 '판정 못 함').
+     argparse 의 잘못된 인자(2)와 겹치지 않게 3 으로 한다. 1 과 3 이 함께면 1 이다.
 후보가 유효한지 아닌지는 종료 코드가 아니라 표로 읽는다. 결과를 기대값에 맞춰 고치지 않는다.
 """
 
@@ -59,6 +66,7 @@ from skillops_agent.mcp_client import mcp_client  # noqa: E402
 LANTERN_SKU = "CAMP-LANTERN-LED"
 GOLDEN_IDS = ["g-01", "g-02", "g-03"]
 INTENT_CHECK = "inventory.reservable_quantity != null"
+# ScenarioGrader.java 가 붙이는 "확인 조건 실패: <조건> (실제 …)" 문구에 기댄다. 바꾸면 같이 고친다
 INTENT_PREFIX = f"확인 조건 실패: {INTENT_CHECK} "
 LIVE_ORDER = {
     "customer": "c_1001",
@@ -243,12 +251,27 @@ def split_reason(reason: str) -> list[str]:
     return reason.split("; ")
 
 
-def intent_failed(result: dict) -> bool:
-    return any(
-        seg.startswith(INTENT_PREFIX)
-        for f in result["failures"]
-        for seg in split_reason(f["reason"])
-    )
+def intent_state(result: dict) -> str:
+    """이 주문에서 의도 확인 조건을 볼 수 있었나: 통과 / 실패 / 확인 못 함.
+
+    ScenarioGrader 는 오류로 멈춘 주문에도 확인 조건 실패를 덧붙인다(값이 없으니 null). 그 '실패'는
+    의도를 평가한 결과가 아니다. 떨어진 이유에 의도 문구 말고 다른 문구가 있으면 '확인 못 함'이다.
+    """
+    segs = [seg for f in result["failures"] for seg in split_reason(f["reason"])]
+    if not segs:
+        return "통과"
+    if all(seg.startswith(INTENT_PREFIX) for seg in segs):
+        return "실패"
+    return "확인 못 함"
+
+
+def candidate_intent(results: dict[str, dict]) -> str:
+    """후보의 의도 확인. 끝까지 돈 주문에서 의도 조건이 떨어졌으면 실패가 먼저다."""
+    states = {intent_state(r) for r in results.values()}
+    for state in ("실패", "확인 못 함"):
+        if state in states:
+            return state
+    return "통과"
 
 
 def base_passed(result: dict) -> bool:
@@ -258,6 +281,13 @@ def base_passed(result: dict) -> bool:
         for f in result["failures"]
         for seg in split_reason(f["reason"])
     )
+
+
+def is_valid(v: Verdict, replay_id: str) -> bool:
+    """유효: 시험 주문 네 개(g-01~g-03, 재현)가 모두 결과에 있고 합격이며 끊긴 연결이 없다."""
+    needed = [*GOLDEN_IDS, replay_id]
+    full_set = all(sid in v.results and v.results[sid]["passed"] for sid in needed)
+    return bool(v.all_passed and full_set and not v.broken_links)
 
 
 def mark(ok: bool) -> str:
@@ -275,9 +305,7 @@ def table(verdicts: list[Verdict], replay_id: str) -> str:
         for sid in [*GOLDEN_IDS, replay_id]:
             r = v.results.get(sid)
             cells.append(mark(base_passed(r)) if r else "-")
-        intent_ok = not any(intent_failed(r) for r in v.results.values())
-        valid = v.all_passed and not v.broken_links
-        cells += ["통과" if intent_ok else "실패", "유효" if valid else "무효"]
+        cells += [candidate_intent(v.results), "유효" if is_valid(v, replay_id) else "무효"]
         rows.append(cells)
     return "\n".join("| " + " | ".join(r) + " |" for r in rows)
 
@@ -380,8 +408,8 @@ async def evidence(agent: OrderAgent, verdicts: list[Verdict], replay_id: str) -
             if not r:
                 continue
             print(
-                f"  - {sid}: passed={r['passed']} (의도 제외 {mark(base_passed(r))}) "
-                f"replay_of_run_id={r['replay_of_run_id']}"
+                f"  - {sid}: passed={r['passed']} (의도 제외 {mark(base_passed(r))}, "
+                f"의도: {intent_state(r)}) replay_of_run_id={r['replay_of_run_id']}"
             )
             for run_id in r["run_ids"]:
                 execution_id = execution_id_of(run_id)
@@ -483,7 +511,8 @@ async def main(reuse_failed: str | None) -> int:
         print(
             f"의도 확인: 모든 주문에 덧붙인 `{INTENT_CHECK}`. 시나리오 칸은 이 조건을 뺀 합격 여부"
         )
-        print("유효: run_scenarios 가 모든 주문(의도 확인 포함)을 합격으로 돌려줬고 끊긴 연결이 0")
+        print("          확인 못 함 = 오류 등 다른 이유로 떨어져 이 조건을 따로 볼 수 없음")
+        print("유효: 위 시험 주문 네 개가 모두 합격(의도 확인 포함)이고 끊긴 연결이 0")
 
         section("실행 기록 근거")
         await evidence(agent, verdicts, replay_id)
@@ -493,9 +522,15 @@ async def main(reuse_failed: str | None) -> int:
         failed_after = len(await agent.failed())
         print(f"  랜턴 재고 {stock_before} -> {stock_after}")
         print(f"  실패 목록 {failed_before}건 -> {failed_after}건")
+        unjudged = [v.label for v in verdicts if v.error]
+        if unjudged:
+            print(f"  주의: {len(unjudged)}개 후보를 판정하지 못했습니다: {', '.join(unjudged)}")
         if (stock_before, failed_before) != (stock_after, failed_after):
             print("  FAIL: 판정이 실제 주문 상태(재고 또는 실패 목록)를 바꿨습니다")
             return 1
+        if unjudged:
+            print("  재고와 실패 목록은 그대로지만 판정하지 못한 후보가 있어 끝나지 않았습니다")
+            return 3
         print("  OK: 재고와 실패 목록이 그대로입니다")
     return 0
 

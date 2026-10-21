@@ -681,7 +681,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 | 폴더 | 내용 | 어느 실행기에 맞나 |
 |---|---|---|
-| `scenarios/golden/` (기본) | D가 쓰는 기준 주문(지금은 g-01 하나, 목표는 g-01~g-06). 사과 같은 간이 실행기용 주문 | 간이 실행기 |
+| `scenarios/golden/` (기본) | D가 쓰는 기준 주문(지금은 g-01 하나, 목표는 g-01~g-06). 주문 Agent에 없는 상품(`SKU-APPLE-1KG` 등)을 쓰는 간이 실행기용 주문 | 간이 실행기 |
 | `scenarios/order-agent/golden/` | 주문 Agent의 시연 규칙에 맞춘 g-01~g-03. g-01 랜턴 1개 정상 주문(`SHIPPED`, 배송 1건), g-02 머그컵 재고 없음(`REJECTED`), g-03 결제가 거절되는 고객 `c_declined`(`HOLD`) | 실제 실행기 |
 
 주문 Agent에서 돌릴 때는 서비스를 이렇게 켭니다.
