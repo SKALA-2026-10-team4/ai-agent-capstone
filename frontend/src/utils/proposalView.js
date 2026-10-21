@@ -14,6 +14,9 @@ export const STATUS = {
   rejected: { label: '거절됨', tone: 'err' },
 }
 
+// 운영자가 아직 결정하지 않은 제안서. 승인할 안이 없는 제안서(no_valid_fix)도 운영자가 확인하고 닫아야 하므로 넣는다.
+export const awaitsDecision = (p) => p.status === 'proposed' || p.status === 'no_valid_fix'
+
 export const TRIGGER = {
   failure: '주문 실패로 시작',
   skill_saved: 'Skill 저장 때 사전 점검',

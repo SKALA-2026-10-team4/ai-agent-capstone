@@ -2,16 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { ChevronRight, Inbox, Star } from 'lucide-vue-next'
 import { listProposals } from '@/api/proposals'
-import { STATUS } from '@/utils/proposalView'
+import { awaitsDecision, STATUS } from '@/utils/proposalView'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 
-// 받은 제안서 목록. service 가 저장한 제안서의 제목과 개요를 보여 주고, 검토 대기(proposed)를 먼저 고른다.
+// 받은 제안서 목록. service 가 저장한 제안서의 제목과 개요를 보여 주고, 아직 결정하지 않은 제안서를 먼저 고른다.
 const proposals = ref([])
 const error = ref(null)
 const filter = ref('pending')
 
-const pendingOnly = (items) => items.filter((p) => p.status === 'proposed')
+const pendingOnly = (items) => items.filter(awaitsDecision)
 const shown = computed(() => (filter.value === 'pending' ? pendingOnly(proposals.value) : proposals.value))
 const pendingCount = computed(() => pendingOnly(proposals.value).length)
 
