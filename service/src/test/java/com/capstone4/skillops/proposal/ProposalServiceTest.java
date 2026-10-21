@@ -1,0 +1,185 @@
+package com.capstone4.skillops.proposal;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import com.capstone4.skillops.proposal.ProposalService.SavedProposal;
+import com.capstone4.skillops.scenario.TestFixtures.InMemoryRunLedger;
+
+class ProposalServiceTest {
+
+    ProposalRepository repository = mock(ProposalRepository.class);
+    InMemoryRunLedger ledger = new InMemoryRunLedger();
+    ProposalService service = new ProposalService(repository, ledger,
+            Clock.fixed(Instant.parse("2026-10-21T05:10:00Z"), ZoneOffset.UTC));
+    /** 테스트마다 새로 읽는 F1 제안서. 값을 바꿔 가며 거부 규칙을 시험한다 */
+    Map<String, Object> f1Copy = f1();
+
+    @BeforeEach
+    void setUp() {
+        given(repository.save(any(Proposal.class))).willAnswer(call -> call.getArgument(0));
+        given(repository.findByThreadId(anyString())).willReturn(Optional.empty());
+        ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000001", false);
+        ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000002", true);
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", true);
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000002", true);
+        ledger.record("w_c2", "g-01", "r_c2000000000000000000000000000001", true);
+        ledger.record("w_c2", "g-02", "r_c2000000000000000000000000000002", false);
+    }
+
+    static Map<String, Object> f1() {
+        return ProposalDocumentWriterTest.fixture("f1-proposed.json");
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> candidate(Map<String, Object> proposal, int index) {
+        return ((List<Map<String, Object>>) proposal.get("candidates")).get(index);
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> results(Map<String, Object> proposal, int index) {
+        return (Map<String, Object>) candidate(proposal, index).get("results");
+    }
+
+    Proposal captured() {
+        ArgumentCaptor<Proposal> saved = ArgumentCaptor.forClass(Proposal.class);
+        then(repository).should().save(saved.capture());
+        return saved.getValue();
+    }
+
+    @Test
+    void savesAndReturnsContractShape() {
+        SavedProposal saved = service.save(f1());
+
+        assertThat(saved.proposalId()).matches("p_[0-9a-f]{32}");
+        assertThat(saved.status()).isEqualTo("proposed");
+        assertThat(saved.validCandidateNos()).containsExactly(1);
+        Proposal stored = captured();
+        assertThat(stored.getProposalId()).isEqualTo(saved.proposalId());
+        assertThat(stored.getDocument().get("title")).isEqualTo("inventory-check 수정 제안서");
+        assertThat(stored.getDocument()).containsKey("tone_warnings");
+        assertThat(stored.getThreadId()).isEqualTo("5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b");
+        assertThat(stored.getValidCandidateNos()).containsExactly(1);
+        assertThat(stored.getCreatedAt()).isEqualTo(Instant.parse("2026-10-21T05:10:00Z"));
+        assertThat(stored.getDecidedAt()).isNull();
+    }
+
+    @Test
+    void sameThreadReturnsTheFirstProposal() {
+        Proposal first = Proposal.create("p_first", "5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b", "proposed", f1(), Map.of(),
+                List.of(1), Instant.parse("2026-10-21T05:00:00Z"));
+        given(repository.findByThreadId("5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b")).willReturn(Optional.of(first));
+
+        SavedProposal again = service.save(f1());
+
+        assertThat(again).isEqualTo(new SavedProposal("p_first", "proposed", List.of(1)));
+        then(repository).should(never()).save(any());
+    }
+
+    @Test
+    void unknownEvidenceRunIsRejected() {
+        ledger.clear();
+        assertThatThrownBy(() -> service.save(f1())).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("후보 1").hasMessageContaining("근거 실행");
+        then(repository).should(never()).save(any());
+    }
+
+    @Test
+    void evidenceFromAnotherWorkspaceIsRejected() {
+        candidate(f1Copy, 0).put("workspace_id", "w_c2");
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("w_c2");
+    }
+
+    @Test
+    void unknownProofRunIsRejected() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> root = (Map<String, Object>) f1Copy.get("root_cause");
+        root.put("proof_run_ids", List.of("r_ffffffffffffffffffffffffffffffff"));
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("원인 근거 실행");
+    }
+
+    @Test
+    void agentValidMustMatchRecomputedResult() {
+        candidate(f1Copy, 1).put("valid", true);
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("후보 2").hasMessageContaining("valid");
+    }
+
+    @Test
+    void proposedWithoutPassingCandidateIsRejected() {
+        results(f1Copy, 0).put("fixes_failure", false);
+        candidate(f1Copy, 0).put("valid", false);
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("proposed");
+    }
+
+    @Test
+    void noValidFixWithPassingCandidateIsRejected() {
+        f1Copy.put("status", "no_valid_fix");
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no_valid_fix");
+    }
+
+    @Test
+    void recommendedMustBePassingCandidate() {
+        f1Copy.put("recommended_candidate_no", 2);
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("recommended_candidate_no");
+    }
+
+    @Test
+    void candidateNumbersMustStartAtOneWithoutGaps() {
+        candidate(f1Copy, 1).put("candidate_no", 3);
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("candidate_no");
+    }
+
+    @Test
+    void unknownStatusIsRejected() {
+        f1Copy.put("status", "approved");
+        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("status");
+    }
+
+    @Test
+    void noValidFixWithoutRootCauseIsAccepted() {
+        SavedProposal saved = service.save(ProposalDocumentWriterTest.fixture("no-root-cause.json"));
+        assertThat(saved.status()).isEqualTo("no_valid_fix");
+        assertThat(saved.validCandidateNos()).isEmpty();
+        assertThat(captured().getDocument().get("title")).isEqualTo("Skill 변경 진단 결과");
+    }
+
+    @Test
+    void rejectedCandidateWithValidationErrorNeedsNoEvidence() {
+        Map<String, Object> second = candidate(f1Copy, 1);
+        second.put("validation_error", "patch context does not match");
+        second.put("results", null);
+        second.put("evidence_run_ids", List.of());
+        second.put("workspace_id", null);
+        assertThat(service.save(f1Copy).validCandidateNos()).containsExactly(1);
+    }
+
+    @Test
+    void emptyProposalIsRejected() {
+        assertThatThrownBy(() -> service.save(null)).isInstanceOf(IllegalArgumentException.class);
+    }
+}
