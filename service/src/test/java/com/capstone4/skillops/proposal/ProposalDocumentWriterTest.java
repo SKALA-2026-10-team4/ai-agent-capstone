@@ -218,4 +218,61 @@ class ProposalDocumentWriterTest {
         assertThat(candidates(doc).parts().get(1).facts())
                 .contains(new Fact("AI 설명", "이 기능을 통해 연결을 맞췄습니다."));
     }
+
+    // ── 시험하지 않은 것을 시험했다고 쓰지 않는다(최종 리뷰) ─────────────────
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> withUntestedSecondCandidate() {
+        Map<String, Object> proposal = fixture("f1-proposed.json");
+        Map<String, Object> second = ((List<Map<String, Object>>) proposal.get("candidates")).get(1);
+        second.put("validation_error", "patch context does not match");
+        second.put("results", null);
+        second.put("evidence_run_ids", List.of());
+        return proposal;
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> withoutIntentChecks() {
+        Map<String, Object> proposal = fixture("f1-proposed.json");
+        ((Map<String, Object>) proposal.get("intent")).put("checks", List.of());
+        return proposal;
+    }
+
+    @Test
+    void untestedCandidateIsNotCountedAsTried() {
+        ProposalDocument doc = ProposalDocumentWriter.write("p_1", withUntestedSecondCandidate(), CREATED);
+        assertThat(doc.summary()).contains(
+                "SkillOps가 수정안 2개를 만들었고, 그중 1개를 실제 주문 흐름에서 시험했습니다. 모든 확인을 통과한 안은 1개입니다.");
+        assertThat(candidates(doc).paragraphs().get(0)).isEqualTo(
+                "SkillOps가 수정안 2개를 만들었고, 원문에 적용할 수 있는 1개를 각각 따로 마련한 연습 공간에서 시험했습니다.");
+    }
+
+    @Test
+    void nothingTestedIsSaidPlainly() {
+        Map<String, Object> proposal = withUntestedSecondCandidate();
+        Map<String, Object> first = candidate(proposal, 0);
+        first.put("validation_error", "patch context does not match");
+        first.put("results", null);
+        proposal.put("status", "no_valid_fix");
+        ProposalDocument doc = ProposalDocumentWriter.write("p_1", proposal, CREATED);
+        assertThat(doc.summary()).contains(
+                "SkillOps가 수정안 2개를 만들었지만 지금 Skill 원문에 적용할 수 있는 안이 없어 시험하지 못했습니다.");
+        assertThat(candidates(doc).paragraphs()).containsExactly(
+                "SkillOps가 수정안 2개를 만들었지만 지금 Skill 원문에 적용할 수 있는 안이 없어 시험하지 못했습니다.");
+    }
+
+    @Test
+    void noIntentChecksAreNotClaimed() {
+        ProposalDocument doc = ProposalDocumentWriter.write("p_1", withoutIntentChecks(), CREATED);
+        assertThat(candidates(doc).paragraphs()).containsExactly(
+                "SkillOps가 수정안 2개를 만들어 각각 따로 마련한 연습 공간에서 시험했습니다.",
+                "실패했던 주문과 기준 주문 3건을 돌렸습니다.");
+        assertThat(candidates(doc).parts().get(0).paragraphs()).contains("의도 확인 조건이 없어 의도는 따로 확인하지 않았습니다.")
+                .doesNotContain("의도 확인 조건도 모두 지켜졌습니다.");
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> candidate(Map<String, Object> proposal, int index) {
+        return ((List<Map<String, Object>>) proposal.get("candidates")).get(index);
+    }
 }

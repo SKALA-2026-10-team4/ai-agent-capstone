@@ -55,6 +55,10 @@ public final class ProposalDocumentWriter {
         private final Map<String, Object> intent;
         private final List<Map<String, Object>> candidates;
         private final long passing;
+        /** 원문에 적용해 실제로 시험한 후보 수(적용에 실패한 후보는 빼고 센다) */
+        private final long tested;
+        /** 의도 확인 조건이 있었는지. 없으면 의도를 확인했다고 쓰지 않는다 */
+        private final boolean hasChecks;
         private final String when;
         private final String failedStep;
 
@@ -70,6 +74,9 @@ public final class ProposalDocumentWriter {
             this.intent = map(proposal.get("intent"));
             this.candidates = maps(proposal.get("candidates"));
             this.passing = candidates.stream().filter(ProposalRules::passes).count();
+            this.tested = candidates.stream()
+                    .filter(c -> str(c.get("validation_error")) == null && map(c.get("results")) != null).count();
+            this.hasChecks = intent != null && !strings(intent.get("checks")).isEmpty();
             this.when = WHEN.format(failedAt());
             String step = failure == null ? null : str(failure.get("skill"));
             this.failedStep = step == null ? UNKNOWN_STEP : step;
@@ -126,6 +133,11 @@ public final class ProposalDocumentWriter {
             }
             if (candidates.isEmpty()) {
                 out.add("시험할 수정안은 만들지 못했습니다.");
+            } else if (tested == 0) {
+                out.add(nothingTested());
+            } else if (tested < candidates.size()) {
+                out.add("SkillOps가 수정안 " + candidates.size() + "개를 만들었고, 그중 " + tested + "개를 실제 주문 흐름에서 시험했습니다. "
+                        + (passing > 0 ? "모든 확인을 통과한 안은 " + passing + "개입니다." : "모든 확인을 통과한 안은 없습니다."));
             } else if (proposed) {
                 out.add("SkillOps가 수정안 " + candidates.size() + "개를 실제 주문 흐름에서 시험했고, 그중 " + passing
                         + "개가 모든 확인을 통과했습니다.");
@@ -202,13 +214,20 @@ public final class ProposalDocumentWriter {
             List<String> paragraphs = new ArrayList<>();
             if (candidates.isEmpty()) {
                 paragraphs.add("시험할 수정안을 만들지 못했습니다.");
+            } else if (tested == 0) {
+                paragraphs.add(nothingTested());
             } else {
-                paragraphs.add("SkillOps가 수정안 " + candidates.size() + "개를 만들어 각각 따로 마련한 연습 공간에서 시험했습니다.");
+                paragraphs.add(tested < candidates.size()
+                        ? "SkillOps가 수정안 " + candidates.size() + "개를 만들었고, 원문에 적용할 수 있는 " + tested
+                                + "개를 각각 따로 마련한 연습 공간에서 시험했습니다."
+                        : "SkillOps가 수정안 " + candidates.size() + "개를 만들어 각각 따로 마련한 연습 공간에서 시험했습니다.");
                 // 기준 주문 수는 처음으로 시험한 후보의 값을 쓴다(모든 후보가 같은 기준 주문으로 시험한다).
                 candidates.stream().map(c -> map(c.get("results"))).filter(Objects::nonNull)
                         .map(r -> map(r.get("keeps_old_orders"))).filter(Objects::nonNull)
                         .map(o -> integer(o.get("total"))).filter(Objects::nonNull).findFirst()
-                        .ifPresent(total -> paragraphs.add("실패했던 주문과 기준 주문 " + total + "건을 돌렸고, 의도 확인 조건도 함께 확인했습니다."));
+                        .ifPresent(total -> paragraphs.add(hasChecks
+                                ? "실패했던 주문과 기준 주문 " + total + "건을 돌렸고, 의도 확인 조건도 함께 확인했습니다."
+                                : "실패했던 주문과 기준 주문 " + total + "건을 돌렸습니다."));
             }
             List<Section> parts = candidates.stream().map(this::candidatePart).toList();
             return new Section("candidates", "수정안과 시험 결과", List.copyOf(paragraphs), null, List.of(), List.of(), parts,
@@ -237,8 +256,12 @@ public final class ProposalDocumentWriter {
                             : "기준 주문 " + total + "건 가운데 " + (total - (passed == null ? 0 : passed))
                                     + "건이 이전과 다르게 처리됐습니다.");
                 }
-                paragraphs.add(ProposalRules.bool(results.get("keeps_intent")) ? "의도 확인 조건도 모두 지켜졌습니다."
-                        : "의도 확인 조건 가운데 지켜지지 않은 것이 있습니다.");
+                if (!hasChecks) {
+                    paragraphs.add("의도 확인 조건이 없어 의도는 따로 확인하지 않았습니다.");
+                } else {
+                    paragraphs.add(ProposalRules.bool(results.get("keeps_intent")) ? "의도 확인 조건도 모두 지켜졌습니다."
+                            : "의도 확인 조건 가운데 지켜지지 않은 것이 있습니다.");
+                }
                 paragraphs.add(ProposalRules.bool(results.get("no_broken_links")) ? "고친 뒤에도 Skill 사이의 입력과 출력이 모두 이어집니다."
                         : "고친 뒤에 입력을 받지 못하는 Skill이 남습니다.");
             }
@@ -252,6 +275,10 @@ public final class ProposalDocumentWriter {
             add(facts, "근거 실행", joined(candidate.get("evidence_run_ids")));
             return new Section("candidate", heading, List.copyOf(paragraphs), null, List.of(), List.copyOf(facts),
                     List.of(), no);
+        }
+
+        private String nothingTested() {
+            return "SkillOps가 수정안 " + candidates.size() + "개를 만들었지만 지금 Skill 원문에 적용할 수 있는 안이 없어 시험하지 못했습니다.";
         }
 
         private Section decision() {
