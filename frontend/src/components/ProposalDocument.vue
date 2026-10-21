@@ -1,6 +1,16 @@
 <script setup>
 // 제안서 본문. service 가 저장할 때 만든 document(목차·문장)를 그대로 그린다. 글은 모두 텍스트 보간으로만 넣는다.
 // 제목(document.title)은 화면 머리(PageHeader)가 보여 주므로 여기서는 절만 그린다.
+// 사실 칸의 값이 실행 번호 목록이면 번호마다 실행 화면 링크로 보여 준다(근거를 직접 열어 확인할 수 있게).
+import { executionPath } from '@/utils/traceRun'
+
+// "r_…, r_…" 처럼 모두 실행 번호일 때만 링크 목록으로 바꾼다. 아니면 null(글 그대로 보여 준다).
+function runLinks(value) {
+  const ids = String(value).split(', ')
+  const paths = ids.map(executionPath)
+  return paths.every(Boolean) ? ids.map((id, i) => ({ id, to: paths[i] })) : null
+}
+
 defineProps({
   document: { type: Object, required: true },
   selectedNo: { type: Number, default: null },
@@ -21,28 +31,40 @@ defineEmits(['select'])
       <dl v-if="section.facts.length" class="facts">
         <template v-for="fact in section.facts" :key="fact.label">
           <dt>{{ fact.label }}</dt>
-          <dd>{{ fact.value }}</dd>
+          <dd v-if="runLinks(fact.value)" class="runs">
+            <RouterLink v-for="run in runLinks(fact.value)" :key="run.id" :to="run.to">{{ run.id }}</RouterLink>
+          </dd>
+          <dd v-else>{{ fact.value }}</dd>
         </template>
       </dl>
       <div v-if="section.parts.length" class="parts">
-        <button
+        <article
           v-for="part in section.parts"
           :key="part.candidate_no"
-          type="button"
           class="part"
           :class="{ selected: part.candidate_no === selectedNo }"
-          :disabled="!canSelect"
-          @click="$emit('select', part.candidate_no)"
+          @click="canSelect && $emit('select', part.candidate_no)"
         >
           <h3>{{ part.heading }}</h3>
           <p v-for="(text, j) in part.paragraphs" :key="`q${j}`" class="para">{{ text }}</p>
           <dl v-if="part.facts.length" class="facts">
             <template v-for="fact in part.facts" :key="fact.label">
               <dt>{{ fact.label }}</dt>
-              <dd>{{ fact.value }}</dd>
+              <dd v-if="runLinks(fact.value)" class="runs">
+                <RouterLink v-for="run in runLinks(fact.value)" :key="run.id" :to="run.to" @click.stop>{{ run.id }}</RouterLink>
+              </dd>
+              <dd v-else>{{ fact.value }}</dd>
             </template>
           </dl>
-        </button>
+          <button
+            type="button"
+            class="ghost sm pick"
+            :disabled="!canSelect || part.candidate_no === selectedNo"
+            @click.stop="$emit('select', part.candidate_no)"
+          >
+            {{ part.candidate_no === selectedNo ? '고른 후보' : `후보 ${part.candidate_no}번 고르기` }}
+          </button>
+        </article>
       </div>
       <slot v-if="section.key === 'intent'" name="intent" />
       <slot v-if="section.key === 'candidates'" name="candidates" />
@@ -116,8 +138,15 @@ blockquote {
   cursor: pointer;
 }
 
-.part:disabled {
-  cursor: default;
+.runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.pick {
+  align-self: flex-start;
+  margin-top: 12px;
 }
 
 .part.selected {

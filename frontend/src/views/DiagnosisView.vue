@@ -5,6 +5,7 @@ import { Activity } from 'lucide-vue-next'
 import { USE_MOCK } from '@/api/client'
 import { getChangeDelivery, getDiagnosis, listDiagnoses } from '@/api/diagnoses'
 import PageHeader from '@/components/PageHeader.vue'
+import { executionPath } from '@/utils/traceRun'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,11 +19,7 @@ const labels = { BASELINE_FAILED: '기준 주문 검증 불가', VALIDATION_FAIL
 const pending = computed(() => route.query.change_id && !run.value)
 const candidates = computed(() => run.value?.proposal?.candidates ?? run.value?.candidates ?? [])
 const root = computed(() => run.value?.proposal?.root_cause ?? run.value?.root_cause)
-function executionLink(id) {
-  const hex = id.startsWith('r_') ? id.slice(2) : null
-  const uuid = hex?.match(/^[a-f0-9]{32}$/i) ? `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}` : id
-  return `/executions/${uuid}`
-}
+const executionLink = (id) => executionPath(id) ?? `/executions/${id}`
 async function refresh(epoch) {
   if (USE_MOCK) return
   try {

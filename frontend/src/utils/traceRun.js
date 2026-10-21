@@ -144,3 +144,14 @@ export function traceRun(trace, steps) {
 export const executionLabel = (x) =>
   `${x.started_at?.slice(5, 16).replace('T', ' ')} · ${x.final_status ?? x.completion}` +
   `${x.error_category ? ` · ${x.error_category}` : ''} · ${x.execution_id.slice(0, 8)}`
+
+// 실행 번호(r_ + 32자리 16진수 또는 UUID)를 실행 화면 주소로 바꾼다. 실행 번호가 아니면 null.
+const RUN_ID = /^r_[0-9a-f]{32}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export function executionPath(id) {
+  if (RUN_ID.test(id)) {
+    const h = id.slice(2)
+    return `/executions/${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+  }
+  return UUID.test(id) ? `/executions/${id}` : null
+}
