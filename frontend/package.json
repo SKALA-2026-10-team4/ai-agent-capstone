@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "lint": "run-s \"lint:*\"",
     "lint:oxlint": "oxlint . --fix",
-    "lint:eslint": "eslint . --fix --cache"
+    "lint:eslint": "eslint . --fix --cache",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "diff": "^8.0.4",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
     "@vitejs/plugin-vue": "^6.0.8",
     "eslint": "^10.10.0",
     "eslint-plugin-oxlint": "~1.82.0",

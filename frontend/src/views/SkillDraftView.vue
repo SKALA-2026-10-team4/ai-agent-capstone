@@ -24,7 +24,7 @@ async function save() {
   saveError.value = null
   try {
     saved.value = await ws.saveDrafts()
-    toast.show('수정본을 저장했어요. 주문 실행에서 이 세트를 사용할 수 있어요.', 'info')
+    toast.show('수정본을 저장했어요. 자동 검증 요청이 전달됩니다.', 'info')
   } catch (e) {
     saveError.value = e.message
   }
@@ -127,10 +127,12 @@ version: 1
     <p v-if="saveError" role="alert" class="error-text">{{ saveError }}</p>
     <p v-if="saved" role="status" class="small">
       수정본 저장 완료 · {{ saved.snapshot_id }} · {{ saved.changed_paths.length }}개 파일 변경.
-      자동 검증은 아직 연결되지 않았어요. <RouterLink to="/orders">주문 실행</RouterLink>에서 저장한 세트를 선택해 주세요.
+      <RouterLink :to="`/diagnoses?change_id=${saved.change_id}`">자동 검증·진단 진행 확인</RouterLink>
+      · <RouterLink to="/orders">이 수정본으로 주문 실행</RouterLink>
     </p>
   </div>
 
+  <p class="callout">편집 중인 초안은 아직 실행에 적용되지 않아요. 저장하면 새 수정 세트가 만들어지고, 자동 검증과 이 세트를 선택한 주문에 적용돼요. 5174의 기본 주문에는 자동 반영되지 않아요.</p>
   <div v-if="ws.current" class="layout">
     <!-- Skill 목록 -->
     <aside class="card list">
@@ -229,7 +231,7 @@ version: 1
         <h3>저장 전 점검</h3>
         <div v-if="!problems" class="callout ok">
           <CircleCheck :size="18" />
-          <p>선언된 입력·출력 연결에서 문제를 찾지 못했어요. 실제 업무 결과는 주문 실행으로 확인해 주세요.</p>
+          <p>선언된 입력·출력 연결에서 문제를 찾지 못했어요. 저장하면 기본 주문 검증이 자동으로 시작돼요.</p>
         </div>
         <template v-else>
           <div class="callout err">
@@ -253,7 +255,7 @@ version: 1
             </li>
           </ul>
         </template>
-        <p class="muted small">전체 수정본 저장을 누르면 새 세트로 저장돼요. 연결 오류가 있는 수정본도 저장할 수 있으며, 자동 검증·진단은 아직 연결되지 않았어요.</p>
+        <p class="muted small">전체 수정본 저장을 누르면 새 세트로 저장돼요. 연결 오류가 있는 수정본도 저장할 수 있으며, 저장 후 자동 검증·진단이 시작돼요.</p>
       </div>
     </aside>
   </div>

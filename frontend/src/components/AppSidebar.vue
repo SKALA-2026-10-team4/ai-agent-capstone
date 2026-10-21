@@ -13,7 +13,7 @@ const route = useRoute()
 const pending = ref(0)
 
 const GROUPS = [
-  { title: '개선안', items: [{ to: '/proposals', label: '받은 개선안', icon: Inbox, badge: true }] },
+  { title: '개선안', items: [{ to: '/diagnoses', label: '검증·진단 기록', icon: Sparkles }, { to: '/proposals', label: '받은 개선안', icon: Inbox, badge: true }] },
   {
     title: 'Skill',
     items: [
