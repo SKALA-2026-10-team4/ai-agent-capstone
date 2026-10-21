@@ -110,6 +110,11 @@ class AgentEvidenceIntegrationTest {
             .when(decisions).decide(argThat(q->q.skill()!=null&&q.skill().id().equals("payment")));
         assertThatThrownBy(()->orders.createOrder(UUID.randomUUID(),input(null))).isInstanceOf(RuntimeException.class);
         assertThat(traces.get(execution()).get("error_category")).isEqualTo("INVALID_TOOL_ARGUMENTS");assertThat(stock()).isEqualTo(10);
+        var failure=events(traces.get(execution())).stream().filter(e->e.get("kind").equals("EXECUTION_ERROR")).findFirst().orElseThrow();
+        assertThat(failure.get("skill_id")).isEqualTo("payment");
+        var step=events(traces.get(execution())).stream().filter(e->e.get("kind").equals("SKILL_FINISHED")&&"payment".equals(e.get("skill_id"))).findFirst().orElseThrow();
+        assertThat(((Map<?,?>)step.get("data")).get("status")).isEqualTo("error");
+        assertThat(((Map<?,?>)step.get("data")).get("output")).isEqualTo(Map.of());
         assertThat(jdbc.queryForObject("select payment_status from orders",String.class)).isEqualTo("NOT_ATTEMPTED");
         assertThat(jdbc.queryForObject("select count(*) from order_processing_steps where step='RELEASE'",Integer.class)).isEqualTo(1);
     }

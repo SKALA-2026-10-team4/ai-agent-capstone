@@ -46,6 +46,10 @@ class MCPTools:
     async def ping(self) -> str:
         return await self._call("ping", {})
 
+    # TODO(B/C-1, 계약 확정 후): list_skills/get_skill/list_failed_runs/get_trace는 MCP 대신 주문 HTTP API로 연결한다.
+    # /api/snapshots/{id}/skills 및 /skills/{skill_id}, /api/executions/failed, /api/executions/{id}/trace 사용.
+    # snapshot_id/execution_id를 전달하고 items를 해제하며, nodes.py가 기대하는 steps/skill_versions 등은
+    # 실제 관찰 기록으로 변환한다. since는 제거하고 없는 저장 이력·단계·시간은 생성하지 않는다.
     async def list_skills(self) -> list[dict]:
         return await self._call("list_skills", {})
 
@@ -55,11 +59,16 @@ class MCPTools:
             args["version"] = version
         return await self._call("get_skill", args)
 
+    # TODO(B/C-1, 계약 확정 후): 실제 Java MCP 입력은 skill_id/before_snapshot_id/after_snapshot_id다.
+    # 아래 name/from_version/to_version은 맞지 않는다. 버전->snapshot 해석 주체를 먼저 정하고 수정한다.
+    # hunks의 index는 0부터이며 v1 changes/change_no는 1부터이므로 ablation 인덱스도 함께 맞춘다.
     async def diff_skill(self, name: str, from_version: int, to_version: int) -> dict:
         return await self._call("diff_skill", {
             "name": name, "from_version": from_version, "to_version": to_version,
         })
 
+    # TODO(B/C-1, 계약 확정 후): 실제 서버는 snapshot_id와 entry_skill_id를 요구한다. 빈 인자는 실패한다.
+    # 조사 대상 snapshot과 flow ID를 전달하고 edges/missing 결과를 소비하는 코드도 함께 확인한다.
     async def get_dependency_graph(self) -> dict:
         return await self._call("get_dependency_graph", {})
 
@@ -74,6 +83,8 @@ class MCPTools:
 
     # ── 쓰기 도구 6개 (C-2) ─────────────────────────────────────────────────────
 
+    # TODO(B/C-2, 계약 확정 후): Java는 start_versions를 받고 workspace_id를 반환한다. 아래 base와
+    # nodes.py의 ws_id 파싱을 함께 변경한다. apply_patch의 ws_id/diff도 workspace_id/patch 계약과 대조한다.
     async def create_workspace(self, base: dict | None = None) -> dict:
         args = {}
         if base:
@@ -83,6 +94,8 @@ class MCPTools:
     async def apply_patch(self, ws_id: str, patches: list[dict]) -> dict:
         return await self._call("apply_patch", {"ws_id": ws_id, "patches": patches})
 
+    # TODO(B/C-2, 계약 확정 후): Java 입력은 workspace_id/scenario_ids/extra_checks/repeat이며 ws_id/k가 아니다.
+    # 반환 results 객체와 run_ids/실패 상세를 nodes.py 및 stub과 맞춘다. replay_run_ids는 서버 미지원이다.
     async def run_scenarios(
         self, ws_id: str, scenario_ids: list[str], k: int = 2
     ) -> list[dict]:

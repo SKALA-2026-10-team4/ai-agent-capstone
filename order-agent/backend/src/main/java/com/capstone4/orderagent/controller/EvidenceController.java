@@ -11,15 +11,25 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api")
 public class EvidenceController {
-    private final SnapshotService snapshots;private final TraceService traces;private final boolean demo;
-    public EvidenceController(SnapshotService snapshots,TraceService traces,@Value("${order-agent.demo-enabled}") boolean demo){this.snapshots=snapshots;this.traces=traces;this.demo=demo;}
+    private final SnapshotService snapshots;private final TraceService traces;private final SkillQueryService skills;private final boolean demo;
+    public EvidenceController(SnapshotService snapshots,TraceService traces,SkillQueryService skills,@Value("${order-agent.demo-enabled}") boolean demo){this.snapshots=snapshots;this.traces=traces;this.skills=skills;this.demo=demo;}
     @GetMapping("/traces/{runId}") public Map<String,Object> legacyTrace(@PathVariable String runId){
         if(!runId.matches("r_[a-fA-F0-9]{32}"))throw new AgentException("EXECUTION_NOT_FOUND");
         String raw=runId.substring(2);String id=raw.substring(0,8)+"-"+raw.substring(8,12)+"-"+raw.substring(12,16)+"-"+raw.substring(16,20)+"-"+raw.substring(20);
         return traces.get(UUID.fromString(id));
     }
     @GetMapping("/executions") public Map<String,Object> recent(){return Map.of("items",traces.recent());}
+    // TODO(C-1/B, 공용 계약 확정 후): 현재 trace는 execution_id + events이고 v1은 run_id + steps다.
+    // HTTP 계약은 유지하고 호출 측 DTO 변환 위치를 합의한다. run_id는 r_ + UUID 별칭이며 진단 run ID가 아니다.
+    // events의 실제 입력/출력/측정 시간만 사용하고 정적 차단·과거 기록에 실행 단계나 시간을 만들지 않는다.
     @GetMapping("/executions/{id}/trace") public Map<String,Object> trace(@PathVariable UUID id){return traces.get(id);}
+    // TODO(C-1/B, 공용 계약 확정 후): 현재 {items:[{execution_id,error:{category,skill_id,...}}]}와
+    // v1 {failed_runs:[{run_id,failed_skill,error:문자열,skill_versions,...}]}는 다르다.
+    // 호출 측에서 식별자·오류 요약/상세를 매핑하되 원래 error 상세는 보존한다.
+    // since/50건 제한은 도입하지 않는다. 사용자 합의는 파라미터 없는 전체 live 실패 목록이다.
+    @GetMapping("/executions/failed") public Map<String,Object> failed(){return Map.of("items",traces.failed());}
+    @GetMapping("/snapshots/{id}/skills") public Map<String,Object> skills(@PathVariable UUID id){return skills.list(id);}
+    @GetMapping("/snapshots/{id}/skills/{skillId}") public Map<String,Object> skill(@PathVariable UUID id,@PathVariable String skillId){return skills.get(id,skillId);}
     public record PublishRequest(String fixture){}
     // TODO(B/C-2 연동): 실제 진단 후보는 검증된 workspace 참조로 받아 SnapshotService에 연결한다.
     // 아래 fixture API는 미리 준비한 시연 데이터뿐이며 진단/수정 생성 기능이 아니다.

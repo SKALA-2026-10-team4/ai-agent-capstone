@@ -14,6 +14,8 @@
 
 담당자 협의용 [MCP 도구·주문 Agent API 매핑 초안](docs/mcp-order-api-draft.md)에 도구 6개 매핑, 실패 전달 스키마, Runner 역할과 네트워크·오류 처리 협의 사항을 정리했다.
 
+이슈 #39로 구현한 [진단용 조회 API 명세](docs/diagnosis-read-api.md)에 네 조회 기능의 요청·응답과 MCP 담당 두 분석 기능의 경계를 정의했다. `GET /api/executions/failed`, `GET /api/snapshots/{id}/skills`, `GET /api/snapshots/{id}/skills/{skill_id}`를 추가했으며 기존 trace·snapshot·파일 조회 API도 유지한다.
+
 ## Docker로 실행
 
 Docker Desktop을 실행한 뒤 저장소 루트에서:

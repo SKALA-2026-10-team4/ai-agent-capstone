@@ -1,5 +1,9 @@
 # MCP 도구와 주문 Agent API 매핑 초안
 
+> 후속 역할 합의: 두 버전 비교·연결 관계 분석은 MCP에서, 나머지 네 조회 기능은 주문 Agent HTTP API에서 제공한다. 구체적인 신규 API와 기존 API 구분은 [진단용 조회 API 명세안](diagnosis-read-api.md)을 우선한다. 아래 초기 매핑 중 MCP의 Skill 메타데이터 파싱 제안은 이 후속 명세로 대체한다.
+> 2026-10-21 이슈 #39: 전체 live 실패·snapshot Skill 목록/본문 API와 단계 trace 관찰을 구현했다. 아래 초기 제안의 미구현 여부보다 위 진단용 조회 API 명세의 현재 상태를 우선한다.
+
+
 2026-10-20 / 담당자 협의용 제안. 제공된 화면의 도구 6개를 기준으로 작성했다. 아래 MCP 입력·출력과 추가 API는 확정 계약이 아니다. 이 문서는 조회 연계를 설계하며 MCP 서버나 Runner를 구현하지 않는다.
 
 ## 1. 역할과 전제
@@ -14,7 +18,7 @@
 
 | MCP 도구 | 권장 입력 초안 | 현재 API 활용 | 필요한 추가 작업 |
 |---|---|---|---|
-| list_failed_runs | since?, cursor?, limit?, failure_kind? | GET /api/executions | 현재 최근 20개뿐이다. 전체 실패 목록을 위해 서버 측 필터·페이지 조회 추가 필요 |
+| list_failed_runs | 없음 | GET /api/executions/failed(신규 제안) | 파라미터 없이 전체 실패 실행 목록을 반환하는 API 추가 필요 |
 | get_trace | execution_id | GET /api/executions/{execution_id}/trace | 기존 응답을 공용 MCP 형식으로 변환 |
 | list_skills | snapshot_id | snapshot manifest + 각 SKILL.md 조회 | 이름·설명·version·owner·inputs·outputs·depends_on·steps를 파싱해 목록 구성 |
 | diff_skill | skill_id, before_snapshot_id, after_snapshot_id | 두 snapshot의 manifest와 대상 파일 조회 | MCP에서 구조화 선언 비교·본문 diff 생성, stable hunk_id 부여 |
@@ -33,7 +37,7 @@
 
 자동 진단 기본 대상은 실행 오류인 completion=FAILED/INTERRUPTED 등으로 협의한다. REJECTED(재고 부족)·HOLD(결제 거절)는 정상 업무 분기이므로 별도 분류·필터로 제공한다. 주문 상태만으로 오류 여부를 판정하지 않는다. 미선택 등은 trace까지 확인한다.
 
-현재 최근 20개에서 필터한 결과를 “전체 실패 목록”으로 반환하면 누락된다. 임시 사용 시 scope=recent_20, partial=true를 명시해야 한다. 정식 도구에는 GET /api/executions?since=...&failure_kind=execution_error&cursor=...&limit=... 같은 확장 계약을 협의한다(미구현). UTC 기준 시각·정렬·동일 시각의 ID 보조 정렬·cursor 의미도 정한다.
+GET /api/executions/failed를 요청 파라미터 없이 호출해 전체 실패 실행 목록을 받는 것으로 정리한다(미구현). started_at 내림차순·execution_id 내림차순으로 정렬하고 실패가 없으면 빈 items 배열을 반환한다. 기존 최근 20개 목록을 필터한 결과로 대체하면 실패가 누락될 수 있다.
 
 ### Skill 목록·본문
 
@@ -150,7 +154,7 @@ MCP 오류 래퍼는 code, message, retryable, upstream_status, execution_id/sna
 
 ## 6. 담당별 필요한 작업과 연결 확인
 
-- 주문 Agent: 실패 목록의 필터·페이지 계약, 안정적인 실패 전달, 테스트 실행 경계 제공. 현재 조회 API는 재사용한다.
+- 주문 Agent: 전체 실패 목록 조회 계약, 안정적인 실패 전달, 테스트 실행 경계 제공. 현재 조회 API는 재사용한다.
 - MCP/공용 Registry: 6개 도구, snapshot 기반 파싱·diff·그래프, 버전 참조 변환과 조회 오류 매핑. 이미 있는 구현이 있다면 어댑터로 연결한다.
 - SkillOps 진단 Agent: 조사 도구 호출·증거 기반 원인 설명·수정 후보 생성. 오류의 skill_id가 원인 파일이라고 단정하지 않는다.
 - Runner 담당: SEALED 후보 참조·시나리오·반복·예산을 받아 격리 실행하고 평가 결과 반환.

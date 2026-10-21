@@ -18,6 +18,10 @@ public class SkillDiffTools {
         this.diffService = diffService;
     }
 
+    // TODO(C-1/B, 계약 확정 후): 현재 입력은 skill_id/before_snapshot_id/after_snapshot_id인데
+    // Python은 name/from_version/to_version, 제안 v1은 skill/from_version/to_version을 보낸다.
+    // 실제 서버 스키마로 Python을 맞추거나 Registry 버전->불변 snapshot 변환 계층을 합의한다.
+    // 인자 이름만 바꿔 버전 정수를 snapshot UUID로 넘기지 않는다. 응답 필드 TODO는 DiffSkillResult 참고.
     @McpTool(name = "diff_skill", description = """
             같은 skill 의 SKILL.md 를 두 snapshot(기준·실패) 사이에서 비교해 바뀐 곳을 돌려준다.
             담당자가 무엇을 바꿨는지 확인할 때 쓴다. 실패 이벤트의 baseline_snapshot.snapshot_id 를 before,

@@ -232,6 +232,9 @@ async def hypothesize(state: AgentState) -> dict:
 # ── Node 4: ablate ────────────────────────────────────────────────────────────
 
 
+# TODO(B/C-1/C-2, 계약 확정 후): diff 응답의 hunks/index(0부터)와 v1 changes/change_no(1부터)를 구분한다.
+# patch/diff는 동일한 기준 snapshot에 적용하고, 없는 재현 scenario_id를 조합해 호출하지 않는다.
+# replay_run_ids 또는 실제 등록된 재현 주문으로 바꾸되 서버 지원과 함께 맞춘다.
 async def ablate(state: AgentState) -> dict:
     """각 가설의 hunk 를 되돌린 뒤 재현 시나리오를 실행한다. confirmed=True 면 원인 확정."""
     trigger = state["trigger"]
@@ -431,6 +434,9 @@ async def generate_candidates(state: AgentState) -> dict:
 # ── Node 8: verify_candidates ────────────────────────────────────────────────
 
 
+# TODO(B/C-2, 계약 확정 후): ws["ws_id"]는 서버 workspace_id와 다르고 결과 배열/runs 파싱도
+# 서버 results/run_ids와 다르다. patch의 contract_violations와 broken_links도 실제 응답 기준으로 맞춘다.
+# 누락 필드를 []/False 기본값으로 숨겨 계약 위반을 정상 판정하지 않도록 입력 응답 검증을 추가한다.
 async def verify_candidates(state: AgentState) -> dict:
     """각 후보를 격리 workspace 에서 골든 + 재현 시나리오로 검증한다."""
     golden_ids = ["g-01", "g-02", "g-03", "g-04", "g-05", "g-06"]

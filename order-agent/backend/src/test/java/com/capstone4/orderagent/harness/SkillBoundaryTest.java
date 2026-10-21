@@ -22,7 +22,7 @@ class SkillBoundaryTest {
     }
     @Test void runtimeContractIncludesMissingInputsAndDependencies(){
         var skill=new SkillLoader.Skill("payment","결제",1,List.of("order.id","inventory.reserved"),
-            List.of("payment.id"),List.of("inventory-check"),List.of(),"본문","skills/payment/SKILL.md","hash");
+            List.of("payment.id"),List.of("inventory-check"),List.of(),"본문","skills/payment/SKILL.md","hash","재무팀");
         var loader=new SkillLoader();
         try{
             loader.validateInputs(skill,Set.of("order.id"),Set.of(),"runtime_validation");
