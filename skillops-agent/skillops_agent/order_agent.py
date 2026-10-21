@@ -7,9 +7,11 @@ API 응답은 가공하지 않고 그대로 돌려준다(order-agent/docs/diagno
     trace = await get_trace(event["execution_id"])
     runs = await list_failed_runs()
     skills = await list_skills(trace["snapshot_id"])
+    skill = await get_skill(trace["snapshot_id"], "payment")
 """
 
 import asyncio
+import re
 import uuid
 from typing import Any
 
@@ -20,6 +22,7 @@ from .config import ORDER_AGENT_BASE_URL
 TIMEOUT_SECONDS = 5.0
 MAX_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 0.3
+SKILL_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
 
 class OrderAgentError(Exception):
@@ -77,6 +80,27 @@ async def list_skills(snapshot_id: str, *, client: httpx.AsyncClient | None = No
     """
     _require_uuid(snapshot_id, "snapshot_id", snapshot_id=snapshot_id)
     return await _get(f"/api/snapshots/{snapshot_id}/skills", client, snapshot_id=snapshot_id)
+
+
+async def get_skill(
+    snapshot_id: str, skill_id: str, *, client: httpx.AsyncClient | None = None
+) -> dict:
+    """snapshot 에 고정된 skill 하나. GET /api/snapshots/{snapshot_id}/skills/{skill_id} 응답을
+    그대로 돌려준다. content 는 frontmatter 를 포함한 SKILL.md 원문 전체다.
+
+    같은 폴더의 다른 파일(resources/policy.md 등)은 이 함수가 아니라 파일 조회 API 로 읽는다.
+    """
+    _require_uuid(snapshot_id, "snapshot_id", snapshot_id=snapshot_id)
+    # skill_id 는 주소에 들어가므로 보내기 전에 형식을 확인한다.
+    # 기준은 주문 Agent SkillLoader 와 같다.
+    if not isinstance(skill_id, str) or len(skill_id) > 64 or not SKILL_ID.fullmatch(skill_id):
+        raise OrderAgentError(
+            "INVALID_INPUT", f"skill_id 형식이 잘못됐습니다: {skill_id}",
+            retryable=False, snapshot_id=snapshot_id,
+        )
+    return await _get(
+        f"/api/snapshots/{snapshot_id}/skills/{skill_id}", client, snapshot_id=snapshot_id,
+    )
 
 
 async def _get(path: str, client: httpx.AsyncClient | None, **ref: str) -> Any:
