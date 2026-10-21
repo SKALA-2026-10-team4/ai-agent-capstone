@@ -308,6 +308,76 @@ class AgentEvidenceIntegrationTest {
         assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
     }
 
+    @Test void declaredButUnproducedInventoryOutputFailsAtRuntimeAndReleasesReservation() throws Exception {
+        String path="skills/inventory-check/SKILL.md";
+        String unsupported="inventory.reservation_reference";
+        var baseline=snapshots.capture();
+        String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
+        String edited=original.replace("outputs: [inventory.available, inventory.reserved]",
+            "outputs: [inventory.available, inventory.reserved, "+unsupported+"]");
+        assertThat(edited).isNotEqualTo(original);
+        var files=new TreeMap<>(baseline.files());
+        files.put(path,edited.getBytes(StandardCharsets.UTF_8));
+        var candidate=snapshots.publish(files,Map.of("source","s6-unproduced-output",
+            "baseline_snapshot_id",baseline.id().toString(),"changed_paths",List.of(path)));
+        baseline.files().forEach((p,bytes)->{
+            if(!p.equals(path))assertThat(candidate.files().get(p)).isEqualTo(bytes);
+        });
+        var control=orders.createOrder(UUID.randomUUID(),input(baseline.id())).order();
+        assertThat(control.status().name()).isEqualTo("SHIPPED");
+        jdbc.update("update products set stock_quantity=10 where sku=?",LANTERN);
+
+        UUID requestId=UUID.randomUUID();
+        assertThatThrownBy(()->orders.createOrder(requestId,input(candidate.id())))
+            .isInstanceOf(com.capstone4.orderagent.exception.BusinessException.class);
+        var failed=orders.getByRequestId(requestId);
+        var trace=traces.get(failed.executionId());
+        assertThat(trace.get("snapshot_id")).isEqualTo(candidate.id());
+        assertThat(trace.get("completion")).isEqualTo("FAILED");
+        assertThat(trace.get("error_category")).isEqualTo("MISSING_SKILL_OUTPUT");
+        assertThat(events(trace).stream().map(e->e.get("kind"))).contains("FLOW_VALIDATED");
+        var error=events(trace).stream().filter(e->"EXECUTION_ERROR".equals(e.get("kind")))
+            .findFirst().orElseThrow();
+        assertThat(error.get("skill_id")).isEqualTo("inventory-check");
+        var finished=events(trace).stream().filter(e->"SKILL_FINISHED".equals(e.get("kind"))
+            &&"inventory-check".equals(e.get("skill_id"))).findFirst().orElseThrow();
+        assertThat(((Map<?,?>)finished.get("data")).get("status")).isEqualTo("error");
+        var result=events(trace).stream().filter(e->"TOOL_RESULT".equals(e.get("kind"))
+            &&"inventory.reserve".equals(((Map<?,?>)e.get("data")).get("tool"))).findFirst().orElseThrow();
+        var actual=(Map<?,?>)((Map<?,?>)((Map<?,?>)result.get("data")).get("result")).get("context");
+        assertThat(actual.containsKey(unsupported)).isFalse();
+        assertThat(actual.get("inventory.reserved")).isEqualTo(true);
+        assertThat(events(trace).stream().filter(e->"TOOL_REQUEST".equals(e.get("kind")))
+            .map(e->((Map<?,?>)e.get("data")).get("tool")).toList())
+            .isEqualTo(List.of("order.inspect","inventory.reserve","inventory.release"));
+        assertThat(events(trace).stream().filter(e->"SKILL_COMPLETED".equals(e.get("kind")))
+            .map(e->e.get("skill_id")).toList()).containsExactly("order-intake");
+        assertThat(failed.status().name()).isEqualTo("FAILED");
+        assertThat(failed.payment().status().name()).isEqualTo("NOT_ATTEMPTED");
+        assertThat(failed.shipment()).isNull();
+        assertThat(failed.notification().status().name()).isEqualTo("NOT_ATTEMPTED");
+        assertThat(stock()).isEqualTo(10);
+        var loaded=events(trace).stream().filter(e->"SKILL_LOADED".equals(e.get("kind"))
+            &&"inventory-check".equals(e.get("skill_id"))).findFirst().orElseThrow();
+        assertThat(((Map<?,?>)loaded.get("data")).get("hash")).isEqualTo(Json.hash(candidate.files().get(path)));
+        mvc.perform(get("/api/executions/"+failed.executionId()+"/trace"))
+            .andExpect(status().isOk()).andExpect(jsonPath("error_category").value("MISSING_SKILL_OUTPUT"));
+        mvc.perform(get("/api/snapshots/"+candidate.id()+"/files").param("path",path))
+            .andExpect(status().isOk()).andExpect(jsonPath("content").value(edited));
+
+        // 도구 구현을 추가하는 대신 실제로 제공되지 않는 선언을 수동 제거해 비교한다.
+        var restoredFiles=new TreeMap<>(candidate.files());
+        restoredFiles.put(path,original.getBytes(StandardCharsets.UTF_8));
+        var restored=snapshots.publish(restoredFiles,Map.of("source","s6-output-restoration",
+            "broken_snapshot_id",candidate.id().toString()));
+        var repaired=orders.createOrder(UUID.randomUUID(),input(restored.id())).order();
+        assertThat(repaired.status().name()).isEqualTo("SHIPPED");
+        assertThat(repaired.notification().status().name()).isEqualTo("SENT");
+        assertThat(stock()).isEqualTo(9);
+        assertThat(snapshots.get(candidate.id()).files().get(path)).isEqualTo(edited.getBytes(StandardCharsets.UTF_8));
+        assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
+    }
+
     @Test void brokenContractFailsBeforeBusinessToolsAndRepairedSnapshotPasses(){
         var broken=snapshots.demo("broken-contract");
         assertThatThrownBy(()->orders.createOrder(UUID.randomUUID(),input(broken.id()))).isInstanceOf(RuntimeException.class);
