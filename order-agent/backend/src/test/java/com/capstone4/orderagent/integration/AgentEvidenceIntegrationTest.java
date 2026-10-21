@@ -307,14 +307,74 @@ class AgentEvidenceIntegrationTest {
         assertThat(jdbc.queryForObject("select payment_status from orders",String.class)).isEqualTo("NOT_ATTEMPTED");
         assertThat(jdbc.queryForObject("select count(*) from order_processing_steps where step='RELEASE'",Integer.class)).isEqualTo(1);
     }
-    @Test void incompleteFlowIsNeverMarkedShipped(){
-        var baseline=snapshots.capture();var files=new TreeMap<>(baseline.files());
-        String flow=new String(files.get("skills/order-flow/SKILL.md"),StandardCharsets.UTF_8).replace(", notify]","]");
-        files.put("skills/order-flow/SKILL.md",flow.getBytes(StandardCharsets.UTF_8));
-        var candidate=snapshots.publish(files,Map.of("source","missing-notify"));
-        assertThatThrownBy(()->orders.createOrder(UUID.randomUUID(),input(candidate.id()))).isInstanceOf(RuntimeException.class);
-        assertThat(traces.get(execution()).get("error_category")).isEqualTo("INCOMPLETE_FLOW");
-        assertThat(jdbc.queryForObject("select status from orders",String.class)).isEqualTo("FAILED");
-        assertThat(jdbc.queryForObject("select payment_status from orders",String.class)).isEqualTo("PAID");
+    @Test void incompleteFlowIsNeverMarkedShipped() throws Exception {
+        String path="skills/order-flow/SKILL.md";
+        var baseline=snapshots.capture();
+        String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
+        String edited=original.replace("steps: [order-intake, inventory-check, payment, shipping-reserve, notify]",
+            "steps: [order-intake, inventory-check, payment, shipping-reserve]");
+        assertThat(edited).isNotEqualTo(original);
+        var files=new TreeMap<>(baseline.files());
+        files.put(path,edited.getBytes(StandardCharsets.UTF_8));
+        var candidate=snapshots.publish(files,Map.of("source","s4-missing-notify",
+            "baseline_snapshot_id",baseline.id().toString(),"changed_paths",List.of(path)));
+        assertThat(candidate.files().keySet()).isEqualTo(baseline.files().keySet());
+        baseline.files().forEach((p,bytes)->{
+            if(!p.equals(path))assertThat(candidate.files().get(p)).isEqualTo(bytes);
+        });
+        var control=orders.createOrder(UUID.randomUUID(),input(baseline.id())).order();
+        assertThat(control.status().name()).isEqualTo("SHIPPED");
+        jdbc.update("update products set stock_quantity=10 where sku=?",LANTERN);
+
+        UUID requestId=UUID.randomUUID();
+        assertThatThrownBy(()->orders.createOrder(requestId,input(candidate.id())))
+            .isInstanceOf(com.capstone4.orderagent.exception.BusinessException.class);
+        var failed=orders.getByRequestId(requestId);
+        var trace=traces.get(failed.executionId());
+        assertThat(trace.get("snapshot_id")).isEqualTo(candidate.id());
+        assertThat(trace.get("error_category")).isEqualTo("INCOMPLETE_FLOW");
+        assertThat(trace.get("completion")).isEqualTo("FAILED");
+        assertThat(failed.status().name()).isEqualTo("FAILED");
+        assertThat(failed.payment().status().name()).isEqualTo("PAID");
+        assertThat(failed.payment().reference()).isNotBlank();
+        assertThat(failed.shipment()).isNotNull();
+        assertThat(failed.shipment().reference()).isNotBlank();
+        assertThat(failed.notification().status().name()).isEqualTo("NOT_ATTEMPTED");
+        assertThat(stock()).isEqualTo(9);
+        assertThat(events(trace).stream().map(e->e.get("kind"))).contains("FLOW_VALIDATED");
+        assertThat(events(trace).stream().filter(e->"TOOL_REQUEST".equals(e.get("kind")))
+            .map(e->((Map<?,?>)e.get("data")).get("tool")).toList())
+            .isEqualTo(List.of("order.inspect","inventory.reserve","payment.charge","shipping.reserve"));
+        assertThat(events(trace).stream().filter(e->"SKILL_COMPLETED".equals(e.get("kind")))
+            .map(e->e.get("skill_id")).toList())
+            .containsExactly("order-intake","inventory-check","payment","shipping-reserve");
+        assertThat(events(trace).stream().filter(e->"EXECUTION_FINISHED".equals(e.get("kind")))
+            .map(e->((Map<?,?>)e.get("data")).get("completion")).toList()).isEqualTo(List.of("FAILED"));
+        mvc.perform(get("/api/executions/"+failed.executionId()+"/trace"))
+            .andExpect(status().isOk()).andExpect(jsonPath("error_category").value("INCOMPLETE_FLOW"));
+        mvc.perform(get("/api/snapshots/"+candidate.id()+"/files").param("path",path))
+            .andExpect(status().isOk()).andExpect(jsonPath("content").value(edited));
+
+        // 같은 요청 키로 재전송해도 결제·배송이 중복 실행되지 않아야 한다.
+        var recovered=orders.createOrder(requestId,input(candidate.id()));
+        assertThat(recovered.created()).isFalse();
+        assertThat(recovered.order().executionId()).isEqualTo(failed.executionId());
+        assertThat(recovered.order().payment().reference()).isEqualTo(failed.payment().reference());
+        assertThat(recovered.order().shipment().reference()).isEqualTo(failed.shipment().reference());
+        assertThat(stock()).isEqualTo(9);
+        assertThat(events(traces.get(failed.executionId()))).hasSize(events(trace).size());
+
+        jdbc.update("update products set stock_quantity=10 where sku=?",LANTERN);
+        var restoredFiles=new TreeMap<>(candidate.files());
+        restoredFiles.put(path,original.getBytes(StandardCharsets.UTF_8));
+        var restored=snapshots.publish(restoredFiles,Map.of("source","s4-notify-restoration",
+            "broken_snapshot_id",candidate.id().toString()));
+        var repaired=orders.createOrder(UUID.randomUUID(),input(restored.id())).order();
+        assertThat(repaired.status().name()).isEqualTo("SHIPPED");
+        assertThat(repaired.notification().status().name()).isEqualTo("SENT");
+        assertThat(stock()).isEqualTo(9);
+        assertThat(orders.getByRequestId(requestId).status().name()).isEqualTo("FAILED");
+        assertThat(snapshots.get(candidate.id()).files().get(path)).isEqualTo(edited.getBytes(StandardCharsets.UTF_8));
+        assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
     }
 }
