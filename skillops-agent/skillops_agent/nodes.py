@@ -89,14 +89,16 @@ def _eval_check(check: str, context: dict) -> bool:
 
 
 def _error_event(trace: dict) -> dict:
-    """v1 events에서 EXECUTION_ERROR 이벤트를 반환한다."""
+    """v1 events에서 EXECUTION_ERROR 이벤트를 반환한다. skill_id는 top-level 필드."""
     return next(
         (e for e in trace.get("events", []) if e.get("kind") == "EXECUTION_ERROR"), {}
     )
 
 
 async def _check_intent(checks: list[str], run_ids: list[str], tools) -> bool:
-    """repro 실행 execution_id 의 trace 출력으로 check 을 검증한다."""
+    """repro 실행 execution_id 의 trace 출력으로 check 을 검증한다.
+    실제 API: SKILL_FINISHED 이벤트의 data.output 에서 출력값 추출.
+    """
     if not checks:
         return True
     if not run_ids:
@@ -104,8 +106,8 @@ async def _check_intent(checks: list[str], run_ids: list[str], tools) -> bool:
     trace = await tools.get_trace(run_ids[0])
     context: dict = {}
     for event in trace.get("events", []):
-        if event.get("kind") == "EXECUTION_FINISHED":
-            context.update(event.get("output", {}))
+        if event.get("kind") == "SKILL_FINISHED":
+            context.update(event.get("data", {}).get("output", {}))
     return all(_eval_check(c, context) for c in checks)
 
 
@@ -180,15 +182,17 @@ async def fetch_evidence(state: AgentState) -> dict:
             trace = await t.get_trace(trigger["run_id"])
             snapshot_id = trace.get("snapshot_id")
 
-            # v1: SKILL_SELECTED events에서 실행 당시 버전 맵 추출
+            # 실제 API: SKILL_LOADED 이벤트의 skill_id + data.version 으로 버전 맵 추출
             for event in trace.get("events", []):
-                if event.get("kind") == "SKILL_SELECTED":
-                    skill_versions[event["skill"]] = event["version"]
+                if event.get("kind") == "SKILL_LOADED" and event.get("skill_id"):
+                    v = event.get("data", {}).get("version")
+                    if v is not None:
+                        skill_versions[event["skill_id"]] = v
 
-            # v1: EXECUTION_ERROR event에서 실패 skill 추출
+            # 실제 API: EXECUTION_ERROR event의 top-level skill_id 로 실패 skill 추출
             failed_ev = _error_event(trace)
             if failed_ev:
-                skill = failed_ev["skill"]
+                skill = failed_ev.get("skill_id") or failed_ev.get("skill", "unknown")
                 current_v = skill_versions.get(skill, 1)
                 if current_v > 1:
                     prev_snap = f"{snapshot_id}_prev" if snapshot_id else "snap_prev"
@@ -259,7 +263,7 @@ async def ablate(state: AgentState) -> dict:
 
     trace = state.get("trace") or {}
     failed_ev = _error_event(trace)
-    skill_name = failed_ev.get("skill") or trigger.get("skill") or "unknown"
+    skill_name = failed_ev.get("skill_id") or failed_ev.get("skill") or trigger.get("skill") or "unknown"
     base_v = skill_versions.get(skill_name, 1)
 
     ablation_runs: list[AblationRun] = []
@@ -311,7 +315,7 @@ def check_ablation(state: AgentState) -> dict:
         # 실패 skill 이름 추출
         trace = state.get("trace") or {}
         failed_ev = _error_event(trace)
-        skill_name = failed_ev.get("skill", state["trigger"].get("skill", "unknown"))
+        skill_name = failed_ev.get("skill_id") or failed_ev.get("skill") or state["trigger"].get("skill", "unknown")
         current_v = skill_versions.get(skill_name, 1)
 
         root_cause = RootCause(
@@ -484,12 +488,15 @@ async def verify_candidates(state: AgentState) -> dict:
             evidence_run_ids = [run_id for r in results for run_id in r.get("run_ids", [])]
 
             # PB-007: repro 트레이스 TOOL_REQUEST 이벤트에서 도구 호출 목록 추출
+            # 실제 API: tool 이름은 event.data.tool 에 있음
             tools_called: list[str] = []
             if repro_run_ids:
                 repro_trace = await t.get_trace(repro_run_ids[0])
                 tools_called = [
-                    ev["tool"] for ev in repro_trace.get("events", [])
-                    if ev.get("kind") == "TOOL_REQUEST" and ev.get("tool")
+                    ev.get("data", {}).get("tool") or ev.get("tool")
+                    for ev in repro_trace.get("events", [])
+                    if ev.get("kind") == "TOOL_REQUEST"
+                    and (ev.get("data", {}).get("tool") or ev.get("tool"))
                 ]
 
             candidate_results = CandidateResults(

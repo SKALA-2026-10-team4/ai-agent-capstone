@@ -166,6 +166,7 @@ class StubMCPTools:
 
     async def get_trace(self, execution_id: str) -> dict:
         if execution_id == "r_stub_F1":
+            # 실제 API 형식: skill_id(top-level) + data{} 구조
             return {
                 "execution_id": execution_id,
                 "snapshot_id": "snap_001",
@@ -173,13 +174,15 @@ class StubMCPTools:
                 "started_at": "2026-10-20T09:00:00Z",
                 "final_status": "FAILED",
                 "events": [
-                    {"sequence": 1, "kind": "SKILL_SELECTED",    "skill": "order-intake",    "version": 2},
-                    {"sequence": 2, "kind": "EXECUTION_FINISHED", "skill": "order-intake",    "output": {"order.id": "ord_001", "order.total": 50000}, "ms": 120},
-                    {"sequence": 3, "kind": "SKILL_SELECTED",    "skill": "inventory-check", "version": 5},
-                    {"sequence": 4, "kind": "TOOL_REQUEST",       "skill": "inventory-check", "tool": "check_inventory"},
-                    {"sequence": 5, "kind": "EXECUTION_FINISHED", "skill": "inventory-check", "output": {"inventory.예약가능수량": True}, "ms": 200},
-                    {"sequence": 6, "kind": "SKILL_SELECTED",    "skill": "payment",         "version": 4},
-                    {"sequence": 7, "kind": "EXECUTION_ERROR",   "skill": "payment",         "error": {"code": "MISSING_INPUT", "message": "required input inventory.reserved not found"}, "ms": 50},
+                    {"sequence": 1,  "kind": "SKILL_LOADED",    "skill_id": "order-intake",    "data": {"version": 2, "path": "order-intake/SKILL.md", "hash": "h001"}},
+                    {"sequence": 2,  "kind": "TOOL_REQUEST",    "skill_id": "order-intake",    "data": {"tool": "normalize_order", "arguments": {}}},
+                    {"sequence": 3,  "kind": "SKILL_FINISHED",  "skill_id": "order-intake",    "data": {"step_no": 1, "version": 2, "status": "ok", "output": {"order.id": "ord_001", "order.total": 50000}, "duration_ms": 120}},
+                    {"sequence": 4,  "kind": "SKILL_LOADED",    "skill_id": "inventory-check", "data": {"version": 5, "path": "inventory-check/SKILL.md", "hash": "h003"}},
+                    {"sequence": 5,  "kind": "TOOL_REQUEST",    "skill_id": "inventory-check", "data": {"tool": "check_inventory", "arguments": {}}},
+                    {"sequence": 6,  "kind": "SKILL_FINISHED",  "skill_id": "inventory-check", "data": {"step_no": 2, "version": 5, "status": "ok", "output": {"inventory.예약가능수량": True}, "duration_ms": 200}},
+                    {"sequence": 7,  "kind": "SKILL_LOADED",    "skill_id": "payment",         "data": {"version": 4, "path": "payment/SKILL.md", "hash": "h004"}},
+                    {"sequence": 8,  "kind": "EXECUTION_ERROR", "skill_id": "payment",         "data": {"skill_id": "payment", "missing_inputs": ["inventory.reserved"], "phase": "static_validation"}},
+                    {"sequence": 9,  "kind": "EXECUTION_FINISHED", "skill_id": None,           "data": {"completion": "FAILED", "final_status": "FAILED", "error_category": "CONTRACT_VIOLATION"}},
                 ],
             }
         # workspace 시나리오 실행 결과 — 수정 후 통과 트레이스
@@ -190,17 +193,20 @@ class StubMCPTools:
             "started_at": "2026-10-20T09:00:00Z",
             "final_status": "SHIPPED",
             "events": [
-                {"sequence": 1,  "kind": "SKILL_SELECTED",    "skill": "order-intake",    "version": 2},
-                {"sequence": 2,  "kind": "EXECUTION_FINISHED", "skill": "order-intake",    "output": {"order.id": "ord_001", "order.total": 50000}, "ms": 110},
-                {"sequence": 3,  "kind": "SKILL_SELECTED",    "skill": "inventory-check", "version": 6},
-                {"sequence": 4,  "kind": "TOOL_REQUEST",       "skill": "inventory-check", "tool": "check_inventory"},
-                {"sequence": 5,  "kind": "EXECUTION_FINISHED", "skill": "inventory-check", "output": {"inventory.reserved": True}, "ms": 180},
-                {"sequence": 6,  "kind": "SKILL_SELECTED",    "skill": "payment",         "version": 4},
-                {"sequence": 7,  "kind": "EXECUTION_FINISHED", "skill": "payment",         "output": {"payment.id": "pay_001", "payment.status": "PAID"}, "ms": 90},
-                {"sequence": 8,  "kind": "SKILL_SELECTED",    "skill": "shipping-reserve","version": 3},
-                {"sequence": 9,  "kind": "EXECUTION_FINISHED", "skill": "shipping-reserve","output": {"shipping.id": "shp_001"}, "ms": 95},
-                {"sequence": 10, "kind": "SKILL_SELECTED",    "skill": "notify",          "version": 2},
-                {"sequence": 11, "kind": "EXECUTION_FINISHED", "skill": "notify",          "output": {}, "ms": 40},
+                {"sequence": 1,  "kind": "SKILL_LOADED",    "skill_id": "order-intake",    "data": {"version": 2, "path": "order-intake/SKILL.md", "hash": "h001"}},
+                {"sequence": 2,  "kind": "TOOL_REQUEST",    "skill_id": "order-intake",    "data": {"tool": "normalize_order", "arguments": {}}},
+                {"sequence": 3,  "kind": "SKILL_FINISHED",  "skill_id": "order-intake",    "data": {"step_no": 1, "version": 2, "status": "ok", "output": {"order.id": "ord_001", "order.total": 50000}, "duration_ms": 110}},
+                {"sequence": 4,  "kind": "SKILL_LOADED",    "skill_id": "inventory-check", "data": {"version": 6, "path": "inventory-check/SKILL.md", "hash": "h003"}},
+                {"sequence": 5,  "kind": "TOOL_REQUEST",    "skill_id": "inventory-check", "data": {"tool": "check_inventory", "arguments": {}}},
+                {"sequence": 6,  "kind": "SKILL_FINISHED",  "skill_id": "inventory-check", "data": {"step_no": 2, "version": 6, "status": "ok", "output": {"inventory.reserved": True}, "duration_ms": 180}},
+                {"sequence": 7,  "kind": "SKILL_LOADED",    "skill_id": "payment",         "data": {"version": 4, "path": "payment/SKILL.md", "hash": "h004"}},
+                {"sequence": 8,  "kind": "TOOL_REQUEST",    "skill_id": "payment",         "data": {"tool": "charge_card", "arguments": {}}},
+                {"sequence": 9,  "kind": "SKILL_FINISHED",  "skill_id": "payment",         "data": {"step_no": 3, "version": 4, "status": "ok", "output": {"payment.id": "pay_001", "payment.status": "PAID"}, "duration_ms": 90}},
+                {"sequence": 10, "kind": "SKILL_LOADED",    "skill_id": "shipping-reserve","data": {"version": 3, "path": "shipping-reserve/SKILL.md", "hash": "h005"}},
+                {"sequence": 11, "kind": "SKILL_FINISHED",  "skill_id": "shipping-reserve","data": {"step_no": 4, "version": 3, "status": "ok", "output": {"shipping.id": "shp_001"}, "duration_ms": 95}},
+                {"sequence": 12, "kind": "SKILL_LOADED",    "skill_id": "notify",          "data": {"version": 2, "path": "notify/SKILL.md", "hash": "h006"}},
+                {"sequence": 13, "kind": "SKILL_FINISHED",  "skill_id": "notify",          "data": {"step_no": 5, "version": 2, "status": "ok", "output": {}, "duration_ms": 40}},
+                {"sequence": 14, "kind": "EXECUTION_FINISHED", "skill_id": None,           "data": {"completion": "COMPLETED", "final_status": "SHIPPED"}},
             ],
         }
 

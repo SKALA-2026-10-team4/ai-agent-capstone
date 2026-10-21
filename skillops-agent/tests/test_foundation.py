@@ -105,10 +105,12 @@ def test_stub_get_trace_returns_failed_trace():
 
     trace = asyncio.run(_run())
     assert trace["final_status"] == "FAILED"
-    # v1: steps[] → events[] 형식
+    # 실제 API 형식: EXECUTION_ERROR.skill_id(top-level) + data.missing_inputs
     error_events = [e for e in trace["events"] if e["kind"] == "EXECUTION_ERROR"]
     assert len(error_events) == 1
-    assert "inventory.reserved" in error_events[0]["error"]["message"]
+    err = error_events[0]
+    assert err.get("skill_id") == "payment"
+    assert "inventory.reserved" in err["data"]["missing_inputs"]
 
 
 def test_stub_diff_skill_returns_changes():
