@@ -31,6 +31,18 @@ public class EvidenceController {
     @GetMapping("/snapshots/{id}/skills") public Map<String,Object> skills(@PathVariable UUID id){return skills.list(id);}
     @GetMapping("/snapshots/{id}/skills/{skillId}") public Map<String,Object> skill(@PathVariable UUID id,@PathVariable String skillId){return skills.get(id,skillId);}
     public record PublishRequest(String fixture){}
+    public record EditRequest(UUID baselineSnapshotId,String baselineHash,Map<String,String> changes){}
+    @PostMapping("/snapshots/edits")
+    @ResponseStatus(org.springframework.http.HttpStatus.CREATED)
+    public Map<String,Object> saveEdits(@RequestBody EditRequest request){
+        var saved=snapshots.saveEdits(request.baselineSnapshotId(),request.baselineHash(),request.changes());
+        var response=new LinkedHashMap<String,Object>(manifest(saved));
+        response.put("baseline_snapshot_id",saved.metadata().get("baseline_snapshot_id"));
+        response.put("change_id",saved.metadata().get("change_id"));
+        response.put("changed_paths",saved.metadata().get("changed_paths"));
+        response.put("validation_status","NOT_REQUESTED");
+        return response;
+    }
     // TODO(B/C-2 연동): 실제 진단 후보는 검증된 workspace 참조로 받아 SnapshotService에 연결한다.
     // 아래 fixture API는 미리 준비한 시연 데이터뿐이며 진단/수정 생성 기능이 아니다.
     // MCP 도구 구현은 이 컨트롤러를 복제하지 말고 내부 서비스 계약을 호출하도록 담당자와 맞춘다.

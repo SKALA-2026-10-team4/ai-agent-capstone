@@ -41,6 +41,54 @@ class AgentEvidenceIntegrationTest {
     UUID execution(){return jdbc.queryForObject("select id from agent_executions order by started_at desc limit 1",UUID.class);}
     @SuppressWarnings("unchecked") List<Map<String,Object>> events(Map<String,Object> trace){return (List<Map<String,Object>>)trace.get("events");}
 
+    @Test void editorApiSavesActualEditsAndExecutesReturnedSnapshot() throws Exception {
+        var baseline=snapshots.capture();
+        String path="skills/inventory-check/SKILL.md";
+        String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
+        String edited=original.replace("outputs: [inventory.available, inventory.reserved]","outputs: [inventory.available]");
+        var response=mvc.perform(post("/api/snapshots/edits").contentType("application/json")
+            .content(Json.write(Map.of("baseline_snapshot_id",baseline.id(),"baseline_hash",baseline.hash(),
+                "changes",Map.of(path,edited)))))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("baseline_snapshot_id").value(baseline.id().toString()))
+            .andExpect(jsonPath("changed_paths[0]").value(path))
+            .andExpect(jsonPath("validation_status").value("NOT_REQUESTED"))
+            .andExpect(jsonPath("change_id").isNotEmpty()).andReturn();
+        var payload=Json.object(response.getResponse().getContentAsString());
+        UUID id=UUID.fromString((String)payload.get("snapshot_id"));
+        assertThat(id).isNotEqualTo(baseline.id());
+        var candidate=snapshots.get(id);
+        assertThat(candidate.files().get(path)).isEqualTo(edited.getBytes(StandardCharsets.UTF_8));
+        baseline.files().forEach((p,bytes)->{
+            if(!p.equals(path))assertThat(candidate.files().get(p)).isEqualTo(bytes);
+        });
+        mvc.perform(get("/api/snapshots/"+id+"/files").param("path",path))
+            .andExpect(status().isOk()).andExpect(jsonPath("content").value(edited));
+        UUID request=UUID.randomUUID();
+        assertThatThrownBy(()->orders.createOrder(request,input(id))).isInstanceOf(RuntimeException.class);
+        var trace=traces.get(orders.getByRequestId(request).executionId());
+        assertThat(trace.get("snapshot_id")).isEqualTo(id);
+        assertThat(trace.get("error_category")).isEqualTo("CONTRACT_VIOLATION");
+        assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test void editorApiRejectsInvalidOrUnchangedRequestsWithoutPartialSave() throws Exception {
+        var baseline=snapshots.capture();
+        String path="skills/payment/SKILL.md";
+        String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
+        int count=jdbc.queryForObject("select count(*) from skill_snapshots",Integer.class);
+        for(var changes:List.of(Map.of(path,original),Map.of(path,original+"\n", "skills/../SKILL.md","bad"),
+                Map.<String,String>of())){
+            mvc.perform(post("/api/snapshots/edits").contentType("application/json")
+                .content(Json.write(Map.of("baseline_snapshot_id",baseline.id(),"baseline_hash",baseline.hash(),"changes",changes))))
+                .andExpect(status().isBadRequest());
+        }
+        mvc.perform(post("/api/snapshots/edits").contentType("application/json")
+            .content(Json.write(Map.of("baseline_snapshot_id",baseline.id(),"baseline_hash","wrong", "changes",Map.of(path,"changed")))))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("code").value("BASELINE_HASH_MISMATCH"));
+        assertThat(jdbc.queryForObject("select count(*) from skill_snapshots",Integer.class)).isEqualTo(count);
+    }
+
     @Test void normalExecutionActuallyLoadsSixSkillsAndSharesSnapshotReferences() throws Exception {
         var result=orders.createOrder(UUID.randomUUID(),input(null)).order();
         assertThat(result.executionId()).isNotNull();
