@@ -31,12 +31,17 @@ public class WorkspaceTools {
 
     @McpTool(name = "create_workspace", description = """
             운영 중인 skill 은 그대로 두고 연습용 복사본(연습 공간)을 만든다.
+            시작점은 둘 중 하나다. start_versions 는 운영 폴더의 skill 을, snapshot_id 는 주문 Agent 가 보관한 skill 묶음
+            (skills/ 아래 파일 전부)을 복사한다. 둘 다 없으면 운영 버전이다. 함께 쓸 수 없다.
             돌려주는 값: {workspace_id, skill_versions, created_at}. workspace_id 를 apply_patch, run_scenarios 에 넣는다.
             실패하면 isError=true 와 {code, message, retryable, upstream_status, snapshot_id} 를 돌려준다.""")
     public CallToolResult createWorkspace(
-            @McpToolParam(required = false, description = "skill 이름 → 시작 버전. 적지 않은 skill 은 운영 버전")
-            Map<String, Integer> start_versions) {
-        return WorkspaceToolResults.run(() -> workspaces.create(start_versions));
+            @McpToolParam(required = false, description = "skill 이름 → 시작 버전. 적지 않은 skill 은 운영 버전. snapshot_id 와 함께 쓸 수 없다")
+            Map<String, Integer> start_versions,
+            @McpToolParam(required = false,
+                    description = "주문 Agent snapshot 번호(UUID). 주면 그 snapshot 의 skill 로 시작한다. start_versions 와 함께 쓸 수 없다")
+            String snapshot_id) {
+        return WorkspaceToolResults.run(() -> workspaces.create(start_versions, snapshot_id));
     }
 
     // TODO(C-2/B): 재현 주문(replay_run_ids)은 아직 없다. 원본 실행 조회(주문 Agent #39 API)·재현 등록 계약을 정한 뒤 더한다.

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 
 import com.capstone4.skillops.scenario.ScenarioRunReport;
 import com.capstone4.skillops.scenario.ScenarioRunner;
+import com.capstone4.skillops.snapshot.OrderAgentException;
 import com.capstone4.skillops.workspace.WorkspaceService;
 import com.capstone4.skillops.workspace.WorkspaceService.CreatedWorkspace;
 
@@ -31,10 +32,10 @@ class WorkspaceToolsTest {
 
     @Test
     void createWorkspaceReturnsWorkspaceId() {
-        when(workspaces.create(Map.of("inventory-check", 1))).thenReturn(new CreatedWorkspace(
+        when(workspaces.create(Map.of("inventory-check", 1), null)).thenReturn(new CreatedWorkspace(
                 "w_abc", Map.of("inventory-check", 1), Instant.parse("2026-10-21T00:00:00Z")));
 
-        CallToolResult result = tools.createWorkspace(Map.of("inventory-check", 1));
+        CallToolResult result = tools.createWorkspace(Map.of("inventory-check", 1), null);
 
         assertThat(result.isError()).isFalse();
         Map<String, Object> body = mapOf(textOf(result));
@@ -42,6 +43,67 @@ class WorkspaceToolsTest {
         assertThat(body.get("workspace_id")).isEqualTo("w_abc");
         assertThat(body.get("skill_versions")).isEqualTo(Map.of("inventory-check", 1));
         assertThat(body.get("created_at")).isEqualTo("2026-10-21T00:00:00Z");
+    }
+
+    @Test
+    void createWorkspacePassesSnapshotId() {
+        String snapshot = "11111111-2222-3333-4444-555555555555";
+        when(workspaces.create(null, snapshot)).thenReturn(new CreatedWorkspace(
+                "w_snap", Map.of("order-flow", 1, "payment", 1), Instant.parse("2026-10-21T00:00:00Z")));
+
+        CallToolResult result = tools.createWorkspace(null, snapshot);
+
+        assertThat(result.isError()).isFalse();
+        Map<String, Object> body = mapOf(textOf(result));
+        assertThat(body.keySet()).containsExactly("workspace_id", "skill_versions", "created_at");
+        assertThat(body.get("workspace_id")).isEqualTo("w_snap");
+        assertThat(body.get("skill_versions")).isEqualTo(Map.of("order-flow", 1, "payment", 1));
+    }
+
+    @Test
+    void baseAndSnapshotTogetherIsInvalidInput() {
+        when(workspaces.create(any(), any())).thenThrow(
+                new IllegalArgumentException("snapshot_id 와 start_versions 는 함께 쓸 수 없습니다"));
+
+        CallToolResult result = tools.createWorkspace(Map.of("payment", 1), "11111111-2222-3333-4444-555555555555");
+
+        assertThat(result.isError()).isTrue();
+        Map<String, Object> error = mapOf(textOf(result));
+        assertThat(error.get("code")).isEqualTo("INVALID_INPUT");
+        assertThat(error.get("message")).isEqualTo("snapshot_id 와 start_versions 는 함께 쓸 수 없습니다");
+        assertThat(error.get("retryable")).isEqualTo(false);
+    }
+
+    @Test
+    void orderAgentFailureKeepsItsCodeAndRetryable() {
+        String snapshot = "11111111-2222-3333-4444-555555555555";
+        when(workspaces.create(any(), any())).thenThrow(new OrderAgentException(
+                "ORDER_AGENT_UNAVAILABLE", "주문 Agent 에 연결하지 못했습니다: refused", true, null, snapshot));
+
+        CallToolResult result = tools.createWorkspace(null, snapshot);
+
+        assertThat(result.isError()).isTrue();
+        Map<String, Object> error = mapOf(textOf(result));
+        assertThat(error.keySet()).containsExactly("code", "message", "retryable", "upstream_status", "snapshot_id");
+        assertThat(error.get("code")).isEqualTo("ORDER_AGENT_UNAVAILABLE");
+        assertThat(error.get("message")).isEqualTo("주문 Agent 에 연결하지 못했습니다: refused");
+        assertThat(error.get("retryable")).isEqualTo(true);
+        assertThat(error.get("upstream_status")).isNull();
+        assertThat(error.get("snapshot_id")).isEqualTo(snapshot);
+    }
+
+    @Test
+    void orderAgentNotFoundKeepsUpstreamStatus() {
+        String snapshot = "11111111-2222-3333-4444-555555555555";
+        when(workspaces.create(any(), any())).thenThrow(
+                new OrderAgentException("SNAPSHOT_NOT_FOUND", "snapshot 이 없습니다", false, 404, snapshot));
+
+        Map<String, Object> error = mapOf(textOf(tools.createWorkspace(null, snapshot)));
+
+        assertThat(error.get("code")).isEqualTo("SNAPSHOT_NOT_FOUND");
+        assertThat(error.get("retryable")).isEqualTo(false);
+        assertThat(error.get("upstream_status")).isEqualTo(404);
+        assertThat(error.get("snapshot_id")).isEqualTo(snapshot);
     }
 
     @Test
@@ -86,9 +148,9 @@ class WorkspaceToolsTest {
 
     @Test
     void unexpectedFailureBecomesInternalError() {
-        when(workspaces.create(any())).thenThrow(new IllegalStateException("payment 의 SKILL.md 맨 위 칸에 version 이 없습니다"));
+        when(workspaces.create(any(), any())).thenThrow(new IllegalStateException("payment 의 SKILL.md 맨 위 칸에 version 이 없습니다"));
 
-        CallToolResult result = tools.createWorkspace(null);
+        CallToolResult result = tools.createWorkspace(null, null);
 
         assertThat(result.isError()).isTrue();
         Map<String, Object> error = mapOf(textOf(result));
