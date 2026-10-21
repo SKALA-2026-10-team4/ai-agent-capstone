@@ -5,6 +5,7 @@ API 응답은 가공하지 않고 그대로 돌려준다(order-agent/docs/diagno
 
 사용 예:
     trace = await get_trace(event["execution_id"])
+    runs = await list_failed_runs()
 """
 
 import asyncio
@@ -53,6 +54,16 @@ async def get_trace(execution_id: str, *, client: httpx.AsyncClient | None = Non
     """
     _require_uuid(execution_id, "execution_id", execution_id=execution_id)
     return await _get(f"/api/executions/{execution_id}/trace", client, execution_id=execution_id)
+
+
+async def list_failed_runs(*, client: httpx.AsyncClient | None = None) -> dict:
+    """실제 운영 실행의 실행 실패 전체 목록. GET /api/executions/failed 응답을 그대로 돌려준다.
+
+    {"items": [...]} 이고 최신 실패가 앞에 온다. 실패가 없으면 items 가 빈 목록이다.
+    업무 거절(REJECTED·HOLD)과 모의 실행은 들어 있지 않다. 상세 기록이 없는 과거 실행은
+    error 대신 error_category 만 있다.
+    """
+    return await _get("/api/executions/failed", client)
 
 
 async def _get(path: str, client: httpx.AsyncClient | None, **ref: str) -> Any:
