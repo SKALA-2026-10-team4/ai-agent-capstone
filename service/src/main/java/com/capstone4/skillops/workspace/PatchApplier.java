@@ -18,7 +18,7 @@ import com.github.difflib.patch.VerifyChunk;
  * LLM 이 쓴 수정 내용은 '---', '+++' 머리줄을 빼먹는 일이 많아서, 첫 '@@' 줄부터만 읽고 머리줄은 보지 않는다.
  * 라이브러리(java-diff-utils)가 말없이 다르게 읽는 두 경우는 라이브러리에 넘기기 전에 바로잡는다.
  * 접두어(' ', '+', '-') 없는 줄은 라이브러리가 버리므로 거부하고, 앞 줄 수가 0인 덩어리(git diff -U0 의 끼워 넣기)는
- * git·GNU patch 와 같이 '앞 줄 N 다음'으로 읽도록 시작 줄을 옮긴다.
+ * git·GNU patch 와 같이 '앞 줄 N 다음'으로 읽도록 시작 줄을 옮긴다(본문이 '+' 줄뿐인 덩어리만. 문맥·'-' 줄이 있으면 그 줄이 위치를 정한다).
  */
 final class PatchApplier {
 
@@ -61,8 +61,9 @@ final class PatchApplier {
      * 라이브러리 파서가 읽을 줄들. 첫 '@@' 앞의 머리줄을 버리고, 본문 줄을 검사하고, 고정 머리줄을 붙인다.
      * 라이브러리는 '---', '+++' 머리줄이 없으면 덩어리를 하나도 읽지 않는다.
      * <ul>
-     * <li>'@@' 로 시작하면 머리줄이다. 형식이 맞는지 보고, 앞 개수가 0 이면 시작 줄을 하나 올린다.
-     *     라이브러리는 '-N,0' 을 'N번째 줄 앞'으로 읽지만 git·GNU 는 'N번째 줄 뒤'로 읽는다('-0,0' 은 맨 위).</li>
+     * <li>'@@' 로 시작하면 머리줄이다. 형식이 맞는지 본다. 앞 개수가 0 이고 본문이 '+' 줄뿐이면(끼워 넣기) 시작 줄을 하나 올린다.
+     *     라이브러리는 '-N,0' 을 'N번째 줄 앞'으로 읽지만 git·GNU 는 'N번째 줄 뒤'로 읽는다('-0,0' 은 맨 위).
+     *     본문에 문맥 줄이나 '-' 줄이 있는데 앞 개수가 0 이면 줄 수를 잘못 센 머리줄이므로 옮기지 않는다. 문맥 대조가 위치를 정한다.</li>
      * <li>' ', '+', '-', 역슬래시('\ No newline at end of file' 표시)로 시작하지 않는 줄은 거부한다. 라이브러리는 이런 줄을 말없이 버려서
      *     문맥 줄이나 '+' 줄이 사라진 채 적용된다.</li>
      * <li>빈 줄은 git 처럼 빈 문맥 줄로 본다(원문과 대조하므로 틀린 곳에 들어가지 않는다).
@@ -78,7 +79,8 @@ final class PatchApplier {
                 continue;
             }
             if (line.startsWith("@@")) {
-                lines.add(hunkHeader(line));
+                checkHunkHeader(line);
+                lines.add(line);
             } else if (line.isEmpty() || " +-\\".indexOf(line.charAt(0)) >= 0) {
                 lines.add(line);
             } else {
@@ -99,20 +101,34 @@ final class PatchApplier {
                 separator = line.startsWith("@@");
             }
         }
+        shiftInsertionHeaders(lines);
         lines.addFirst("+++ b");
         lines.addFirst("--- a");
         return lines;
     }
 
-    private static String hunkHeader(String line) {
-        Matcher m = HUNK_HEADER.matcher(line);
-        if (!m.matches()) {
+    private static void checkHunkHeader(String line) {
+        if (!HUNK_HEADER.matcher(line).matches()) {
             throw new IllegalArgumentException("수정 내용의 덩어리 머리줄을 읽을 수 없습니다: " + line);
         }
-        if (!"0".equals(m.group(2))) {
-            return line;
+    }
+
+    /** 앞 개수가 0 이고 본문이 '+' 줄뿐인 덩어리의 머리줄을 '-N,0' 에서 '-(N+1),0' 으로 바꾼다. 빈 줄은 이미 " " 문맥 줄이다. */
+    private static void shiftInsertionHeaders(List<String> lines) {
+        for (int i = 0; i < lines.size(); i++) {
+            Matcher m = HUNK_HEADER.matcher(lines.get(i));
+            if (!m.matches() || !"0".equals(m.group(2))) {
+                continue;
+            }
+            boolean onlyAdditions = true;
+            for (int j = i + 1; j < lines.size() && !lines.get(j).startsWith("@@"); j++) {
+                char kind = lines.get(j).charAt(0);
+                onlyAdditions &= kind == '+' || kind == '\\';
+            }
+            if (onlyAdditions) {
+                lines.set(i, "@@ -" + (Integer.parseInt(m.group(1)) + 1) + ",0 " + m.group(3));
+            }
         }
-        return "@@ -" + (Integer.parseInt(m.group(1)) + 1) + ",0 " + m.group(3);
     }
 
     /**

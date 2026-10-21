@@ -122,6 +122,22 @@ class PatchApplierTest {
     }
 
     @Test
+    void zeroOldCountHeaderWithContextKeepsItsStart() {
+        // 줄 수를 잘못 센 머리줄(-2,0 인데 문맥 줄이 있다). 올바른 머리줄 -2,2 +2,3 에 git apply 가 만드는 결과와 같다
+        assertThat(PatchApplier.apply("a\na\na\na\n", "@@ -2,0 +2,3 @@\n a\n+X\n a\n")).isEqualTo("a\na\nX\na\na\n");
+    }
+
+    @Test
+    void zeroOldCountHeaderWithContextIsPlacedByTheContext() {
+        assertThat(PatchApplier.apply(FIVE_LINES, "@@ -3,0 +3,2 @@\n l3\n+X\n")).isEqualTo("l1\nl2\nl3\nX\nl4\nl5\n");
+    }
+
+    @Test
+    void zeroOldCountHeaderWithRemovalKeepsItsStart() {
+        assertThat(PatchApplier.apply(FIVE_LINES, "@@ -3,0 +3 @@\n-l3\n+X\n")).isEqualTo("l1\nl2\nX\nl4\nl5\n");
+    }
+
+    @Test
     void insertionPastTheEndFails() {
         // git 은 파일 끝에 붙이지만, 없는 줄 뒤에 넣으라는 수정은 위치를 잘못 센 것일 수 있어 거부한다
         assertThatThrownBy(() -> PatchApplier.apply(FIVE_LINES, "@@ -6,0 +7 @@\n+X\n"))
