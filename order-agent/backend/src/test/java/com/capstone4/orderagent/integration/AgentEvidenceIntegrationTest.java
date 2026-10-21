@@ -176,6 +176,76 @@ class AgentEvidenceIntegrationTest {
         assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
     }
 
+    @Test void shippingBeforePaymentFailsStaticValidationAndRestoredFlowPasses() throws Exception {
+        String path="skills/order-flow/SKILL.md";
+        var baseline=snapshots.capture();
+        String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
+        String edited=original.replace("steps: [order-intake, inventory-check, payment, shipping-reserve, notify]",
+            "steps: [order-intake, inventory-check, shipping-reserve, payment, notify]");
+        assertThat(edited).isNotEqualTo(original);
+        var files=new TreeMap<>(baseline.files());
+        files.put(path,edited.getBytes(StandardCharsets.UTF_8));
+        var broken=snapshots.publish(files,Map.of("source","s3-shipping-before-payment",
+            "baseline_snapshot_id",baseline.id().toString(),"changed_paths",List.of(path)));
+        assertThat(broken.hash()).isNotEqualTo(baseline.hash());
+        assertThat(broken.files().keySet()).isEqualTo(baseline.files().keySet());
+        baseline.files().forEach((p,bytes)->{
+            if(!p.equals(path))assertThat(broken.files().get(p)).isEqualTo(bytes);
+        });
+        var control=orders.createOrder(UUID.randomUUID(),input(baseline.id())).order();
+        assertThat(control.status().name()).isEqualTo("SHIPPED");
+        jdbc.update("update products set stock_quantity=10 where sku=?",LANTERN);
+
+        UUID requestId=UUID.randomUUID();
+        assertThatThrownBy(()->orders.createOrder(requestId,input(broken.id())))
+            .isInstanceOf(com.capstone4.orderagent.exception.BusinessException.class);
+        UUID failedExecution=jdbc.queryForObject("select execution_id from orders where request_id=?",UUID.class,requestId);
+        var trace=traces.get(failedExecution);
+        assertThat(trace.get("snapshot_id")).isEqualTo(broken.id());
+        assertThat(trace.get("completion")).isEqualTo("FAILED");
+        assertThat(trace.get("error_category")).isEqualTo("CONTRACT_VIOLATION");
+        var error=events(trace).stream().filter(e->"EXECUTION_ERROR".equals(e.get("kind")))
+            .findFirst().orElseThrow();
+        assertThat(error.get("skill_id")).isEqualTo("shipping-reserve");
+        var details=(Map<?,?>)error.get("data");
+        assertThat(details.get("phase")).isEqualTo("static_validation");
+        assertThat(details.get("missing_inputs")).isEqualTo(List.of("payment.id","payment.status"));
+        assertThat(details.get("missing_dependencies")).isEqualTo(List.of("payment"));
+        assertThat(events(trace).stream().map(e->e.get("kind")))
+            .doesNotContain("TOOL_REQUEST","TOOL_RESULT","SKILL_STARTED","FLOW_VALIDATED");
+        var loaded=events(trace).stream().filter(e->"SKILL_LOADED".equals(e.get("kind"))
+            &&"order-flow".equals(e.get("skill_id"))).findFirst().orElseThrow();
+        assertThat(((Map<?,?>)loaded.get("data")).get("hash")).isEqualTo(Json.hash(broken.files().get(path)));
+        var failed=orders.getByRequestId(requestId);
+        assertThat(failed.status().name()).isEqualTo("FAILED");
+        assertThat(failed.payment().status().name()).isEqualTo("NOT_ATTEMPTED");
+        assertThat(failed.shipment()).isNull();
+        assertThat(failed.notification().status().name()).isEqualTo("NOT_ATTEMPTED");
+        assertThat(stock()).isEqualTo(10);
+        mvc.perform(get("/api/executions/"+failedExecution+"/trace"))
+            .andExpect(status().isOk()).andExpect(jsonPath("error_category").value("CONTRACT_VIOLATION"));
+        mvc.perform(get("/api/snapshots/"+broken.id()+"/files").param("path",path))
+            .andExpect(status().isOk()).andExpect(jsonPath("content").value(edited));
+
+        // 실제 예약은 결제 뒤로 수동 복원한다. 배송 가능 조회 도구 추가는 이번 범위가 아니다.
+        var restoredFiles=new TreeMap<>(broken.files());
+        restoredFiles.put(path,original.getBytes(StandardCharsets.UTF_8));
+        var restored=snapshots.publish(restoredFiles,Map.of("source","s3-flow-restoration",
+            "broken_snapshot_id",broken.id().toString()));
+        var repaired=orders.createOrder(UUID.randomUUID(),input(restored.id())).order();
+        assertThat(repaired.status().name()).isEqualTo("SHIPPED");
+        assertThat(repaired.payment().status().name()).isEqualTo("PAID");
+        assertThat(repaired.shipment()).isNotNull();
+        assertThat(repaired.notification().status().name()).isEqualTo("SENT");
+        assertThat(stock()).isEqualTo(9);
+        assertThat(events(traces.get(repaired.executionId())).stream()
+            .filter(e->"TOOL_REQUEST".equals(e.get("kind")))
+            .map(e->((Map<?,?>)e.get("data")).get("tool")).toList())
+            .isEqualTo(List.of("order.inspect","inventory.reserve","payment.charge","shipping.reserve","notify.send"));
+        assertThat(snapshots.get(broken.id()).files().get(path)).isEqualTo(edited.getBytes(StandardCharsets.UTF_8));
+        assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
+    }
+
     @Test void brokenContractFailsBeforeBusinessToolsAndRepairedSnapshotPasses(){
         var broken=snapshots.demo("broken-contract");
         assertThatThrownBy(()->orders.createOrder(UUID.randomUUID(),input(broken.id()))).isInstanceOf(RuntimeException.class);
