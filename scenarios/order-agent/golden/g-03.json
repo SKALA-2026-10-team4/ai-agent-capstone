@@ -1,0 +1,15 @@
+{
+  "id": "g-03",
+  "name": "결제 거절 고객 보류 (주문 Agent)",
+  "order": {
+    "customer": "c_declined",
+    "items": [{ "sku": "CAMP-LANTERN-LED", "qty": 1 }],
+    "payment_method": "card",
+    "shipping": { "country": "KR", "express": false }
+  },
+  "expect": {
+    "final_status": "HOLD",
+    "shipments": 0
+  },
+  "k": 1
+}

@@ -1,0 +1,17 @@
+{
+  "id": "g-01",
+  "name": "랜턴 1개 카드 결제 정상 주문 (주문 Agent)",
+  "order": {
+    "customer": "c_1001",
+    "items": [{ "sku": "CAMP-LANTERN-LED", "qty": 1 }],
+    "payment_method": "card",
+    "shipping": { "country": "KR", "express": false }
+  },
+  "expect": {
+    "skills_called": ["order-intake", "inventory-check", "payment", "shipping-reserve", "notify"],
+    "final_status": "SHIPPED",
+    "shipments": 1,
+    "assertions": ["payment.status == 'PAID'", "notify.sent == true"]
+  },
+  "k": 1
+}

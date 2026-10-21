@@ -1,0 +1,15 @@
+{
+  "id": "g-02",
+  "name": "머그컵 재고 없음 업무 거절 (주문 Agent)",
+  "order": {
+    "customer": "c_1001",
+    "items": [{ "sku": "CAMP-MUG-STEEL", "qty": 1 }],
+    "payment_method": "card",
+    "shipping": { "country": "KR", "express": false }
+  },
+  "expect": {
+    "final_status": "REJECTED",
+    "shipments": 0
+  },
+  "k": 1
+}
