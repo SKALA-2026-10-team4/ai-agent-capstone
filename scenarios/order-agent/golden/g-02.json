@@ -8,6 +8,7 @@
     "shipping": { "country": "KR", "express": false }
   },
   "expect": {
+    "skills_called": ["order-intake", "inventory-check"],
     "final_status": "REJECTED",
     "shipments": 0
   },
