@@ -246,6 +246,68 @@ class AgentEvidenceIntegrationTest {
         assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
     }
 
+    @ParameterizedTest(name="S5 fixed capability: {0}")
+    @CsvSource({"card", "prepaid"})
+    void bodyOnlyPrepaidPolicyIsDeliveredButNotEnforcedByFixedMode(String method) throws Exception {
+        String path="skills/payment/SKILL.md";
+        String policy="결제 방식이 prepaid인 주문만 결제합니다. card 주문은 결제 도구를 호출하지 않고 보류하며 배송과 성공 알림을 실행하지 않습니다.";
+        var baseline=snapshots.capture();
+        String original=new String(baseline.files().get(path),StandardCharsets.UTF_8);
+        String edited=original+"\n## 변경된 결제 정책\n\n"+policy+"\n";
+        var files=new TreeMap<>(baseline.files());
+        files.put(path,edited.getBytes(StandardCharsets.UTF_8));
+        var candidate=snapshots.publish(files,Map.of("source","s5-prepaid-policy",
+            "baseline_snapshot_id",baseline.id().toString(),"changed_paths",List.of(path)));
+        var loader=new SkillLoader();
+        var before=loader.load(baseline.files(),"payment");
+        var after=loader.load(candidate.files(),"payment");
+        assertThat(after.body()).contains(policy);
+        assertThat(after.inputs()).isEqualTo(before.inputs());
+        assertThat(after.outputs()).isEqualTo(before.outputs());
+        assertThat(after.dependsOn()).isEqualTo(before.dependsOn());
+        assertThat(after.description()).isEqualTo(before.description());
+        assertThat(after.version()).isEqualTo(before.version());
+        assertThat(after.hash()).isNotEqualTo(before.hash());
+        baseline.files().forEach((p,bytes)->{
+            if(!p.equals(path))assertThat(candidate.files().get(p)).isEqualTo(bytes);
+        });
+
+        for(var snapshot:List.of(baseline,candidate)){
+            jdbc.update("update products set stock_quantity=10 where sku=?",LANTERN);
+            var request=new CreateOrderRequest("c_1001",List.of(new CreateOrderRequest.Item(LANTERN,1)),
+                method,new CreateOrderRequest.Shipping("KR",false),snapshot.id());
+            var order=orders.createOrder(UUID.randomUUID(),request).order();
+            var trace=traces.get(order.executionId());
+            assertThat(trace.get("model_mode")).isEqualTo("fixed");
+            assertThat(trace.get("snapshot_id")).isEqualTo(snapshot.id());
+            assertThat(trace.get("completion")).isEqualTo("COMPLETED");
+            assertThat(trace.get("error_category")).isNull();
+            // fixed 모드의 현재 동작을 확인한다. card 보류 정책의 성공 판정이 아니다.
+            assertThat(order.status().name()).isEqualTo("SHIPPED");
+            assertThat(order.payment().status().name()).isEqualTo("PAID");
+            assertThat(order.shipment()).isNotNull();
+            assertThat(order.notification().status().name()).isEqualTo("SENT");
+            assertThat(stock()).isEqualTo(9);
+            var paymentRequest=events(trace).stream().filter(e->"TOOL_REQUEST".equals(e.get("kind"))
+                &&"payment".equals(e.get("skill_id"))).findFirst().orElseThrow();
+            var args=(Map<?,?>)((Map<?,?>)paymentRequest.get("data")).get("arguments");
+            assertThat(args.get("method")).isEqualTo(method);
+            var loaded=events(trace).stream().filter(e->"SKILL_LOADED".equals(e.get("kind"))
+                &&"payment".equals(e.get("skill_id"))).findFirst().orElseThrow();
+            assertThat(((Map<?,?>)loaded.get("data")).get("hash"))
+                .isEqualTo(Json.hash(snapshot.files().get(path)));
+            if(snapshot.id().equals(candidate.id())&&method.equals("card")){
+                assertThat(order.status().name()).as("fixed 모드는 변경 의도인 card 보류를 충족하지 못함")
+                    .isNotEqualTo("HOLD");
+            }
+        }
+        verify(decisions).decide(argThat(q->q.skill()!=null&&q.skill().id().equals("payment")
+            &&q.skill().body().contains(policy)&&method.equals(q.inputs().get("order.payment_method"))));
+        mvc.perform(get("/api/snapshots/"+candidate.id()+"/files").param("path",path))
+            .andExpect(status().isOk()).andExpect(jsonPath("content").value(edited));
+        assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
+    }
+
     @Test void brokenContractFailsBeforeBusinessToolsAndRepairedSnapshotPasses(){
         var broken=snapshots.demo("broken-contract");
         assertThatThrownBy(()->orders.createOrder(UUID.randomUUID(),input(broken.id()))).isInstanceOf(RuntimeException.class);
