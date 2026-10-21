@@ -1,5 +1,6 @@
 """FastAPI 진입점. service 가 저장·장애 이벤트를 POST /diagnose 로 보낸다."""
 
+import logging
 import uuid
 from typing import Literal
 
@@ -9,6 +10,8 @@ from pydantic import BaseModel
 
 from .config import SERVICE_TOKEN
 from .graph import graph
+
+logger = logging.getLogger("skillops_agent")
 
 app = FastAPI(title="SkillOps Agent", version="0.1.0")
 
@@ -39,9 +42,15 @@ async def _run_pipeline(req: DiagnoseRequest) -> None:
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     initial_state = {"trigger": req.model_dump(), "max_steps": 40}
-    result = await graph.ainvoke(initial_state, config=config)
-    # interrupt 지점에서 반환된 state 에서 proposal_id 추출 후 매핑 저장
+    logger.info("[pipeline] start thread=%s trigger=%s", thread_id, req.model_dump())
+    try:
+        result = await graph.ainvoke(initial_state, config=config)
+    except Exception as exc:
+        logger.exception("[pipeline] FAILED thread=%s error=%s", thread_id, exc)
+        return
+    nodes = [e.get("node") for e in (result.get("events") or [])]
     proposal_id = (result.get("proposal") or {}).get("id")
+    logger.info("[pipeline] done thread=%s nodes=%s proposal=%s", thread_id, nodes, proposal_id)
     if proposal_id:
         _pending_approvals[proposal_id] = thread_id
 

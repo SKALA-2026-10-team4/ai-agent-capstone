@@ -57,6 +57,11 @@ class MCPTools:
         return resp.json()
 
     async def get_trace(self, execution_id: str) -> dict:
+        # run_id 형식(r_<32 hex>) → UUID 형식으로 변환
+        if execution_id.startswith("r_"):
+            h = execution_id[2:]
+            if len(h) == 32:
+                execution_id = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
         resp = await self._http.get(f"/api/executions/{execution_id}/trace")
         resp.raise_for_status()
         return resp.json()

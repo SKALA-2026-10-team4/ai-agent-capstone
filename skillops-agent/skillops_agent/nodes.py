@@ -89,10 +89,21 @@ def _eval_check(check: str, context: dict) -> bool:
 
 
 def _error_event(trace: dict) -> dict:
-    """v1 events에서 EXECUTION_ERROR 이벤트를 반환한다."""
-    return next(
-        (e for e in trace.get("events", []) if e.get("kind") == "EXECUTION_ERROR"), {}
-    )
+    """v1 events에서 EXECUTION_ERROR 이벤트를 반환한다.
+    실제 API: skill_id + data.category/missing_inputs
+    stub: skill + error.code/message
+    → 두 포맷을 skill/error 키로 정규화해 반환한다.
+    """
+    for e in trace.get("events", []):
+        if e.get("kind") == "EXECUTION_ERROR":
+            skill = e.get("skill") or e.get("skill_id") or (e.get("data") or {}).get("skill_id", "")
+            error = e.get("error") or {
+                "code": (e.get("data") or {}).get("category", "UNKNOWN"),
+                "message": (e.get("data") or {}).get("message", ""),
+                "missing_inputs": (e.get("data") or {}).get("missing_inputs", []),
+            }
+            return {"kind": "EXECUTION_ERROR", "skill": skill, "error": error}
+    return {}
 
 
 async def _check_intent(checks: list[str], run_ids: list[str], tools) -> bool:
@@ -180,15 +191,19 @@ async def fetch_evidence(state: AgentState) -> dict:
             trace = await t.get_trace(trigger["run_id"])
             snapshot_id = trace.get("snapshot_id")
 
-            # v1: SKILL_SELECTED events에서 실행 당시 버전 맵 추출
+            # v1: 실행 당시 버전 맵 추출 (stub: SKILL_SELECTED flat, real: SKILL_LOADED nested)
             for event in trace.get("events", []):
-                if event.get("kind") == "SKILL_SELECTED":
-                    skill_versions[event["skill"]] = event["version"]
+                kind = event.get("kind")
+                if kind == "SKILL_SELECTED" and event.get("skill"):
+                    skill_versions[event["skill"]] = event.get("version", 1)
+                elif kind == "SKILL_LOADED" and event.get("skill_id"):
+                    v = (event.get("data") or {}).get("version", 1)
+                    skill_versions[event["skill_id"]] = v
 
             # v1: EXECUTION_ERROR event에서 실패 skill 추출
             failed_ev = _error_event(trace)
             if failed_ev:
-                skill = failed_ev["skill"]
+                skill = failed_ev.get("skill", "")
                 current_v = skill_versions.get(skill, 1)
                 if current_v > 1:
                     prev_snap = f"{snapshot_id}_prev" if snapshot_id else "snap_prev"
