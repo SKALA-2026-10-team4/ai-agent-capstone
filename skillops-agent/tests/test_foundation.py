@@ -148,7 +148,12 @@ def test_prompt_files_exist(name):
 @pytest.mark.parametrize("name", ["rank_and_explain", "extract_intent"])
 def test_style_rules_reach_operator_facing_prompts(name):
     text = load_prompt(name).format(
-        root_cause={}, intent={}, candidates=[], diff={}, style=load_prompt("style")
+        root_cause={},
+        intent={},
+        candidates=[],
+        diff={},
+        context_keys=[],
+        style=load_prompt("style"),
     )
     assert "을 통해" in text
     assert "이 기능으로 데이터를 모을 수 있습니다" in text

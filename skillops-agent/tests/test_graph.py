@@ -394,3 +394,92 @@ async def test_rejected_save_ends_in_error(tools, monkeypatch):
     result = await run(initial())
     assert result["diagnosis_status"] == "ERROR"
     assert "save_proposal" in result["error"]
+
+
+def intent_llm(checks):
+    def make(schema):
+        chain = fake_llm(schema)
+        if schema.__name__ == "_IntentOutput":
+            chain.output = SimpleNamespace(text="결제가 끝까지 처리되게 한다.", checks=checks)
+        return chain
+
+    return make
+
+
+@pytest.mark.asyncio
+async def test_unreadable_intent_checks_are_dropped_not_sent(tools, monkeypatch):
+    sent = []
+    original = tools.run_scenarios
+
+    async def capture(workspace_id, scenario_ids, repeat=2, replay_run_ids=None, extra_checks=None):
+        if extra_checks:
+            sent.append(list(extra_checks))
+        return await original(workspace_id, scenario_ids, repeat, replay_run_ids, extra_checks)
+
+    monkeypatch.setattr(tools, "run_scenarios", capture)
+    monkeypatch.setattr(
+        nodes,
+        "make_structured_llm",
+        intent_llm(
+            [
+                "inventory-check.outputs == ['inventory.available']",
+                "payment.status == 'PAID'",
+                "inventory.unknown != null",
+            ]
+        ),
+    )
+    result = await run(initial())
+    assert result["error"] is None
+    assert sent and all(checks == ["payment.status == 'PAID'"] for checks in sent)
+    assert result["intent"]["checks"] == ["payment.status == 'PAID'"]
+    assert [d["check"] for d in result["intent"]["dropped_checks"]] == [
+        "inventory-check.outputs == ['inventory.available']",
+        "inventory.unknown != null",
+    ]
+    assert result["proposal"]["storage_status"] == "SAVED"
+
+
+@pytest.mark.asyncio
+async def test_all_checks_dropped_continues_without_intent_check(tools, monkeypatch):
+    sent = []
+    original = tools.run_scenarios
+
+    async def capture(workspace_id, scenario_ids, repeat=2, replay_run_ids=None, extra_checks=None):
+        sent.append(extra_checks)
+        return await original(workspace_id, scenario_ids, repeat, replay_run_ids, extra_checks)
+
+    monkeypatch.setattr(tools, "run_scenarios", capture)
+    monkeypatch.setattr(
+        nodes,
+        "make_structured_llm",
+        intent_llm(["inventory-check.outputs == ['inventory.available']"]),
+    )
+    result = await run(initial())
+    assert result["error"] is None
+    assert all(not checks for checks in sent)
+    assert result["intent"]["checks"] == []
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert result["proposal"]["storage_status"] == "SAVED"
+
+
+@pytest.mark.asyncio
+async def test_intent_prompt_lists_values_seen_in_a_passing_run(tools, monkeypatch):
+    prompts = []
+
+    def capture(schema):
+        chain = fake_llm(schema)
+        if schema.__name__ == "_IntentOutput":
+            original = chain.ainvoke
+
+            async def ainvoke(prompt, *args):
+                prompts.append(prompt)
+                return await original(prompt, *args)
+
+            chain.ainvoke = ainvoke
+        return chain
+
+    monkeypatch.setattr(nodes, "make_structured_llm", capture)
+    await run(initial())
+    assert prompts and "## 실행 기록에 있는 값 이름" in prompts[0]
+    section = prompts[0].split("## 실행 기록에 있는 값 이름", 1)[1].split("##", 1)[0]
+    assert "payment.status" in section

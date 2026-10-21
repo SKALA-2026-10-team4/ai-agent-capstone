@@ -26,9 +26,11 @@ class RootCause(TypedDict):
     proof_run_ids: list[str]  # v1: confirmed_by → proof_run_ids (minItems: 1)
 
 
-class Intent(TypedDict):
+class Intent(TypedDict, total=False):
     text: str
-    checks: list[str]  # v1: assertions → checks ("키 op 리터럴" 형식)
+    # v1: assertions → checks ("키 op 리터럴" 형식). C 가 읽을 수 있는 것만 남긴다
+    checks: list[str]
+    dropped_checks: list[dict]  # 버린 조건과 이유 [{check, reason}]
     confirmed: bool | None  # 승인 화면에서 담당자가 확인하면 True
 
 

@@ -34,6 +34,68 @@ def trace_context(trace: dict) -> dict:
     return context
 
 
+def context_keys(trace: dict) -> list[str]:
+    """실행 기록에서 단계가 받은 값과 내놓은 값의 이름.
+
+    C 가 확인 조건을 볼 때 쓰는 문맥과 같은 범위다.
+    """
+    keys = set()
+    for event in trace.get("events", []):
+        data = event_data(event)
+        if event.get("kind") == "SKILL_STARTED":
+            keys.update((data.get("input") or {}).keys())
+        elif event.get("kind") == "SKILL_FINISHED":
+            keys.update((data.get("output") or {}).keys())
+    return sorted(keys)
+
+
+# C service/.../scenario/Check.java 와 같은 문법: <값 이름> (==|!=|in) <값>.
+# 값은 '글자', true/false, null, 숫자이고, in 뒤에만 [..] 목록이 온다.
+_CHECK_LINE = re.compile(r"^\s*(\S+)\s+(==|!=|in)\s+(.+?)\s*$")
+_NUMBER = re.compile(r"-?\d+(\.\d+)?")
+
+
+def _is_literal(raw: str) -> bool:
+    value = raw.strip()
+    if len(value) >= 2 and value.startswith("'") and value.endswith("'"):
+        return True
+    return value in ("true", "false", "null") or bool(_NUMBER.fullmatch(value))
+
+
+def _split_outside_quotes(inner: str) -> list[str]:
+    if not inner.strip():
+        return []
+    parts, current, quoted = [], "", False
+    for char in inner:
+        if char == "'":
+            quoted = not quoted
+        if char == "," and not quoted:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    return parts
+
+
+def check_problem(check: str, known_keys: set[str]) -> str | None:
+    """C 가 읽을 수 있고 실행 기록에 있는 값을 보는 조건이면 None, 아니면 버리는 이유."""
+    match = _CHECK_LINE.match(check) if isinstance(check, str) else None
+    if not match:
+        return "형식이 '<값 이름> (==|!=|in) <값>' 이 아닙니다"
+    key, op, raw = match.groups()
+    if op == "in":
+        if not (raw.startswith("[") and raw.endswith("]")):
+            return "in 뒤에는 [..] 목록이 와야 합니다"
+        if not all(_is_literal(part) for part in _split_outside_quotes(raw[1:-1])):
+            return "목록 안의 값을 읽을 수 없습니다"
+    elif not _is_literal(raw):
+        return "값을 읽을 수 없습니다('글자', true, false, null, 숫자만 됩니다)"
+    if key not in known_keys:
+        return "실행 기록에 없는 값 이름입니다"
+    return None
+
+
 def tools_called(trace: dict) -> list[str]:
     return [
         event_data(e)["tool"]

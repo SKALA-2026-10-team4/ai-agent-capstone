@@ -20,6 +20,8 @@ from pydantic import BaseModel as _PydanticModel
 from .config import GOLDEN_IDS
 from .contracts import (
     ContractError,
+    check_problem,
+    context_keys,
     event_data,
     execution_uuid,
     reverse_hunk,
@@ -443,26 +445,54 @@ def route_ablation(state: AgentState) -> str:
 # ── Node 6: extract_intent ────────────────────────────────────────────────────
 
 
+async def _known_values(state: AgentState) -> list[str]:
+    """원인을 되돌려 통과한 실행에서 값 이름을 모은다.
+
+    정상 흐름이 실제로 만드는 값만 확인 조건에 쓸 수 있다.
+    """
+    passing = next(
+        (r for r in state.get("ablation_runs", []) if r["confirmed"] and r["run_ids"]), None
+    )
+    if passing is None:
+        return context_keys(state.get("trace") or {})
+    async with get_tools() as t:
+        return context_keys(await t.get_trace(passing["run_ids"][0]))
+
+
 async def extract_intent(state: AgentState) -> dict:
     diff = state.get("diff") or {}
     root_cause = state.get("root_cause") or {}
+    known = await _known_values(state)
 
     prompt_text = load_prompt("extract_intent").format(
         root_cause=root_cause,
         diff=diff,
+        context_keys=", ".join(known) or "(없음)",
         style=load_prompt("style"),
     )
 
     llm = make_structured_llm(_IntentOutput)
     result = await llm.ainvoke(prompt_text)
 
+    # C 가 읽지 못하는 조건이 하나라도 있으면 run_scenarios 전체가 거절된다.
+    # 미리 걸러서 이유와 함께 남긴다.
+    kept, dropped = [], []
+    for check in result.checks if result else []:
+        problem = check_problem(check, set(known))
+        if problem:
+            dropped.append({"check": check, "reason": problem})
+        else:
+            kept.append(check)
+
     intent = Intent(
         text=result.text if result else "의도 추출 실패",
-        checks=result.checks if result else [],
+        checks=kept,
+        dropped_checks=dropped,
         confirmed=None,
     )
 
-    base = _tick(state, "extract_intent", "의도 추출 완료")
+    message = f"의도 추출 완료 (조건 {len(kept)}개, 버린 조건 {len(dropped)}개)"
+    base = _tick(state, "extract_intent", message)
     base["intent"] = intent
     return base
 
