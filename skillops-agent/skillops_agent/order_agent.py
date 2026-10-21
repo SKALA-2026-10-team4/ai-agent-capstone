@@ -6,6 +6,7 @@ API 응답은 가공하지 않고 그대로 돌려준다(order-agent/docs/diagno
 사용 예:
     trace = await get_trace(event["execution_id"])
     runs = await list_failed_runs()
+    skills = await list_skills(trace["snapshot_id"])
 """
 
 import asyncio
@@ -38,12 +39,14 @@ class OrderAgentError(Exception):
         retryable: bool,
         upstream_status: int | None = None,
         execution_id: str | None = None,
+        snapshot_id: str | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
         self.upstream_status = upstream_status
         self.execution_id = execution_id
+        self.snapshot_id = snapshot_id
 
 
 async def get_trace(execution_id: str, *, client: httpx.AsyncClient | None = None) -> dict:
@@ -64,6 +67,16 @@ async def list_failed_runs(*, client: httpx.AsyncClient | None = None) -> dict:
     error 대신 error_category 만 있다.
     """
     return await _get("/api/executions/failed", client)
+
+
+async def list_skills(snapshot_id: str, *, client: httpx.AsyncClient | None = None) -> dict:
+    """snapshot 안의 skill 목록. GET /api/snapshots/{snapshot_id}/skills 응답을 그대로 돌려준다.
+
+    items 는 skill_id 순이다. 형식이 잘못된 skill 은 items 에서 빠지고 parse_errors 에 남으며,
+    그때 partial 이 true 다. partial 이면 완전한 목록으로 보지 않는다.
+    """
+    _require_uuid(snapshot_id, "snapshot_id", snapshot_id=snapshot_id)
+    return await _get(f"/api/snapshots/{snapshot_id}/skills", client, snapshot_id=snapshot_id)
 
 
 async def _get(path: str, client: httpx.AsyncClient | None, **ref: str) -> Any:
