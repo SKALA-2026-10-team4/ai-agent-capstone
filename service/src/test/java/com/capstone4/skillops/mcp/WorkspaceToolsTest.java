@@ -10,13 +10,20 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.mcp.annotation.provider.tool.SyncMcpToolProvider;
 
 import com.capstone4.skillops.scenario.ScenarioRunReport;
 import com.capstone4.skillops.scenario.ScenarioRunner;
 import com.capstone4.skillops.snapshot.OrderAgentException;
 import com.capstone4.skillops.workspace.WorkspaceService;
+import com.capstone4.skillops.workspace.WorkspaceService.BrokenLink;
+import com.capstone4.skillops.workspace.WorkspaceService.ChangedSkill;
 import com.capstone4.skillops.workspace.WorkspaceService.CreatedWorkspace;
+import com.capstone4.skillops.workspace.WorkspaceService.PatchInput;
+import com.capstone4.skillops.workspace.WorkspaceService.PatchResult;
 
+import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
+import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import tools.jackson.databind.json.JsonMapper;
@@ -126,6 +133,64 @@ class WorkspaceToolsTest {
         assertThat(first.get("run_ids")).isEqualTo(List.of("r_1", "r_2"));
         assertThat(((List<?>) first.get("failures")).getFirst()).isEqualTo(Map.of(
                 "run_id", "r_1", "skill", "payment", "reason", "최종 상태 기대 SHIPPED, 실제 FAILED"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void applyPatchReturnsV1Shape() {
+        when(workspaces.apply("w_abc", List.of(new PatchInput("inventory-check", 1, "@@ -5 +5 @@\n-a\n+b\n"))))
+                .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("inventory-check", 2)),
+                        List.of(new BrokenLink("payment", "inventory.reserved"))));
+
+        CallToolResult result = tools.applyPatch("w_abc",
+                List.of(new PatchInput("inventory-check", 1, "@@ -5 +5 @@\n-a\n+b\n")));
+
+        assertThat(result.isError()).isFalse();
+        Map<String, Object> body = mapOf(textOf(result));
+        assertThat(body.keySet()).containsExactly("workspace_id", "changed_skills", "broken_links");
+        assertThat(body.get("workspace_id")).isEqualTo("w_abc");
+        assertThat(((List<Map<String, Object>>) body.get("changed_skills")).getFirst())
+                .isEqualTo(Map.of("skill", "inventory-check", "version", 2));
+        assertThat(((List<Map<String, Object>>) body.get("broken_links")).getFirst())
+                .isEqualTo(Map.of("skill", "payment", "missing_input", "inventory.reserved"));
+    }
+
+    @Test
+    void applyPatchFailureBecomesInvalidInput() {
+        when(workspaces.apply(any(), any())).thenThrow(new IllegalArgumentException(
+                "inventory-check: 5번째 줄 근처가 수정 내용과 맞지 않아 적용하지 못했습니다"));
+
+        CallToolResult result = tools.applyPatch("w_abc", List.of(new PatchInput("inventory-check", 1, "@@ -5 +5 @@\n-a\n+b\n")));
+
+        assertThat(result.isError()).isTrue();
+        Map<String, Object> error = mapOf(textOf(result));
+        assertThat(error.get("code")).isEqualTo("INVALID_INPUT");
+        assertThat(error.get("message")).isEqualTo("inventory-check: 5번째 줄 근처가 수정 내용과 맞지 않아 적용하지 못했습니다");
+        assertThat(error.get("retryable")).isEqualTo(false);
+    }
+
+    /** B 의 tools.py 가 보내는 snake_case 입력(patches[].base_version)이 MCP 를 거쳐 PatchInput 으로 들어오는지 본다. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void applyPatchTakesSnakeCaseInputThroughMcp() {
+        SyncToolSpecification spec = new SyncMcpToolProvider(List.of(tools)).getToolSpecifications().stream()
+                .filter(s -> s.tool().name().equals("apply_patch")).findFirst().orElseThrow();
+        Map<String, Object> schema = spec.tool().inputSchema();
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+        Map<String, Object> patchesItems = (Map<String, Object>) ((Map<String, Object>) properties.get("patches")).get("items");
+        assertThat((List<String>) schema.get("required")).containsExactlyInAnyOrder("workspace_id", "patches");
+        assertThat(((Map<String, Object>) patchesItems.get("properties")).keySet())
+                .containsExactlyInAnyOrder("skill", "base_version", "patch");
+        when(workspaces.apply("w_abc", List.of(new PatchInput("inventory-check", 1, "diff"))))
+                .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("inventory-check", 2)), List.of()));
+
+        CallToolResult result = spec.callHandler().apply(null, CallToolRequest.builder().name("apply_patch")
+                .arguments(Map.of("workspace_id", "w_abc",
+                        "patches", List.of(Map.of("skill", "inventory-check", "base_version", 1, "patch", "diff"))))
+                .build());
+
+        assertThat(result.isError()).isFalse();
+        assertThat(mapOf(textOf(result)).get("changed_skills")).isEqualTo(List.of(Map.of("skill", "inventory-check", "version", 2)));
     }
 
     @Test

@@ -96,6 +96,11 @@ public class WorkspaceRecord {
         return resources == null ? Map.of() : resources;
     }
 
+    /** 수정을 넣은 뒤의 skill 원문 묶음으로 바꾼다. 저장은 부르는 쪽이 repository.save 로 한다. */
+    public void replaceSkills(Map<String, WorkspaceSkill> skills) {
+        this.skills = skills;
+    }
+
     public String getSourceSnapshotId() {
         return sourceSnapshotId;
     }

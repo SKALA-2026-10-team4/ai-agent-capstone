@@ -1,10 +1,17 @@
 package com.capstone4.skillops.workspace;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
+import java.util.HexFormat;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -12,14 +19,18 @@ import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.capstone4.skillops.snapshot.DependencyAnalyzer;
+import com.capstone4.skillops.snapshot.DependencyGraph;
 import com.capstone4.skillops.snapshot.OrderAgentClient;
+import com.capstone4.skillops.snapshot.OrderAgentException;
+import com.capstone4.skillops.snapshot.SkillSource;
 import com.capstone4.skillops.snapshot.SnapshotManifest;
 
 import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.annotation.JsonNaming;
 
 /**
- * ⑦ 연습 공간 만들기. 운영 중인 skill 은 그대로 두고 원문을 복사해 workspaces 에 저장한다.
+ * ⑦ 연습 공간 만들기, ⑧ 수정 적용하기. 운영 중인 skill 은 그대로 두고 원문을 복사해 workspaces 에 저장한다.
  * 이후의 수정(apply_patch)과 시험(run_scenarios)은 모두 이 복사본에서만 일어난다.
  * 시작점은 운영 폴더(start_versions) 또는 주문 Agent 의 snapshot(snapshot_id) 중 하나다.
  */
@@ -30,10 +41,38 @@ public class WorkspaceService {
     private static final String SKILLS_PREFIX = "skills/";
     /** manifest 경로 skills/&lt;이름&gt;/SKILL.md. 더 깊은 폴더의 SKILL.md 는 skill 이 아니라 자원이다. */
     private static final Pattern SKILL_MD_PATH = Pattern.compile("skills/([^/]+)/SKILL\\.md");
+    /** 끊긴 연결을 검사할 때 steps 를 읽는 flow skill */
+    private static final String ENTRY_SKILL = "order-flow";
 
     /** create_workspace 도구의 결과. 계약 5 v1 의 {workspace_id, skill_versions, created_at}. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record CreatedWorkspace(String workspaceId, Map<String, Integer> skillVersions, Instant createdAt) {
+    }
+
+    /**
+     * apply_patch 도구 입력 patches 의 한 칸.
+     *
+     * @param skill       고칠 skill 이름
+     * @param baseVersion 수정 내용을 만들 때 기준으로 삼은 버전. 연습 공간 안 그 skill 의 시작 버전과 같아야 한다
+     * @param patch       unified diff
+     */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record PatchInput(String skill, int baseVersion, String patch) {
+    }
+
+    /** @param version 수정이 들어간 뒤의 버전. 시작 버전 + 이 연습 공간에서 그 skill 에 수정이 들어간 횟수 */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record ChangedSkill(String skill, int version) {
+    }
+
+    /** @param missingInput skill 이 받는다고 적은 값인데 주문 입력에도, 앞선 skill 의 outputs 에도 없는 키 */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record BrokenLink(String skill, String missingInput) {
+    }
+
+    /** apply_patch 도구의 결과. 계약 5 v1 의 {workspace_id, changed_skills, broken_links}. */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record PatchResult(String workspaceId, List<ChangedSkill> changedSkills, List<BrokenLink> brokenLinks) {
     }
 
     private final WorkspaceRepository repository;
@@ -157,6 +196,93 @@ public class WorkspaceService {
         Map<String, String> files = new TreeMap<>(record.getResources());
         record.getSkills().forEach((skill, text) -> files.put(SKILLS_PREFIX + skill + "/SKILL.md", text.fullText()));
         return files;
+    }
+
+    /**
+     * 연습 공간의 skill 에 수정(unified diff)을 차례로 적용하고, 고친 뒤에 끊긴 연결이 남았는지 검사한다.
+     * 전부 적용하거나 하나도 적용하지 않는다. 하나라도 실패하면 IllegalArgumentException 이고 아무것도 저장하지 않는다.
+     * 끊긴 연결이 있어도 수정은 들어간다(목록으로 알려 줄 뿐이다). 같은 skill 을 여러 번 고치면 앞의 수정이 들어간 글 위에 적용한다.
+     *
+     * @param patches 적힌 순서대로 적용한다. 비어 있으면 안 된다
+     * @throws IllegalArgumentException 없는 연습 공간·skill, 사용 중이 아닌 연습 공간, 기준 버전 불일치, 원문과 맞지 않는 수정,
+     *                                  고치면 맨 위 칸을 읽을 수 없게 되는 수정
+     */
+    public PatchResult apply(String workspaceId, List<PatchInput> patches) {
+        if (patches == null || patches.isEmpty()) {
+            throw new IllegalArgumentException("patches 에 수정 내용을 하나 이상 넣으세요");
+        }
+        WorkspaceRecord record = find(workspaceId);
+        if (record.getStatus() != WorkspaceRecord.Status.OPEN) {
+            throw new IllegalArgumentException("workspace_id " + workspaceId + " 은 사용 중(OPEN)이 아니라 "
+                    + record.getStatus() + " 상태라서 수정할 수 없습니다");
+        }
+
+        // 복사본에 적용한다. record 는 모두 성공한 뒤에만 바꾼다.
+        Map<String, WorkspaceSkill> skills = new TreeMap<>(record.getSkills());
+        Set<String> changed = new LinkedHashSet<>();
+        for (PatchInput patch : patches) {
+            if (patch == null || patch.skill() == null || patch.skill().isBlank()) {
+                throw new IllegalArgumentException("patches 의 각 항목에 고칠 skill 이름을 넣으세요");
+            }
+            String skill = patch.skill();
+            WorkspaceSkill current = skills.get(skill);
+            if (current == null) {
+                throw new IllegalArgumentException(skill + " 이라는 skill 이 연습 공간에 없습니다. 있는 skill: " + skills.keySet());
+            }
+            if (patch.baseVersion() != current.baseVersion()) {
+                throw new IllegalArgumentException(skill + " 의 기준 버전이 맞지 않습니다 (연습 공간 v" + current.baseVersion()
+                        + ", 수정 내용 v" + patch.baseVersion() + ")");
+            }
+            String text;
+            try {
+                text = PatchApplier.apply(current.fullText(), patch.patch());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(skill + ": " + e.getMessage(), e);
+            }
+            skills.put(skill, new WorkspaceSkill(current.baseVersion(), text, current.revision() + 1));
+            changed.add(skill);
+        }
+
+        DependencyGraph graph = analyze(skills);
+        for (DependencyGraph.Node node : graph.nodes()) {
+            if (node.parseError() != null && changed.contains(node.skillId())) {
+                throw new IllegalArgumentException(
+                        node.skillId() + ": 수정하면 SKILL.md 맨 위 칸을 읽을 수 없게 됩니다. " + node.parseError());
+            }
+        }
+
+        record.replaceSkills(skills);
+        repository.save(record);
+        List<ChangedSkill> changedSkills = changed.stream().map(skill -> {
+            WorkspaceSkill now = skills.get(skill);
+            return new ChangedSkill(skill, now.baseVersion() + now.revision());
+        }).toList();
+        List<BrokenLink> brokenLinks = graph.missing().stream()
+                .flatMap(m -> m.missingInputs().stream().map(input -> new BrokenLink(m.skillId(), input)))
+                .toList();
+        return new PatchResult(workspaceId, changedSkills, brokenLinks);
+    }
+
+    /** C-1 분석기로 연습 공간의 연결 관계를 계산한다. entry flow(order-flow)를 읽지 못하면 IllegalArgumentException. */
+    private static DependencyGraph analyze(Map<String, WorkspaceSkill> skills) {
+        Map<String, SkillSource> sources = new TreeMap<>();
+        skills.forEach((id, skill) -> {
+            String path = SKILLS_PREFIX + id + "/SKILL.md";
+            sources.put(id, new SkillSource(path, sha256(skill.fullText()), skill.fullText()));
+        });
+        try {
+            return DependencyAnalyzer.analyze(ENTRY_SKILL, sources);
+        } catch (OrderAgentException e) {
+            throw new IllegalArgumentException(ENTRY_SKILL + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static String sha256(String text) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private WorkspaceRecord find(String workspaceId) {
