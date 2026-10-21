@@ -21,9 +21,9 @@ public class WorkspaceService {
 
     private static final String ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-    /** create_workspace 도구의 결과. 계약 5 v0 의 {ws_id} 에 시작 버전과 만든 시각을 더했다. */
+    /** create_workspace 도구의 결과. 계약 5 v1 의 {workspace_id, skill_versions, created_at}. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    public record CreatedWorkspace(String wsId, Map<String, Integer> skillVersions, Instant createdAt) {
+    public record CreatedWorkspace(String workspaceId, Map<String, Integer> skillVersions, Instant createdAt) {
     }
 
     private final WorkspaceRepository repository;
@@ -36,7 +36,7 @@ public class WorkspaceService {
     }
 
     /**
-     * @param startVersions 도구 입력 base. skill 이름 → 시작 버전. 적지 않은 skill 은 운영 버전. null 이면 전부 운영 버전
+     * @param startVersions 도구 입력 start_versions. skill 이름 → 시작 버전. 적지 않은 skill 은 운영 버전. null 이면 전부 운영 버전
      */
     public CreatedWorkspace create(Map<String, Integer> startVersions) {
         Map<String, Integer> live = store.liveVersions();
@@ -47,7 +47,7 @@ public class WorkspaceService {
                     throw new IllegalArgumentException(skill + " 이라는 skill 이 없습니다. 있는 skill: " + live.keySet());
                 }
                 if (version == null) {
-                    throw new IllegalArgumentException("base 의 " + skill + " 에 버전 번호를 넣으세요");
+                    throw new IllegalArgumentException("start_versions 의 " + skill + " 에 버전 번호를 넣으세요");
                 }
                 versions.put(skill, version);
             });
@@ -66,7 +66,7 @@ public class WorkspaceService {
         return repository.findById(workspaceId)
                 .map(WorkspaceRecord::getSkills)
                 .orElseThrow(() -> new IllegalArgumentException(
-                        "ws_id " + workspaceId + " 이 없습니다. create_workspace 로 먼저 만드세요"));
+                        "workspace_id " + workspaceId + " 이 없습니다. create_workspace 로 먼저 만드세요"));
     }
 
     private String newId() {

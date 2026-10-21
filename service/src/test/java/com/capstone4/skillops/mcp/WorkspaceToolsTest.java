@@ -20,7 +20,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import tools.jackson.databind.json.JsonMapper;
 
-/** B 의 Agent(skillops-agent/skillops_agent/tools.py)가 읽는 계약 5 v0 이름과 C-1 과 같은 오류 모양을 고정한다. */
+/** B 의 Agent(skillops-agent/skillops_agent/tools.py)가 읽는 계약 5 v1 이름(B 의 #52 이후)과 C-1 과 같은 오류 모양을 고정한다. */
 class WorkspaceToolsTest {
 
     static final JsonMapper JSON = JsonMapper.builder().build();
@@ -30,7 +30,7 @@ class WorkspaceToolsTest {
     WorkspaceTools tools = new WorkspaceTools(workspaces, runner);
 
     @Test
-    void createWorkspaceReturnsWsId() {
+    void createWorkspaceReturnsWorkspaceId() {
         when(workspaces.create(Map.of("inventory-check", 1))).thenReturn(new CreatedWorkspace(
                 "w_abc", Map.of("inventory-check", 1), Instant.parse("2026-10-21T00:00:00Z")));
 
@@ -38,26 +38,32 @@ class WorkspaceToolsTest {
 
         assertThat(result.isError()).isFalse();
         Map<String, Object> body = mapOf(textOf(result));
-        assertThat(body.get("ws_id")).isEqualTo("w_abc");
+        assertThat(body.keySet()).containsExactly("workspace_id", "skill_versions", "created_at");
+        assertThat(body.get("workspace_id")).isEqualTo("w_abc");
         assertThat(body.get("skill_versions")).isEqualTo(Map.of("inventory-check", 1));
         assertThat(body.get("created_at")).isEqualTo("2026-10-21T00:00:00Z");
     }
 
     @Test
-    void runScenariosReturnsV0List() {
+    @SuppressWarnings("unchecked")
+    void runScenariosReturnsV1Report() {
         when(runner.run("w_abc", List.of("g-01"), null, 2)).thenReturn(new ScenarioRunReport("w_abc", false, List.of(
-                new ScenarioRunReport.ScenarioResult("g-01", false, List.of("r_1", "r_2"), List.of(
+                new ScenarioRunReport.ScenarioResult("g-01", null, false, List.of("r_1", "r_2"), List.of(
                         new ScenarioRunReport.Failure("r_1", "payment", "최종 상태 기대 SHIPPED, 실제 FAILED"))))));
 
         CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, 2);
 
         assertThat(result.isError()).isFalse();
-        List<Map<String, Object>> body = listOf(textOf(result));
-        Map<String, Object> first = body.getFirst();
-        assertThat(first.keySet()).containsExactly("scenario_id", "passed", "runs", "failures");
-        assertThat(first.get("runs")).isEqualTo(List.of("r_1", "r_2"));
+        Map<String, Object> body = mapOf(textOf(result));
+        assertThat(body.keySet()).containsExactly("workspace_id", "all_passed", "results");
+        assertThat(body.get("workspace_id")).isEqualTo("w_abc");
+        assertThat(body.get("all_passed")).isEqualTo(false);
+        Map<String, Object> first = ((List<Map<String, Object>>) body.get("results")).getFirst();
+        assertThat(first.keySet()).containsExactly("scenario_id", "replay_of_run_id", "passed", "run_ids", "failures");
+        assertThat(first.get("replay_of_run_id")).isNull();
+        assertThat(first.get("run_ids")).isEqualTo(List.of("r_1", "r_2"));
         assertThat(((List<?>) first.get("failures")).getFirst()).isEqualTo(Map.of(
-                "run_id", "r_1", "step", "payment", "error", "최종 상태 기대 SHIPPED, 실제 FAILED"));
+                "run_id", "r_1", "skill", "payment", "reason", "최종 상태 기대 SHIPPED, 실제 FAILED"));
     }
 
     @Test
@@ -94,11 +100,6 @@ class WorkspaceToolsTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> mapOf(String json) {
         return JSON.readValue(json, Map.class);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> listOf(String json) {
-        return JSON.readValue(json, List.class);
     }
 
     private static String textOf(CallToolResult result) {

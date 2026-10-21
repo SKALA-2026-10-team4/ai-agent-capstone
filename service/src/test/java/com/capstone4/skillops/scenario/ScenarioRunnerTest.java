@@ -42,7 +42,8 @@ class ScenarioRunnerTest {
         assertThat(report.allPassed()).isTrue();
         assertThat(report.results()).singleElement().satisfies(r -> {
             assertThat(r.scenarioId()).isEqualTo("g-01");
-            assertThat(r.runs()).hasSize(2);
+            assertThat(r.replayOfRunId()).isNull();
+            assertThat(r.runIds()).hasSize(2);
             assertThat(r.failures()).isEmpty();
         });
     }
@@ -53,8 +54,8 @@ class ScenarioRunnerTest {
         assertThat(report.allPassed()).isFalse();
         var f = report.results().get(0).failures();
         assertThat(f).hasSize(2);
-        assertThat(f.get(0).step()).isEqualTo("payment");
-        assertThat(f.get(0).error()).contains("최종 상태 기대 SHIPPED, 실제 FAILED").contains("; ");
+        assertThat(f.get(0).skill()).isEqualTo("payment");
+        assertThat(f.get(0).reason()).contains("최종 상태 기대 SHIPPED, 실제 FAILED").contains("; ");
     }
 
     @Test
@@ -73,7 +74,7 @@ class ScenarioRunnerTest {
     @Test
     void rejectsUnknownWorkspaceBeforeRunning() {
         when(workspaces.skillsOf("w_x")).thenThrow(
-                new IllegalArgumentException("ws_id w_x 이 없습니다. create_workspace 로 먼저 만드세요"));
+                new IllegalArgumentException("workspace_id w_x 이 없습니다. create_workspace 로 먼저 만드세요"));
         assertThatThrownBy(() -> runner.run("w_x", List.of("g-01"), null, null)).hasMessageContaining("w_x");
         assertThat(calls).hasValue(0);
     }
@@ -83,9 +84,9 @@ class ScenarioRunnerTest {
         assertThatThrownBy(() -> runner.run("w_ok", List.of(), null, null))
                 .hasMessageStartingWith("scenario_ids 에 시험 주문 번호를 하나 이상 넣으세요");
         assertThatThrownBy(() -> runner.run("w_ok", List.of("g-01"), null, 0))
-                .hasMessage("k 는 1~5 사이여야 합니다 (받은 값 0)");
+                .hasMessage("repeat 는 1~5 사이여야 합니다 (받은 값 0)");
         assertThatThrownBy(() -> runner.run("w_ok", List.of("g-01"), null, 6))
-                .hasMessage("k 는 1~5 사이여야 합니다 (받은 값 6)");
+                .hasMessage("repeat 는 1~5 사이여야 합니다 (받은 값 6)");
         assertThat(calls).hasValue(0);
     }
 

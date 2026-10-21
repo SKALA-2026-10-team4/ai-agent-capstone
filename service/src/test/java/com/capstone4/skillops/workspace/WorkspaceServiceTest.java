@@ -47,7 +47,7 @@ class WorkspaceServiceTest {
     @Test
     void createDefaultsToLiveVersions() {
         var created = service.create(null);
-        assertThat(created.wsId()).startsWith("w_");
+        assertThat(created.workspaceId()).startsWith("w_");
         assertThat(created.skillVersions()).isEqualTo(Map.of("order-flow", 1, "inventory-check", 2));
         assertThat(created.createdAt()).isNotNull();
         verify(repository).save(argThat((WorkspaceRecord r) ->
@@ -74,11 +74,11 @@ class WorkspaceServiceTest {
     }
 
     @Test
-    void createRejectsMissingVersionInBase() {
-        var base = new java.util.HashMap<String, Integer>();
-        base.put("inventory-check", null);
-        assertThatThrownBy(() -> service.create(base))
-                .hasMessage("base 의 inventory-check 에 버전 번호를 넣으세요");
+    void createRejectsMissingVersionInStartVersions() {
+        var startVersions = new java.util.HashMap<String, Integer>();
+        startVersions.put("inventory-check", null);
+        assertThatThrownBy(() -> service.create(startVersions))
+                .hasMessage("start_versions 의 inventory-check 에 버전 번호를 넣으세요");
         verify(repository, never()).save(any());
     }
 
@@ -86,6 +86,6 @@ class WorkspaceServiceTest {
     void skillsOfUnknownWorkspaceFails() {
         when(repository.findById("w_x")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.skillsOf("w_x"))
-                .hasMessage("ws_id w_x 이 없습니다. create_workspace 로 먼저 만드세요");
+                .hasMessage("workspace_id w_x 이 없습니다. create_workspace 로 먼저 만드세요");
     }
 }

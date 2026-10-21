@@ -1,11 +1,11 @@
 """C-2 도구 확인: create_workspace → run_scenarios(g-01) → 잘못된 확인 조건 거부.
 
-service(8080) 가 떠 있어야 한다.
+service 가 떠 있어야 한다(MCP 주소는 SKILLOPS_MCP_URL, 기본 http://localhost:8080/mcp).
 
     uv run scripts/c2_smoke.py
 
 정상 경로는 B 의 Agent 가 실제로 쓰는 MCPTools(skillops_agent/tools.py)로 부른다.
-계약 5 v0 이름이 맞는지까지 본다.
+계약 5 v1 이름(B 의 #52 이후)이 맞는지까지 본다.
 셋 다 맞으면 `C2 SMOKE OK` 를 찍고 0, 아니면 어긋난 단계를 찍고 1 로 끝난다.
 """
 
@@ -39,23 +39,31 @@ async def main() -> int:
     async with MCPTools() as tools:
         workspace = await tools.create_workspace()
         print("create_workspace ->", workspace)
-        ws_id = workspace.get("ws_id", "") if isinstance(workspace, dict) else ""
-        if not ws_id.startswith("w_") or len(workspace.get("skill_versions", {})) != 6:
+        workspace_id = workspace.get("workspace_id", "") if isinstance(workspace, dict) else ""
+        if not workspace_id.startswith("w_") or len(workspace.get("skill_versions", {})) != 6:
             return _fail("create_workspace", workspace)
 
-        results = await tools.run_scenarios(ws_id, ["g-01"])
-        print("run_scenarios ->", results)
-        if not isinstance(results, list) or not results:
-            return _fail("run_scenarios", results)
-        first = results[0]
-        if first.get("passed") is not True or len(first.get("runs", [])) != 2:
+        report = await tools.run_scenarios(workspace_id, ["g-01"])
+        print("run_scenarios ->", report)
+        if not isinstance(report, dict) or report.get("workspace_id") != workspace_id:
+            return _fail("run_scenarios", report)
+        if report.get("all_passed") is not True or len(report.get("results", [])) != 1:
+            return _fail("run_scenarios", report)
+        first = report["results"][0]
+        if first.get("passed") is not True or len(first.get("run_ids", [])) != 2:
+            return _fail("run_scenarios", first)
+        if "replay_of_run_id" not in first or first["replay_of_run_id"] is not None:
             return _fail("run_scenarios", first)
 
     # MCPTools 는 isError 를 감추므로 오류 경로는 MCP 클라이언트로 직접 본다.
     async with mcp_client() as client:
         bad = await client.call_tool(
             "run_scenarios",
-            {"ws_id": ws_id, "scenario_ids": ["g-01"], "extra_checks": ["payment.status = PAID"]},
+            {
+                "workspace_id": workspace_id,
+                "scenario_ids": ["g-01"],
+                "extra_checks": ["payment.status = PAID"],
+            },
         )
         text = _text_of(bad) or ""
         print("run_scenarios(bad check) ->", text)
