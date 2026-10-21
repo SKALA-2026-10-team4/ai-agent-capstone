@@ -1,6 +1,8 @@
 package com.capstone4.skillops.scenario;
 
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -29,7 +31,7 @@ import tools.jackson.databind.json.JsonMapper;
  * 후보 snapshot 올리기(POST /api/snapshots/candidates), 모의 실행(POST /api/dry-runs), 실행 기록 읽기, 실패했던 주문 꺼내기.
  * 재시도하지 않는다. 모의 실행은 도는 동안 재고를 잡으므로, 응답이 늦었다고 같은 주문을 또 보내지 않으려는 것이다.
  * 주문 Agent 가 4xx 로 거절하면 {@link Rejected}(IllegalArgumentException, 오류 본문의 code 포함),
- * 연결 실패·시간 초과·5xx 면 IllegalStateException 이다.
+ * 연결 실패·5xx 면 "연결할 수 없습니다", 응답 시간 초과면 "응답이 늦습니다" 로 알리는 IllegalStateException 이다.
  */
 @Component
 public class OrderAgentRunClient {
@@ -41,6 +43,14 @@ public class OrderAgentRunClient {
     private static final Pattern RUN_ID = Pattern.compile("r_([0-9a-fA-F]{32})");
     private static final ParameterizedTypeReference<Map<String, Object>> MAP = new ParameterizedTypeReference<>() {
     };
+
+    /** 연결을 맺는 데 기다리는 시간 */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
+    /**
+     * 응답을 기다리는 시간. 주문 Agent 의 실행 한도 order-agent.execution-timeout-ms(45000, order-agent application.yml)보다 길어야 한다.
+     * 짧으면 느리지만 멀쩡한 모의 실행을 여기서 먼저 끊고, 주문 Agent 는 계속 돌며 재고를 잡고 있다.
+     */
+    static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
 
     /** 모의 실행 응답 가운데 쓰는 칸. FAILED 로 끝난 실행도 HTTP 200 이다. */
     public record DryRunStarted(String executionId, String runId, String finalStatus) {
@@ -208,8 +218,31 @@ public class OrderAgentRunClient {
             }
             throw new IllegalStateException(unreachable(url, "HTTP " + status + (code == null ? "" : " " + code)), e);
         } catch (ResourceAccessException e) {
+            if (isReadTimeout(e)) {
+                throw new IllegalStateException(slow(url), e);
+            }
             throw new IllegalStateException(unreachable(url, causeOf(e)), e);
         }
+    }
+
+    /**
+     * 연결은 됐는데 응답이 시간 안에 오지 않았다. JDK HttpClient 는 이때 HttpTimeoutException 을 내고,
+     * 연결 시간 초과는 그 하위 HttpConnectTimeoutException 이다. 연결 시간 초과는 닿지 않은 것으로 본다.
+     */
+    private static boolean isReadTimeout(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof HttpConnectTimeoutException) {
+                return false;
+            }
+            if (t instanceof HttpTimeoutException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String slow(String url) {
+        return "주문 Agent 의 응답이 늦습니다: " + url + " (" + READ_TIMEOUT.toSeconds() + "초 안에 답이 없음)";
     }
 
     private static String unreachable(String url, String cause) {
@@ -278,10 +311,9 @@ public class OrderAgentRunClient {
     }
 
     private static JdkClientHttpRequestFactory requestFactory() {
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+        HttpClient client = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(client);
-        // 모의 실행은 skill 다섯 개를 차례로 돌리므로 조회보다 길게 기다린다.
-        factory.setReadTimeout(Duration.ofSeconds(30));
+        factory.setReadTimeout(READ_TIMEOUT);
         return factory;
     }
 }

@@ -11,8 +11,11 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.net.ConnectException;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -89,14 +92,46 @@ class OrderAgentRunClientTest {
         server.verify();
     }
 
+    /** JDK HttpClient 는 읽기 시간 초과를 HttpTimeoutException("Request cancelled") 로 낸다(실측). */
     @Test
-    void timeoutIsReportedAsUnreachable() {
+    void readTimeoutIsReportedAsSlow() {
         server.expect(requestTo(BASE + "/api/dry-runs"))
-                .andRespond(withException(new HttpTimeoutException("request timed out")));
+                .andRespond(withException(new HttpTimeoutException("Request cancelled")));
 
         assertThatThrownBy(() -> client.dryRun("aaaaaaaa-1111-2222-3333-444444444444", Map.of()))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("주문 Agent 에 연결할 수 없습니다: " + BASE + "/api/dry-runs (HttpTimeoutException: request timed out)");
+                .hasMessage("주문 Agent 의 응답이 늦습니다: " + BASE + "/api/dry-runs ("
+                        + OrderAgentRunClient.READ_TIMEOUT.toSeconds() + "초 안에 답이 없음)");
+    }
+
+    /** 연결 시간 초과는 HttpConnectTimeoutException(HttpTimeoutException 의 하위, 실측) — 닿지 않은 것이지 느린 것이 아니다. */
+    @Test
+    void connectTimeoutIsReportedAsUnreachable() {
+        server.expect(requestTo(BASE + "/api/dry-runs"))
+                .andRespond(withException(new HttpConnectTimeoutException("HTTP connect timed out")));
+
+        assertThatThrownBy(() -> client.dryRun("aaaaaaaa-1111-2222-3333-444444444444", Map.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("주문 Agent 에 연결할 수 없습니다: " + BASE + "/api/dry-runs (HttpConnectTimeoutException: HTTP connect timed out)");
+    }
+
+    @Test
+    void refusedConnectionIsReportedAsUnreachable() {
+        server.expect(requestTo(BASE + "/api/dry-runs"))
+                .andRespond(withException(new ConnectException("Connection refused")));
+
+        assertThatThrownBy(() -> client.dryRun("aaaaaaaa-1111-2222-3333-444444444444", Map.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("주문 Agent 에 연결할 수 없습니다: " + BASE + "/api/dry-runs (ConnectException: Connection refused)");
+    }
+
+    /** 주문 Agent 의 execution-timeout-ms(45000, order-agent application.yml) 보다 오래 기다려야 느린 정상 실행을 끊지 않는다. */
+    @Test
+    void readTimeoutOutlastsOrderAgentRunLimit() {
+        Duration orderAgentRunLimit = Duration.ofMillis(45_000);
+
+        assertThat(OrderAgentRunClient.READ_TIMEOUT).isGreaterThan(orderAgentRunLimit);
+        assertThat(OrderAgentRunClient.CONNECT_TIMEOUT).isEqualTo(Duration.ofSeconds(2));
     }
 
     @Test
