@@ -4,8 +4,10 @@ OPENAI_API_KEY 가 필요하고 유료 호출이 일어난다. skillops-agent �
 
     uv run scripts/run_trigger.py evalsets/doc-assistant.sample.json
     uv run scripts/run_trigger.py evalsets/doc-assistant.sample.json --repeat 1 --out report.json
+    uv run scripts/run_trigger.py <평가셋>.json --skills-dir ../skills   # 실제 SKILL.md 로 검사
 
-평가셋 형식은 skillops-agent/evalsets/doc-assistant.sample.json 을 본다.
+평가셋 형식은 skillops-agent/evalsets/doc-assistant.sample.json 을 본다. skill 목록은 --skills-dir,
+평가셋의 skills_dir, 평가셋의 skills 순서로 정한다(skill_quality.loader.resolve_skills).
 """
 
 import argparse
@@ -20,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from skillops_agent.config import RECURSION_LIMIT  # noqa: E402
+from skillops_agent.skill_quality.loader import resolve_skills  # noqa: E402
 from skillops_agent.trigger_graph import trigger_graph  # noqa: E402
 
 
@@ -29,12 +32,16 @@ async def main() -> int:
     parser.add_argument("eval_set", type=Path)
     parser.add_argument("--repeat", type=int, default=None, help="질의마다 묻는 횟수")
     parser.add_argument("--out", type=Path, default=None, help="보고서를 저장할 JSON 경로")
+    parser.add_argument(
+        "--skills-dir", type=Path, default=None,
+        help="SKILL.md 폴더(<이름>/SKILL.md). 원문을 검사한다",
+    )
     args = parser.parse_args()
 
     data = json.loads(args.eval_set.read_text(encoding="utf-8"))
     state = {
         "target_skill": data["target_skill"],
-        "skills": data["skills"],
+        "skills": resolve_skills(data, args.eval_set.parent, args.skills_dir),
         "cases": data.get("cases", []),
         "seed_queries": data.get("seed_queries", []),
     }
@@ -54,6 +61,9 @@ async def main() -> int:
     if result.get("error"):
         print(f"\nERROR: {result['error']}")
         return 1
+    # 규칙 검사 결과를 먼저 짧게 보여 준다.
+    for f in result["report"]["quality"]["findings"]:
+        print(f"[rule {f['severity']}] {f['target']}: {f['id']} {f['reason']}")
 
     text = json.dumps(result["report"], ensure_ascii=False, indent=2)
     print("\n" + text)

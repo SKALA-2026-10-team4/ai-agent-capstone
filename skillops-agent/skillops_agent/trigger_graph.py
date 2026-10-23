@@ -4,7 +4,9 @@
 간선(_stop_on_error)은 graph.py 의 것을 그대로 쓴다.
 
     load_eval_set ─┬─ 질의 있음 ─────────────────────┬→ measure_baseline ─┬─ 고칠 것 없음 → report
-                   └─ 질의 없음 → generate_eval_queries ┘                   └─ diagnose
+    (규칙 검사)     ├─ 질의 없음 → generate_eval_queries ┘                   └─ diagnose
+                   └─ SKILL.md BLOCKER → report (LLM 호출 0회)
+    reverify 는 선택 테스트 전에 수정안을 규칙 검사(skill_quality.check_proposal)한다.
     diagnose → propose → reverify ─┬─ 통과 & 목표 재현율 도달 → report
                                    ├─ 시도 < MAX_TRIGGER_ATTEMPTS → diagnose
                                    └─ 시도 소진 → report (통과한 안 중 가장 좋은 안)
@@ -20,11 +22,13 @@ from . import trigger_metrics as metrics
 from . import trigger_nodes
 from .config import MAX_TRIGGER_ATTEMPTS
 from .graph import _always, _stop_on_error, guarded
-from .trigger_state import TriggerState
+from .trigger_state import TriggerState, TriggerStatus
 
 
 def route_loaded(state: TriggerState) -> str:
-    """평가 질의가 있으면 바로 재고, 없으면 먼저 만든다."""
+    """규칙 검사 BLOCKER 면 바로 보고하고, 평가 질의가 있으면 재고, 없으면 먼저 만든다."""
+    if state["diagnosis_status"] == TriggerStatus.BLOCKED:
+        return "blocked"
     return "measure" if state["cases"] else "generate"
 
 
@@ -46,7 +50,7 @@ ENTRY = "load_eval_set"
 TRIGGER_FLOW = {
     "load_eval_set": (
         route_loaded,
-        {"measure": "measure_baseline", "generate": "generate_eval_queries"},
+        {"measure": "measure_baseline", "generate": "generate_eval_queries", "blocked": "report"},
     ),
     "generate_eval_queries": "measure_baseline",
     "measure_baseline": (route_baseline, {"clean": "report", "diagnose": "diagnose"}),

@@ -6,6 +6,9 @@
 ## 대상 skill 의 description
 {description}
 
+## 대상 skill 의 SKILL.md 본문 (있는 경우, 업무 범위의 기준)
+{body}
+
 ## 함께 있는 다른 skill
 {other_skills}
 

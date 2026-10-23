@@ -1,38 +1,117 @@
 {
-  "_comment": "임시 평가셋(기획안 시나리오 1 재현용). 재환님 평가셋이 오면 같은 형식의 파일로 바꾼다. 대상 이름이 모호하고(doc-assistant) description 이 일반적이라 주간 보고 질의를 meeting-summary 가 가져간다. cases 형식: {query, expected_skill | none, should_trigger}",
+  "_comment": "임시 평가셋(기획안 시나리오 1 재현용). 재환님 평가셋이 오면 같은 형식의 파일로 바꾼다. 대상 이름이 모호하고(doc-assistant) description 이 일반적이라 주간 보고 질의를 meeting-summary 가 가져간다. skill 원문은 skills_dir 의 SKILL.md 를 읽는다. doc-assistant 는 쓰는 때(WHEN)가 본문에만 있다. cases 형식: {query, expected_skill | none, should_trigger}",
   "target_skill": "doc-assistant",
-  "skills": [
-    { "name": "doc-assistant", "description": "문서를 정리한다." },
-    { "name": "meeting-summary", "description": "회의록과 한 주간 업무 진행 상황을 요약해 보고 형식으로 정리하고 팀에 공유한다." },
-    { "name": "meeting-briefing", "description": "고객사 미팅 전에 CRM 기록, 최근 메일, 지난 회의록을 모아 브리핑 자료를 만든다." },
-    { "name": "email-draft", "description": "업무 메일 초안을 작성한다." },
-    { "name": "expense-report", "description": "법인카드 사용 내역으로 경비 정산서를 작성한다." },
-    { "name": "schedule-meeting", "description": "참석자 일정을 확인해 회의를 잡고 캘린더에 등록한다." }
-  ],
+  "skills_dir": "doc-assistant/skills",
   "cases": [
-    { "query": "이번 주 보고서 정리해줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "주간 업무 보고 작성해줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "이번 주에 한 일 정리해서 팀장님께 올릴 보고서 만들어줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "금요일 주간보고 초안 써줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "월요일부터 오늘까지 진행한 업무를 보고서로 묶어줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "주간 실적 보고서 만들어줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "이번 주 프로젝트 진행 상황을 보고서로 정리해줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "주간보고 양식에 이번 주 내용 채워줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "이번 주 실적이랑 다음 주 계획 넣어서 보고서 써줘", "expected_skill": "doc-assistant", "should_trigger": true },
-    { "query": "팀 주간 회의에 낼 주간 업무 보고서 써줘", "expected_skill": "doc-assistant", "should_trigger": true },
-
-    { "query": "방금 끝난 회의 내용 요약해줘", "expected_skill": "meeting-summary", "should_trigger": true },
-    { "query": "회의록 정리해서 팀에 공유해줘", "expected_skill": "meeting-summary", "should_trigger": true },
-    { "query": "어제 회의에서 나온 결정 사항만 뽑아줘", "expected_skill": "meeting-summary", "should_trigger": true },
-    { "query": "내일 A사 미팅 준비해줘", "expected_skill": "meeting-briefing", "should_trigger": true },
-    { "query": "B사 미팅 브리핑 만들어줘", "expected_skill": "meeting-briefing", "should_trigger": true },
-    { "query": "고객사에 일정 변경 안내 메일 써줘", "expected_skill": "email-draft", "should_trigger": true },
-    { "query": "보고서 첨부해서 보낼 메일 초안 써줘", "expected_skill": "email-draft", "should_trigger": true },
-    { "query": "이번 달 법인카드 경비 정산서 만들어줘", "expected_skill": "expense-report", "should_trigger": true },
-    { "query": "다음 주 화요일에 팀 회의 잡아줘", "expected_skill": "schedule-meeting", "should_trigger": true },
-
-    { "query": "이 계약서 문서에서 오타 정리해줘", "expected_skill": "doc-assistant", "should_trigger": false },
-    { "query": "공유 폴더 파일 이름들 정리해줘", "expected_skill": "doc-assistant", "should_trigger": false },
-    { "query": "오늘 점심 메뉴 추천해줘", "expected_skill": "none", "should_trigger": true }
+    {
+      "query": "이번 주 보고서 정리해줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "주간 업무 보고 작성해줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "이번 주에 한 일 정리해서 팀장님께 올릴 보고서 만들어줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "금요일 주간보고 초안 써줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "월요일부터 오늘까지 진행한 업무를 보고서로 묶어줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "주간 실적 보고서 만들어줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "이번 주 프로젝트 진행 상황을 보고서로 정리해줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "주간보고 양식에 이번 주 내용 채워줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "이번 주 실적이랑 다음 주 계획 넣어서 보고서 써줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "팀 주간 회의에 낼 주간 업무 보고서 써줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": true
+    },
+    {
+      "query": "방금 끝난 회의 내용 요약해줘",
+      "expected_skill": "meeting-summary",
+      "should_trigger": true
+    },
+    {
+      "query": "회의록 정리해서 팀에 공유해줘",
+      "expected_skill": "meeting-summary",
+      "should_trigger": true
+    },
+    {
+      "query": "어제 회의에서 나온 결정 사항만 뽑아줘",
+      "expected_skill": "meeting-summary",
+      "should_trigger": true
+    },
+    {
+      "query": "내일 A사 미팅 준비해줘",
+      "expected_skill": "meeting-briefing",
+      "should_trigger": true
+    },
+    {
+      "query": "B사 미팅 브리핑 만들어줘",
+      "expected_skill": "meeting-briefing",
+      "should_trigger": true
+    },
+    {
+      "query": "고객사에 일정 변경 안내 메일 써줘",
+      "expected_skill": "email-draft",
+      "should_trigger": true
+    },
+    {
+      "query": "보고서 첨부해서 보낼 메일 초안 써줘",
+      "expected_skill": "email-draft",
+      "should_trigger": true
+    },
+    {
+      "query": "이번 달 법인카드 경비 정산서 만들어줘",
+      "expected_skill": "expense-report",
+      "should_trigger": true
+    },
+    {
+      "query": "다음 주 화요일에 팀 회의 잡아줘",
+      "expected_skill": "schedule-meeting",
+      "should_trigger": true
+    },
+    {
+      "query": "이 계약서 문서에서 오타 정리해줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": false
+    },
+    {
+      "query": "공유 폴더 파일 이름들 정리해줘",
+      "expected_skill": "doc-assistant",
+      "should_trigger": false
+    },
+    {
+      "query": "오늘 점심 메뉴 추천해줘",
+      "expected_skill": "none",
+      "should_trigger": true
+    }
   ]
 }

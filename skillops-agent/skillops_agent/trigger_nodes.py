@@ -6,6 +6,9 @@ skillops-agent/skillops_agent/trigger_graph.py 의 TRIGGER_FLOW 에 노드 이�
 흐름: load_eval_set → (질의가 없으면 generate_eval_queries) → measure_baseline → diagnose →
 propose → reverify → (통과·시도 소진이면 report, 아니면 diagnose 로 다시).
 
+결정적인 검사는 skillops-agent/skillops_agent/skill_quality/ 의 규칙 검사가 맡는다. load_eval_set 은
+평가셋과 SKILL.md 를, reverify 는 수정안을 LLM 호출 전에 검사하고, BLOCKER 면 LLM 을 부르지 않는다.
+
 선택 Agent 는 select_skill 프롬프트로 skill 이름과 description 만 보고 하나를 고른다. 이 선택을
 여러 번 받아 skillops-agent/skillops_agent/trigger_metrics.py 가 재현율·정밀도를 계산한다. 판정은
 지표로만 하고 LLM 출력은 진단과 개선안 제안에만 쓴다.
@@ -19,6 +22,7 @@ from typing import Literal
 
 from pydantic import BaseModel as _PydanticModel
 
+from . import skill_quality as quality
 from . import trigger_metrics as metrics
 from .config import (
     MAX_TRIGGER_ATTEMPTS,
@@ -30,6 +34,7 @@ from .config import (
 from .contracts import ContractError
 from .llm import make_structured_llm
 from .prompts import load as load_prompt
+from .skill_quality.rule_checker import check_case, has_positive
 from .trigger_state import NONE_SKILL, SkillCard, TriggerCase, TriggerState, TriggerStatus
 
 # 평가셋이 없을 때 만드는 질의 수다. 불려야 하는 질의와 불리면 안 되는 질의로 나눈다.
@@ -122,15 +127,31 @@ def _with_description(skills: list[SkillCard], target: str, description: str) ->
     ]
 
 
+def _expectation(case: dict) -> str:
+    """질의의 기대를 문장으로 쓴다.
+
+    should_trigger=false 를 LLM 이 '그 skill 담당'으로 거꾸로 읽은 적이 있어 문장으로 풀어 쓴다.
+    """
+    if not case["should_trigger"]:
+        return f"{case['expected_skill']} 이 불리면 안 됨"
+    if case["expected_skill"] == NONE_SKILL:
+        return "어떤 skill 도 불리면 안 됨"
+    return f"{case['expected_skill']} 이 불려야 함"
+
+
 def _miss_lines(misses: list[dict]) -> str:
     """틀린 질의를 프롬프트 줄로 만든다."""
     if not misses:
         return "없음"
     return "\n".join(
-        f"- \"{m['query']}\" (expected={m['expected_skill']}, "
-        f"should_trigger={m['should_trigger']}, selected={m['selected']})"
+        f"- \"{m['query']}\" → 기대: {_expectation(m)} / 실제 선택: {', '.join(m['selected'])}"
         for m in misses
     )
+
+
+def _body_text(card: dict) -> str:
+    """진단·개선안에 넘길 SKILL.md 본문이다. 원문이 없으면 그렇다고 알린다."""
+    return card.get("body") or "없음 (SKILL.md 원문이 주어지지 않았습니다)"
 
 
 def _attempt_lines(attempts: list[dict]) -> str:
@@ -177,75 +198,90 @@ async def _measure(state: TriggerState, skills: list[SkillCard]) -> dict:
     return metrics.measure(state["cases"], selections, state["target_skill"])
 
 
-# ── 입력 검사 ──────────────────────────────────────────────────────────────────
+# ── 규칙 검사(skill_quality) 연결 ──────────────────────────────────────────────
 
 
-def _check_skills(skills, target) -> list[SkillCard]:
-    """skill 목록 형식과 대상 skill 이 목록에 있는지 본다."""
-    if not skills:
-        raise ContractError("skills is empty")
-    names = [s.get("name") for s in skills]
-    if any(not n or not isinstance(n, str) for n in names):
-        raise ContractError("every skill needs a name")
-    if len(set(names)) != len(names):
-        raise ContractError("skill names must be unique")
-    if NONE_SKILL in names:
-        raise ContractError(f"'{NONE_SKILL}' is reserved for no selection")
-    if target not in names:
-        raise ContractError(f"target_skill '{target}' is not in skills")
-    return [{"name": s["name"], "description": s.get("description") or ""} for s in skills]
+def _finding_lines(findings: list[dict]) -> str:
+    """규칙 검사 FAIL 을 프롬프트 줄로 만든다. 진단의 근거로 넘긴다."""
+    lines = [
+        f"- [{f['severity']}] {f['id']} ({f['target'] or '평가셋'}): {f['reason']}"
+        for f in quality.failed(findings)
+    ]
+    return "\n".join(lines) or "없음"
 
 
-def _check_case(case, names: set[str]) -> TriggerCase:
-    """평가 질의 하나의 형식을 본다."""
-    query = case.get("query")
-    expected = case.get("expected_skill")
-    should = case.get("should_trigger")
-    if not isinstance(query, str) or not query.strip():
-        raise ContractError("case.query must be a non-empty string")
-    if expected != NONE_SKILL and expected not in names:
-        raise ContractError(f"case.expected_skill '{expected}' is not in skills")
-    if not isinstance(should, bool):
-        raise ContractError("case.should_trigger must be true or false")
-    if expected == NONE_SKILL and not should:
-        raise ContractError("expected_skill none needs should_trigger true")
-    return {"query": query.strip(), "expected_skill": expected, "should_trigger": should}
+def _check_skill_files(skills: list[dict]) -> tuple[list[dict], list[dict]]:
+    """skill_md(SKILL.md 원문)가 있는 skill 만 형식을 검사한다.
+
+    description 이 비어 있으면 frontmatter 의 description 을 채운다. 원문이 없는 skill 은 검사하지
+    않는다(호출 진단은 이름과 description 만으로도 돈다).
+    """
+    names = {s["name"] for s in skills}
+    findings, cards = [], []
+    for skill in skills:
+        card = {"name": skill["name"], "description": skill.get("description") or ""}
+        text = skill.get("skill_md")
+        if isinstance(text, str):
+            meta, checks = quality.check_skill_md(text, skill.get("folder"), names)
+            findings.extend(checks)
+            if meta and not card["description"] and isinstance(meta.get("description"), str):
+                card["description"] = meta["description"]
+            # 본문은 선택 Agent 에는 보이지 않고, 진단·개선안이 Skill 의 실제 업무를 알 때만 쓴다.
+            if meta:
+                card["body"] = quality.parse_skill_md(text)[1].strip()
+        cards.append(card)
+    return cards, findings
 
 
 # ── 노드 ───────────────────────────────────────────────────────────────────────
 
 
 def load_eval_set(state: TriggerState) -> dict:
-    """평가셋과 skill 목록을 검사하고 실행 상태를 처음 값으로 채운다."""
-    target = state.get("target_skill")
-    skills = _check_skills(state.get("skills"), target)
-    names = {s["name"] for s in skills}
-    cases = [_check_case(c, names) for c in state.get("cases") or []]
-    if not cases and not state.get("seed_queries"):
-        raise ContractError("cases or seed_queries is required")
-    repeat = state.get("repeat") or TRIGGER_SELECT_REPEAT
-    if repeat < 1:
-        raise ContractError("repeat must be at least 1")
+    """평가셋과 SKILL.md 를 규칙으로 검사하고 실행 상태를 처음 값으로 채운다. LLM 을 부르지 않는다.
 
-    msg = (
-        f"{target} 의 평가 질의 {len(cases)}개를 읽었습니다."
-        if cases
-        else f"{target} 의 평가 질의가 없어 요청 문장으로 질의를 만듭니다."
+    - 평가셋 형식이 틀리면 ERROR 로 멈춘다(입력 오류).
+    - SKILL.md 에 BLOCKER 가 있으면 BLOCKED 로 report 에 바로 간다(LLM 호출 0회).
+    """
+    target = state.get("target_skill")
+    problems, clean = quality.check_eval_set(
+        target, state.get("skills"), state.get("cases"), state.get("seed_queries"),
+        state.get("repeat"),
     )
+    if problems:
+        return {
+            "error": "ContractError: " + " / ".join(quality.reasons(problems)),
+            "diagnosis_status": TriggerStatus.ERROR,
+            "quality": {"findings": problems},
+        }
+
+    skills, skill_findings = _check_skill_files(clean["skills"])
+    cases = clean["cases"]
+    blocked = quality.blockers(skill_findings)
+    if blocked:
+        status = TriggerStatus.BLOCKED
+        msg = f"SKILL.md 규칙 검사에서 BLOCKER {len(blocked)}건이 나와 LLM 을 부르지 않고 멈춥니다."
+    else:
+        status = TriggerStatus.RUNNING
+        msg = (
+            f"{target} 의 평가 질의 {len(cases)}개를 읽었습니다."
+            if cases
+            else f"{target} 의 평가 질의가 없어 요청 문장으로 질의를 만듭니다."
+        )
     return _progress(
         state,
         "load_eval_set",
         msg,
         skills=skills,
         cases=cases,
-        repeat=repeat,
+        repeat=state.get("repeat") or TRIGGER_SELECT_REPEAT,
+        quality={"findings": skill_findings},
         baseline=None,
         diagnosis=None,
         proposal=None,
         attempts=[],
         report=None,
         error=None,
-        diagnosis_status=TriggerStatus.RUNNING,
+        diagnosis_status=status,
     )
 
 
@@ -260,6 +296,7 @@ async def generate_eval_queries(state: TriggerState) -> dict:
         _EvalQueriesOutput,
         target_skill=target["name"],
         description=target["description"],
+        body=_body_text(target),
         other_skills=_skill_list(_others(state)),
         seed_queries="\n".join(f"- {q}" for q in state.get("seed_queries") or []) or "없음",
         positive_count=GENERATED_POSITIVE_COUNT,
@@ -270,16 +307,13 @@ async def generate_eval_queries(state: TriggerState) -> dict:
     names = {s["name"] for s in state["skills"]}
     cases, seen = [], set()
     for item in out.cases:
-        try:
-            case = _check_case(item.model_dump(), names)
-        except ContractError:
-            continue
-        if case["query"] in seen:
+        case, problems = check_case(item.model_dump(), names)
+        if problems or case["query"] in seen:
             continue
         seen.add(case["query"])
         cases.append(case)
 
-    if not any(c["should_trigger"] and c["expected_skill"] == target["name"] for c in cases):
+    if not has_positive(cases, target["name"]):
         raise ContractError("generated cases have no query that should trigger the target")
     return _progress(
         state,
@@ -311,9 +345,11 @@ async def diagnose(state: TriggerState) -> dict:
         with_style=True,
         target_skill=target["name"],
         description=target["description"],
+        body=_body_text(target),
         other_skills=_skill_list(_others(state)),
         metrics=metrics.summary(baseline),
         misses=_miss_lines(baseline["misses"]),
+        rule_findings=_finding_lines(state.get("quality", {}).get("findings", [])),
         previous_attempts=_attempt_lines(state["attempts"]),
     )
     # 목록에 없는 skill 이름은 버린다.
@@ -341,6 +377,7 @@ async def propose(state: TriggerState) -> dict:
         _DescriptionProposalOutput,
         target_skill=target["name"],
         description=target["description"],
+        body=_body_text(target),
         other_skills=_skill_list(_others(state)),
         diagnosis=state["diagnosis"],
         misses=_miss_lines(state["baseline"]["misses"]),
@@ -349,18 +386,6 @@ async def propose(state: TriggerState) -> dict:
     )
     proposal = {"description": out.description.strip(), "rationale": out.rationale}
     return _progress(state, "propose", "description 수정안을 만들었습니다.", proposal=proposal)
-
-
-def _proposal_problems(proposal: dict, current: str) -> list[str]:
-    """재검증 전에 걸러야 할 개선안 문제를 찾는다."""
-    text = proposal["description"]
-    if not text:
-        return ["description 이 비어 있습니다."]
-    if len(text) > TRIGGER_DESCRIPTION_MAX:
-        return [f"description 이 {TRIGGER_DESCRIPTION_MAX}자를 넘습니다({len(text)}자)."]
-    if text == current.strip():
-        return ["원래 description 과 같습니다."]
-    return []
 
 
 def reached_target(attempt: dict) -> bool:
@@ -398,10 +423,16 @@ async def reverify(state: TriggerState) -> dict:
         "regressions": [],
     }
 
-    problems = _proposal_problems(proposal, target["description"])
+    # 규칙 검사에서 BLOCKER 가 나온 수정안은 선택 테스트(LLM)를 돌리지 않고 실패로 남긴다.
+    checks = quality.check_proposal(
+        proposal["description"], target["description"],
+        [c["query"] for c in state["cases"]], target=target["name"],
+    )
+    record["checks"] = quality.failed(checks)
+    problems = quality.blockers(checks)
     if problems:
-        record.update(passed=False, reasons=problems)
-        msg = f"{attempt_no}번째 수정안은 형식이 맞지 않아 시험하지 않았습니다."
+        record.update(passed=False, reasons=quality.reasons(problems))
+        msg = f"{attempt_no}번째 수정안은 규칙 검사를 통과하지 못해 시험하지 않았습니다."
     else:
         skills = _with_description(state["skills"], target["name"], proposal["description"])
         after = await _measure(state, skills)
@@ -432,8 +463,12 @@ def report(state: TriggerState) -> dict:
     baseline = state["baseline"]
     attempts = state["attempts"]
     passed = best_attempt(attempts)
+    findings = state.get("quality", {}).get("findings", [])
 
-    if not attempts and metrics.no_issue(baseline):
+    if state.get("diagnosis_status") == TriggerStatus.BLOCKED:
+        status = TriggerStatus.BLOCKED
+        msg = "SKILL.md 형식 결함 때문에 호출 성능을 재지 않았습니다. 결함부터 고쳐야 합니다."
+    elif not attempts and metrics.no_issue(baseline):
         status = TriggerStatus.NO_ISSUE
         msg = "원래 설명으로 모든 질의를 맞혀 고칠 것이 없습니다."
     elif passed:
@@ -449,7 +484,10 @@ def report(state: TriggerState) -> dict:
     result = {
         "target_skill": target["name"],
         "status": status,
-        "before": {"description": target["description"], "metrics": metrics.summary(baseline)},
+        "before": {
+            "description": target["description"],
+            "metrics": metrics.summary(baseline) if baseline else None,
+        },
         "after": (
             {"description": passed["description"], "metrics": passed["metrics"]}
             if passed
@@ -468,14 +506,25 @@ def report(state: TriggerState) -> dict:
                 "regressions": a["regressions"],
                 "passed": a["passed"],
                 "reasons": a["reasons"],
+                "checks": a.get("checks", []),
             }
             for a in attempts
         ],
         "evidence": {
             "case_count": len(state["cases"]),
             "repeat": state["repeat"],
-            "misses_before": _brief(baseline["misses"]),
+            "misses_before": _brief(baseline["misses"]) if baseline else [],
             "misses_after": _brief(passed["misses"]) if passed else [],
+        },
+        # 등급은 대상 skill 의 SKILL.md 규칙 검사로만 매긴다. 원문이 없으면 UNVERIFIED 다.
+        "quality": {
+            "grade": (
+                quality.grade([f for f in findings if f["target"] == target["name"]])
+                if any(f["target"] == target["name"] for f in findings)
+                else "UNVERIFIED"
+            ),
+            "findings": quality.failed(findings),
+            "checked": len(findings),
         },
     }
     return _progress(state, "report", msg, report=result, diagnosis_status=status)

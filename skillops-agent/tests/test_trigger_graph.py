@@ -54,6 +54,7 @@ class FakeLLM:
         self.proposals = list(proposals)
         self.eval_cases = eval_cases or []
         self.calls = {}
+        self.prompts = {}
 
     def __call__(self, schema):
         fake = self
@@ -62,6 +63,7 @@ class FakeLLM:
             async def ainvoke(self, prompt):
                 name = schema.__name__
                 fake.calls[name] = fake.calls.get(name, 0) + 1
+                fake.prompts.setdefault(name, []).append(prompt)
                 if name == "_SelectionOutput":
                     return SimpleNamespace(skill=_select(prompt), reason="")
                 if name == "_TriggerDiagnosisOutput":
@@ -216,8 +218,8 @@ async def test_generates_eval_queries_when_cases_missing(llm):
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        ({"target_skill": "nope"}, "not in skills"),
-        ({"cases": [], "seed_queries": []}, "cases or seed_queries"),
+        ({"target_skill": "nope"}, "target_skill 'nope'"),
+        ({"cases": [], "seed_queries": []}, "seed_queries"),
         ({"cases": [{"query": "x", "expected_skill": "nope", "should_trigger": True}]}, "nope"),
         ({"cases": [{"query": "x", "expected_skill": "none", "should_trigger": False}]}, "none"),
     ],
@@ -227,3 +229,90 @@ async def test_invalid_input_stops_with_error(llm, overrides, message):
     result = await run(**overrides)
     assert result["diagnosis_status"] == "ERROR"
     assert message in result["error"]
+
+
+# ── 규칙 검사(skill_quality) 연결 ──────────────────────────────────────────────
+
+
+def skill_md(name, description, extra=""):
+    return f"---\nname: {name}\ndescription: {description}\n{extra}---\n# 본문\n내용\n"
+
+
+async def test_skill_md_blocker_stops_before_any_llm_call(llm):
+    fake = llm([GOOD])
+    skills = [
+        {"name": T, "skill_md": skill_md(T, "문서를 정리한다.", "steps:\n")},
+        {**SKILLS[1], "skill_md": skill_md("meeting-summary", "회의 내용을 요약해 정리한다.")},
+    ]
+    result = await run(skills=skills)
+    assert result["diagnosis_status"] == "BLOCKED"
+    assert nodes_of(result) == ["load_eval_set", "report"]
+    assert fake.calls == {}  # LLM 호출 0회
+    quality = result["report"]["quality"]
+    assert quality["grade"] == "F"
+    assert [f["id"] for f in quality["findings"]] == ["rule.steps_not_empty"]
+    assert result["report"]["before"]["metrics"] is None
+
+
+async def test_description_is_read_from_skill_md(llm):
+    llm([GOOD])
+    skills = [
+        {"name": T, "skill_md": skill_md(T, "문서를 정리한다.")},
+        SKILLS[1],
+    ]
+    result = await run(skills=skills)
+    assert result["skills"][0]["description"] == "문서를 정리한다."
+    assert result["report"]["quality"]["grade"] == "S"
+    assert result["diagnosis_status"] == "PROPOSED"
+
+
+async def test_minor_findings_reach_diagnose_without_blocking(llm):
+    fake = llm([GOOD])
+    skills = [
+        {"name": T, "skill_md": skill_md(T, "문서를 정리한다.") + "<!-- TODO -->\n"},
+        SKILLS[1],
+    ]
+    result = await run(skills=skills)
+    assert result["diagnosis_status"] == "PROPOSED"
+    assert "rule.no_todo" in fake.prompts["_TriggerDiagnosisOutput"][0]
+    assert result["report"]["quality"]["findings"][0]["severity"] == "MINOR"
+
+
+async def test_without_skill_md_quality_is_unverified(llm):
+    llm([GOOD])
+    result = await run()
+    assert result["report"]["quality"] == {"grade": "UNVERIFIED", "findings": [], "checked": 0}
+
+
+async def test_proposal_copying_eval_query_is_rejected_before_selection(llm):
+    fake = llm(["주간 보고: '이번 주 보고서 정리' 요청에 쓴다."])
+    result = await run()
+    first = result["report"]["history"][0]
+    assert first["passed"] is False
+    assert first["metrics"] is None
+    assert any("평가 질의를 그대로 옮겼습니다" in r for r in first["reasons"])
+    assert first["checks"][0]["id"] == "rule.proposal_no_query_copy"
+    # 기준 측정만 선택 테스트를 돌렸다.
+    assert fake.calls["_SelectionOutput"] == len(CASES)
+
+
+async def test_eval_set_without_positive_case_errors_before_llm(llm):
+    fake = llm([GOOD])
+    cases = [c for c in CASES if c["expected_skill"] != T]
+    result = await run(cases=cases)
+    assert result["diagnosis_status"] == "ERROR"
+    assert "불려야 하는 질의가 없어" in result["error"]
+    assert result["quality"]["findings"][0]["id"] == "rule.target_has_positive"
+    assert fake.calls == {}
+
+
+async def test_body_and_plain_expectations_reach_diagnose_and_propose(llm):
+    fake = llm([GOOD])
+    skills = [{"name": T, "skill_md": skill_md(T, "문서를 정리한다.")}, SKILLS[1]]
+    await run(skills=skills)
+    for name in ("_TriggerDiagnosisOutput", "_DescriptionProposalOutput"):
+        prompt = fake.prompts[name][0]
+        assert "# 본문\n내용" in prompt  # SKILL.md 본문
+        assert f"기대: {T} 이 불려야 함" in prompt
+    # 선택 Agent 는 본문을 보지 않는다(이름과 description 만).
+    assert "# 본문" not in fake.prompts["_SelectionOutput"][0]

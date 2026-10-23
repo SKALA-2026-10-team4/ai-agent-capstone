@@ -8,22 +8,26 @@ Agent 는 skill 본문을 보지 않고 이름과 description 만 보고 skill �
 ## 현재 description
 {description}
 
+## SKILL.md 본문 (Skill 이 실제로 하는 업무, Agent 는 고를 때 이 본문을 보지 못함)
+{body}
+
 ## 함께 있는 다른 skill (이 description 들은 바꾸지 않습니다)
 {other_skills}
 
 ## 진단
 {diagnosis}
 
-## 원래 description 으로 틀린 질의 (expected_skill, should_trigger, 실제로 고른 skill 목록)
+## 원래 description 으로 틀린 질의 (질의 → 기대 / 실제 선택)
 {misses}
 
 ## 이전 시도 (있는 경우)
 {previous_attempts}
 
 ## 지시사항
+- 본문이 있으면 description 은 본문의 업무 범위와 사용 시점을 담아야 합니다. 본문에 없는 업무를 넣거나 본문의 업무를 다른 skill 몫이라고 쓰지 마세요.
 - 새 description 으로 위의 틀린 질의를 모두 맞히는 것이 목표입니다.
-  - should_trigger=True 이고 expected 가 대상 skill 인 질의는 대상 skill 이 불려야 합니다.
-  - 대상 skill 이 불리면 안 되는 질의(should_trigger=False 이거나 expected 가 다른 skill)는 그 상황을 description 에서 명시적으로 제외하세요. 예: "계약서 교정이나 파일 정리처럼 주간 보고와 관계없는 문서 작업에는 쓰지 않는다."
+  - "대상 skill 이 불려야 함" 질의는 대상 skill 이 불리게 하세요.
+  - "대상 skill 이 불리면 안 됨" 질의는 대상 skill 의 업무가 아닙니다. 그 상황을 description 에서 제외하세요. 예: "계약서 교정이나 파일 정리처럼 주간 보고와 관계없는 문서 작업에는 쓰지 않는다."
 - 이전 시도의 "여전히 틀린 질의"가 있으면 그 질의를 직접 겨냥해 고치세요. 이전 description 을 표현만 바꿔 되풀이하지 마세요.
 - 대상 skill 의 description 만 새로 쓰세요. 다른 skill 은 고칠 수 없습니다.
 - 무엇을 하는 skill 인지와 함께 언제 써야 하는지(사용 시점·상황)를 쓰세요.

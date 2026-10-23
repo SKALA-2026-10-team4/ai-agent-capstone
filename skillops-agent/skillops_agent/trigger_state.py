@@ -44,6 +44,7 @@ class TriggerState(TypedDict, total=False):
     pipeline_thread_id: str  # 있으면 graph.guarded 가 RunStore 에 진행을 저장한다
 
     # 진행
+    quality: dict  # {"findings": [...]} skill_quality 규칙 검사 결과
     baseline: dict | None  # 원래 description 으로 잰 결과(trigger_metrics.measure)
     diagnosis: dict | None  # 마지막 진단
     proposal: dict | None  # 마지막 개선안
@@ -61,6 +62,8 @@ class TriggerStatus:
     """트리거 진단의 diagnosis_status 값이다. RUNNING 과 ERROR 는 회귀 진단과 같은 글자를 쓴다."""
 
     RUNNING = DiagnosisStatus.RUNNING
+    # SKILL.md 규칙 검사에서 BLOCKER 가 나와 LLM 을 부르지 않고 멈췄다.
+    BLOCKED = "BLOCKED"
     # 원래 description 으로 이미 모든 질의를 맞혀 고칠 것이 없다.
     NO_ISSUE = "NO_ISSUE"
     # 재검증을 통과한 개선안이 있다.
