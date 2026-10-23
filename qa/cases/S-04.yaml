@@ -1,0 +1,20 @@
+# 같은 제안서는 한 번만 결정할 수 있다.
+id: S-04
+group: S
+title: 이미 결정한 제안서를 다시 승인하거나 거절함
+set: dev
+run: manual
+
+steps:
+  - "S-02 나 S-06 에서 이미 결정한 제안서를 준비한다."
+  - "operator 계정으로 같은 제안서에 다시 approve 와 reject 를 보낸다."
+expected: 둘 다 409 PROPOSAL_ALREADY_DECIDED 로 거부되고 새 결정 기록이 남지 않는다.
+
+evidence:
+  - claim: 결정한 제안서는 PROPOSAL_ALREADY_DECIDED(409)로 막힌다
+    kind: 코드 근거
+    where: service/src/main/java/com/capstone4/skillops/proposal/ProposalService.java 의 markDecided
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)

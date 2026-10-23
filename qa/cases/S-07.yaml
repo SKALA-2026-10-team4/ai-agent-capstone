@@ -1,0 +1,20 @@
+# 시험을 통과하지 못한 후보는 승인할 수 없다.
+id: S-07
+group: S
+title: 합격하지 않은 후보 번호로 승인함
+set: dev
+run: manual
+
+steps:
+  - "합격 후보와 불합격 후보가 함께 있는 제안서를 준비한다. 제안서 상세의 valid_candidate_nos 에 없는 번호를 고른다."
+  - "operator 계정으로 POST /api/proposals/{제안서 번호}/approve 에 {\"candidate_no\": <불합격 번호>, \"intent_confirmed\": true} 를 보낸다."
+expected: 400 CANDIDATE_NOT_VALID 로 거부되고 승인 기록이 남지 않는다.
+
+evidence:
+  - claim: service 가 다시 계산한 합격 번호에 없는 후보는 CANDIDATE_NOT_VALID(400)로 막힌다
+    kind: 코드 근거
+    where: service/src/main/java/com/capstone4/skillops/proposal/ProposalService.java 의 markDecided
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)

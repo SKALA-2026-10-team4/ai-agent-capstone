@@ -1,0 +1,34 @@
+# 문제없는 수정이다. 앞 단계가 이미 넘기는 값을 받는 값에 더한다.
+id: N-06
+group: N
+title: 알림 inputs 에 결제 금액(order.total)을 더함
+set: dev
+run: auto
+
+change:
+  - file: skills/notify/SKILL.md
+    from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+    to: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta, order.total]"
+
+intent:
+  text: 알림에 결제 금액을 함께 싣는다
+
+order_agent:
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [VALIDATED]
+
+evidence:
+  - claim: 표준 주문 3개가 모두 통과한다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: order.total 은 주문 접수가 넘기고, 알림 도구 인자(order_id, customer)에는 영향이 없다
+    kind: 코드 근거
+    where: order-agent/skills/order-intake/SKILL.md, order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java 의 BINDINGS
+
+current:
+  checked: 2026-10-23
+  result: VALIDATED

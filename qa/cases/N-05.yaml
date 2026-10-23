@@ -1,0 +1,35 @@
+# 문제없는 수정이다. 도구가 실제로 만드는 값을 넘기는 값에 더한다.
+id: N-05
+group: N
+title: 재고 확인 outputs 에 예약 가능 수량(inventory.reservable_quantity)을 더함
+set: dev
+run: auto
+
+change:
+  - file: skills/inventory-check/SKILL.md
+    from: "outputs: [inventory.available, inventory.reserved]"
+    to: "outputs: [inventory.available, inventory.reserved, inventory.reservable_quantity]"
+
+intent:
+  text: 예약 가능 수량도 다음 단계에 넘긴다
+  checks: ["inventory.reservable_quantity != null"]
+
+order_agent:
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [VALIDATED]
+
+evidence:
+  - claim: 표준 주문 3개가 모두 통과한다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 재고 도구는 inventory.reservable_quantity 를 실제로 만든다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java 의 reserveInventory
+
+current:
+  checked: 2026-10-23
+  result: VALIDATED

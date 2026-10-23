@@ -1,0 +1,41 @@
+# T-02 수정본에 정책 확인 요청(diagnosis_only)을 보낸 경우다. 본문 정책이 실행에 반영되지 않는 것을 잡아야 한다.
+id: T-02b
+group: T
+title: T-02 수정본으로 카드 주문을 돌리고 '결제되지 않아야 한다'는 조건으로 정책을 확인함
+set: dev
+run: auto
+trigger: diagnosis_only
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "재고 예약 성공을 확인합니다."
+    to: "재고 예약 성공을 확인합니다. 선입금(prepaid) 주문만 결제하고 카드 주문은 결제하지 않습니다."
+
+# 카드 주문인 표준 주문 g-01 을 이 수정본으로 돌리고, 그 실행에 정책 확인 조건을 붙인다.
+diagnosis_only:
+  order: g-01
+  checks: ["payment.status != 'PAID'"]
+
+intent:
+  text: 카드 주문은 결제하지 않는다
+  checks: ["payment.status != 'PAID'"]
+
+order_agent:
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [INTENT_VIOLATION]
+
+evidence:
+  - claim: 카드 주문 g-01 이 PAID 로 끝나 정책 조건이 맞지 않는다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 정책 확인 요청은 재현 주문에 조건을 붙여 돌리고, 조건이 맞지 않으면 INTENT_VIOLATION 으로 끝낸다
+    kind: 코드 근거
+    where: skillops-agent/skillops_agent/main.py 의 DiagnoseRequest(diagnosis_only, intent_checks)
+
+current:
+  checked: 2026-10-23
+  result: INTENT_VIOLATION

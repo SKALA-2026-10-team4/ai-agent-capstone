@@ -1,0 +1,79 @@
+# 도구에 없는 값 이름을 쓴 경우다. 이름 그대로는 고칠 수 없지만, 의도한 뜻은 도구의 실제 값 이름으로 살릴 수 있다.
+id: U-01
+group: U
+title: 재고 확인 outputs 를 도구에 없는 이름(inventory.예약가능수량)으로 바꿈
+set: dev
+run: auto
+
+change:
+  - file: skills/inventory-check/SKILL.md
+    from: "outputs: [inventory.available, inventory.reserved]"
+    to: "outputs: [inventory.예약가능수량]"
+
+intent:
+  # 담당자가 원한 것은 이름이 아니라 '예약 가능 수량으로 판단'이라는 뜻이다. 그래서 조건은 도구의 실제 값 이름으로 쓴다.
+  text: 재고는 예약 가능 수량으로 판단하고 싶다
+  checks: ["inventory.reservable_quantity != null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: payment, missing: [inventory.reserved]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  # 도구 이름으로 바로잡은 안이 정답이다. 이름이 없다는 이유로 '유효한 안 없음'을 내는 것도 틀린 답은 아니지만,
+  # 유효 개선안 제시율에서는 안을 내지 못한 것으로 센다.
+  proposal: [proposed, no_valid_fix]
+  root_cause: [inventory-check]
+  fixable: true
+
+fixes:
+  - name: 한글 이름을 유지하고 reserved 를 더함
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.예약가능수량]"
+        to: "outputs: [inventory.예약가능수량, inventory.reserved]"
+    tests_pass: false
+    failure: MISSING_SKILL_OUTPUT
+    valid: false
+  - name: 도구 이름으로 바꾸고 reserved 를 더함
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.예약가능수량]"
+        to: "outputs: [inventory.reservable_quantity, inventory.reserved]"
+    tests_pass: true
+    valid: true
+  - name: 되돌리기
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.예약가능수량]"
+        to: "outputs: [inventory.available, inventory.reserved]"
+    tests_pass: false
+    failure: "확인 조건 실패: inventory.reservable_quantity != null"
+    valid: false
+
+evidence:
+  - claim: 결제 단계가 실행 전 검사에서 inventory.reserved 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 재고 확인 outputs 변경이다
+    kind: 구성, 되돌려 보기
+    where: check 에서 그 수정을 되돌리면 재현 주문이 통과한다
+  - claim: 한글 이름 그대로는 쓸 수 없다
+    kind: 불가능 증명
+    where: >-
+      선언한 outputs 는 도구가 실제로 만든 값 안에 있어야 하고(order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java
+      의 runStep, MISSING_SKILL_OUTPUT), 재고 도구는 inventory.available, inventory.reservable_quantity, inventory.reserved 만
+      만든다(order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java 의 reserveInventory)
+  - claim: 뜻은 살릴 수 있다
+    kind: 존재 증명
+    where: fixes 의 두 번째 안이 check 에서 시험을 통과한다
+  - claim: 의도는 이름이 아니라 뜻이다
+    kind: 정의
+    where: 이 케이스 파일의 intent
+
+current:
+  checked: 2026-10-23
+  result: EVALUATED/proposed. 도구 이름으로 바꾼 안과 되돌리기가 함께 합격으로 판정된다
+  defects: [D1]
