@@ -24,6 +24,7 @@ from pathlib import Path
 # 넣는다.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from skillops_agent import trigger_robustness  # noqa: E402
 from skillops_agent.config import RECURSION_LIMIT  # noqa: E402
 from skillops_agent.skill_quality.loader import resolve_cases, resolve_skills  # noqa: E402
 from skillops_agent.trigger_graph import trigger_graph  # noqa: E402
@@ -74,6 +75,25 @@ async def generate_only(state: dict, data: dict, args) -> int:
     return 0
 
 
+async def robustness(result: dict) -> dict:
+    """원래 description 과 개선안을 같은 변형으로 검사하고 짧게 찍는다."""
+    report = result["report"]
+    args = (result["skills"], result["cases"], report["target_skill"], result.get("structure"),
+            result.get("selector") or "chat")
+    out = {"before": await trigger_robustness.check(*args)}
+    if report.get("after"):
+        out["after"] = await trigger_robustness.check(
+            *args, description=report["after"]["description"]
+        )
+    for side, r in out.items():
+        print(f"\n[robustness {side}] 버팀={r['robust']} (질의 {r['cases']}개씩)")
+        for v in r["results"]:
+            mark = "O" if v["passed"] else "X"
+            extra = f" 대신 {v['chosen_instead']}" if v["chosen_instead"] else ""
+            print(f"  [{mark}] {v['id']:<26} {v['hits']}{extra}")
+    return out
+
+
 async def main() -> int:
     """평가셋을 읽어 그래프를 돌리고 진행 메시지와 보고서를 찍는다."""
     parser = argparse.ArgumentParser()
@@ -87,6 +107,10 @@ async def main() -> int:
     parser.add_argument(
         "--generate-only", action="store_true",
         help="평가 질의만 만들어 --out(기본 <대상>.generated.json)에 저장하고 멈춘다",
+    )
+    parser.add_argument(
+        "--robustness", action="store_true",
+        help="진단 뒤 원래·개선 description 이 후보 순서·단계 skill 변경에 버티는지 검사한다",
     )
     args = parser.parse_args()
 
@@ -120,6 +144,9 @@ async def main() -> int:
     # 규칙 검사 결과를 먼저 짧게 보여 준다.
     for f in result["report"]["quality"]["findings"]:
         print(f"[rule {f['severity']}] {f['target']}: {f['id']} {f['reason']}")
+
+    if args.robustness:
+        result["report"]["robustness"] = await robustness(result)
 
     text = json.dumps(result["report"], ensure_ascii=False, indent=2)
     print("\n" + text)

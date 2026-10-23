@@ -150,3 +150,11 @@ TRIGGER_DESCRIPTION_MAX = 1024
 # 목표 호출 재현율이다. 통과한 안이 이 값에 못 미치면 남은 시도로 더 고치고, 끝나면 통과한 안 중
 # 가장 좋은 안을 제안한다.
 TRIGGER_TARGET_RECALL = 0.9
+
+# ── 진입 skill 견고성 검사(trigger_robustness) ─────────────────────────────────
+# 정답이 늘 진입 skill 하나인 주문 Agent 는 "몇 개 맞히나"보다 "무엇을 바꾸면 깨지나"를 본다.
+# 변형마다 앞에서 이 수만큼의 질의만 1번씩 묻는다(변형 8개 × 5건 = 40회 호출).
+ROBUSTNESS_CASES = 5
+# 단계 skill description 끝에 붙여 진입 skill 처럼 보이게 하는 문구다. 누가 단계 skill 을 대충 고친
+# 상황을 흉내 낸다.
+ROBUSTNESS_RIVAL_PHRASE = "주문을 처리한다."
