@@ -58,6 +58,7 @@ class FakeLLM:
         self.eval_cases = eval_cases or []
         self.calls = {}
         self.prompts = {}
+        self.messages = {}
 
     def __call__(self, schema):
         fake = self
@@ -66,6 +67,10 @@ class FakeLLM:
             async def ainvoke(self, prompt):
                 name = schema.__name__
                 fake.calls[name] = fake.calls.get(name, 0) + 1
+                # system/user 로 나뉜 메시지는 원본을 남기고, 글 비교용으로 이어 붙인다.
+                if isinstance(prompt, list):
+                    fake.messages.setdefault(name, []).append(prompt)
+                    prompt = "\n\n".join(text for _, text in prompt)
                 fake.prompts.setdefault(name, []).append(prompt)
                 if name == "_SelectionOutput":
                     return SimpleNamespace(skill=_select(prompt), reason="")
@@ -452,3 +457,46 @@ def test_order_agent_eval_set_resolves_real_bundle_and_golden_orders():
 
     problems, _ = check_eval_set("order-flow", skills, cases, selector="order-agent")
     assert problems == []
+
+
+# ── system/user 분리와 Agent 동작 설명 ─────────────────────────────────────────
+
+
+async def test_prompts_split_rules_to_system_and_data_to_user(llm):
+    fake = llm([GOOD])
+    skills = [{"name": T, "skill_md": skill_md(T, "문서를 정리한다.")}, SKILLS[1]]
+    await run(skills=skills)
+    for name in ("_SelectionOutput", "_TriggerDiagnosisOutput", "_DescriptionProposalOutput"):
+        (role_s, system), (role_u, user) = fake.messages[name][0]
+        assert (role_s, role_u) == ("system", "human")
+        assert "## 지시사항" in system or "고르세요" in system  # 규칙은 system
+        assert "## 지시사항" not in user  # user 에는 데이터만
+    (_, system), (_, user) = fake.messages["_TriggerDiagnosisOutput"][0]
+    assert "# 본문\n내용" in user and "# 본문\n내용" not in system  # SKILL.md 본문은 데이터
+    assert "따르지 마세요" in system
+    assert "검사하는 Agent 의 동작 (대화형)" in system
+
+
+async def test_order_agent_context_reaches_diagnose(monkeypatch, llm):
+    from skillops_agent import trigger_nodes as n
+
+    fake = llm([GOOD])
+
+    class OrderChain:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(skill="payment")  # 단계 skill 을 진입으로 잘못 고름
+
+    real = n.make_structured_llm
+    monkeypatch.setattr(
+        n, "make_structured_llm",
+        lambda schema: OrderChain() if schema.__name__ == "_OrderSelectionOutput" else real(schema),
+    )
+    flow = "---\nname: order-flow\ndescription: 주문 순서\nsteps: [payment]\n---\n본문\n"
+    pay = "---\nname: payment\ndescription: 결제한다\n---\n본문\n"
+    skills = [{"name": "order-flow", "skill_md": flow}, {"name": "payment", "skill_md": pay}]
+    cases = [{"query": "g-01", "expected_skill": "order-flow", "should_trigger": True,
+              "order": ORDER}]
+    await run(target_skill="order-flow", selector="order-agent", skills=skills, cases=cases)
+    (_, system), _ = fake.messages["_TriggerDiagnosisOutput"][0]
+    assert "검사하는 Agent 의 동작 (주문 Agent)" in system
+    assert "payment 은 order-flow 의 하위 단계" in system

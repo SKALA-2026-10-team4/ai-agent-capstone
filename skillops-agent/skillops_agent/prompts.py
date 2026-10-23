@@ -11,6 +11,11 @@ from pathlib import Path
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
+def exists(name: str) -> bool:
+    """prompts/<name>.md 가 있는지 본다. 호출 진단 노드가 <name>.system.md 유무를 볼 때 쓴다."""
+    return (_PROMPTS_DIR / f"{name}.md").exists()
+
+
 def load(name: str) -> str:
     """prompts/<name>.md 를 읽어 반환한다.
 

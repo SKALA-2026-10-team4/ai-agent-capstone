@@ -34,6 +34,7 @@ from .config import (
 )
 from .contracts import ContractError
 from .llm import make_structured_llm
+from .prompts import exists as prompt_exists
 from .prompts import load as load_prompt
 from .skill_quality.rule_checker import check_case, has_positive
 from .trigger_state import NONE_SKILL, SkillCard, TriggerCase, TriggerState, TriggerStatus
@@ -110,11 +111,30 @@ def _progress(state: TriggerState, node: str, msg: str, **updates) -> dict:
 
 
 async def _ask_llm(prompt_name: str, schema, *, with_style: bool = False, **fields):
-    """프롬프트를 채워 구조화 출력 LLM 에 묻는다. make_structured_llm 은 호출 때 찾는다."""
-    template = load_prompt(prompt_name)
+    """프롬프트를 채워 구조화 출력 LLM 에 묻는다. make_structured_llm 은 호출 때 찾는다.
+
+    <prompt_name>.system.md 가 있으면 역할·규칙은 system 메시지로, <prompt_name>.md 의 데이터는
+    user 메시지로 나눠 보낸다. SKILL.md 본문 같은 데이터 안의 지시가 규칙을 덮지 못하게 하려는
+    것이다.
+    """
     if with_style:
         fields["style"] = load_prompt("style")
-    return await make_structured_llm(schema).ainvoke(template.format(**fields))
+    user = load_prompt(prompt_name).format(**fields)
+    if not prompt_exists(f"{prompt_name}.system"):
+        return await make_structured_llm(schema).ainvoke(user)
+    system = load_prompt(f"{prompt_name}.system").format(**fields)
+    return await make_structured_llm(schema).ainvoke([("system", system), ("human", user)])
+
+
+def _agent_context(state: TriggerState) -> str:
+    """selector 에 맞는 '검사하는 Agent 의 동작' 설명이다.
+
+    system 프롬프트의 {agent_context} 자리에 넣는다.
+    """
+    if (state.get("selector") or "chat") == "order-agent":
+        structure = _structure_text(state.get("structure") or {})
+        return load_prompt("agent_context_order_agent").format(structure=structure)
+    return load_prompt("agent_context_chat")
 
 
 def _skill_list(skills: list[SkillCard]) -> str:
@@ -361,6 +381,7 @@ async def generate_eval_queries(state: TriggerState) -> dict:
         target_skill=target["name"],
         description=target["description"],
         body=_body_text(target),
+        agent_context=_agent_context(state),
         other_skills=_skill_list(_others(state)),
         structure=_structure_text(state.get("structure") or {}),
         seed_queries="\n".join(f"- {q}" for q in state.get("seed_queries") or []) or "없음",
@@ -443,6 +464,7 @@ async def diagnose(state: TriggerState) -> dict:
         target_skill=target["name"],
         description=target["description"],
         body=_body_text(target),
+        agent_context=_agent_context(state),
         other_skills=_skill_list(_others(state)),
         metrics=metrics.summary(baseline),
         misses=_miss_lines(baseline["misses"]),
@@ -475,6 +497,7 @@ async def propose(state: TriggerState) -> dict:
         target_skill=target["name"],
         description=target["description"],
         body=_body_text(target),
+        agent_context=_agent_context(state),
         other_skills=_skill_list(_others(state)),
         diagnosis=state["diagnosis"],
         misses=_miss_lines(state["baseline"]["misses"]),
