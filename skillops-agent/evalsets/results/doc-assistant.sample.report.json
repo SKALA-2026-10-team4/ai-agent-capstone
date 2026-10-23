@@ -1,0 +1,250 @@
+{
+  "target_skill": "doc-assistant",
+  "status": "PROPOSED",
+  "before": {
+    "description": "문서를 정리한다.",
+    "metrics": {
+      "recall": 0.0,
+      "recall_range": [
+        0.0,
+        0.0
+      ],
+      "precision": 0.0,
+      "accuracy": 0.455,
+      "stolen_by": {
+        "meeting-summary": 30
+      },
+      "counts": {
+        "cases": 22,
+        "positive_cases": 10,
+        "negative_cases": 12,
+        "recall_hits": "0/30"
+      }
+    }
+  },
+  "after": {
+    "description": "팀 주간 업무 보고서나 주간 실적 보고서를 작성할 때 사용합니다. 이번 주에 진행한 업무 내용과 결과를 모아 정리하고, 다음 주 계획을 포함하여 팀에서 정한 주간 보고서 양식에 맞춘 초안을 만듭니다. 회의록 요약이나 회의 진행 상황 보고와 달리, 주간 업무 실적과 계획을 체계적으로 정리하는 문서 작성에 적합합니다.",
+    "metrics": {
+      "recall": 1.0,
+      "recall_range": [
+        1.0,
+        1.0
+      ],
+      "precision": 1.0,
+      "accuracy": 1.0,
+      "stolen_by": {},
+      "counts": {
+        "cases": 22,
+        "positive_cases": 10,
+        "negative_cases": 12,
+        "recall_hits": "30/30"
+      }
+    }
+  },
+  "diagnosis": {
+    "cause_type": "missing_usage_context",
+    "summary": "Agent는 Skill을 고를 때 설명(description)을 봅니다. 지금 설명에는 '주간 업무 보고서 작성'이라는 구체적인 사용 시점과 업무 내용이 빠져 있어서 비슷한 회의록 요약 Skill과 구분되지 않습니다.",
+    "competing_skills": [
+      "meeting-summary"
+    ],
+    "missing_contexts": [
+      "주간 업무 보고서 작성",
+      "이번 주 업무와 결과 정리",
+      "다음 주 계획 포함",
+      "팀 주간 보고 양식에 맞춘 초안 작성"
+    ]
+  },
+  "rationale": "기존 설명이 너무 간단해 주간 업무 보고서 작성이라는 구체적 사용 시점과 업무 내용을 담지 못해 혼동이 발생했습니다. 주간 업무 보고서 작성이라는 명확한 상황과 업무 범위를 명시해 meeting-summary와 구분되도록 했습니다.",
+  "regressions": [],
+  "attempt_count": 1,
+  "max_attempts": 3,
+  "history": [
+    {
+      "attempt": 1,
+      "description": "팀 주간 업무 보고서나 주간 실적 보고서를 작성할 때 사용합니다. 이번 주에 진행한 업무 내용과 결과를 모아 정리하고, 다음 주 계획을 포함하여 팀에서 정한 주간 보고서 양식에 맞춘 초안을 만듭니다. 회의록 요약이나 회의 진행 상황 보고와 달리, 주간 업무 실적과 계획을 체계적으로 정리하는 문서 작성에 적합합니다.",
+      "metrics": {
+        "recall": 1.0,
+        "recall_range": [
+          1.0,
+          1.0
+        ],
+        "precision": 1.0,
+        "accuracy": 1.0,
+        "stolen_by": {},
+        "counts": {
+          "cases": 22,
+          "positive_cases": 10,
+          "negative_cases": 12,
+          "recall_hits": "30/30"
+        }
+      },
+      "regressions": [],
+      "passed": true,
+      "reasons": [],
+      "checks": []
+    }
+  ],
+  "evidence": {
+    "case_count": 22,
+    "repeat": 3,
+    "misses_before": [
+      {
+        "query": "이번 주 보고서 정리해줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "주간 업무 보고 작성해줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "이번 주에 한 일 정리해서 팀장님께 올릴 보고서 만들어줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "금요일 주간보고 초안 써줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "월요일부터 오늘까지 진행한 업무를 보고서로 묶어줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "주간 실적 보고서 만들어줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "이번 주 프로젝트 진행 상황을 보고서로 정리해줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "주간보고 양식에 이번 주 내용 채워줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "이번 주 실적이랑 다음 주 계획 넣어서 보고서 써줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "팀 주간 회의에 낼 주간 업무 보고서 써줘",
+        "selected": [
+          "meeting-summary",
+          "meeting-summary",
+          "meeting-summary"
+        ]
+      },
+      {
+        "query": "이 계약서 문서에서 오타 정리해줘",
+        "selected": [
+          "doc-assistant",
+          "doc-assistant",
+          "doc-assistant"
+        ]
+      },
+      {
+        "query": "공유 폴더 파일 이름들 정리해줘",
+        "selected": [
+          "doc-assistant",
+          "doc-assistant",
+          "doc-assistant"
+        ]
+      }
+    ],
+    "misses_after": [],
+    "holdout_misses_before": [],
+    "holdout_misses_after": []
+  },
+  "evaluation": {
+    "mode": "same_set",
+    "dev_cases": 22,
+    "holdout_cases": 0,
+    "repeat": 3,
+    "notes": [
+      "진단·개선에 쓴 질의로 채점했습니다. 처음 보는 질의에서의 성능은 확인하지 않았습니다."
+    ]
+  },
+  "quality": {
+    "grade": "S",
+    "findings": [],
+    "checked": 60
+  },
+  "semantic": {
+    "grade_before": "B",
+    "grade_after": "S",
+    "before": [
+      {
+        "id": "semantic.3-1",
+        "kind": "semantic",
+        "status": "FAIL",
+        "severity": "MAJOR",
+        "target": "doc-assistant",
+        "reason": "description 에 WHAT(기능)과 WHEN(시점)이 모두 있다 아님: description에 무엇을 하는지(WHAT)와 언제 쓰는지(WHEN)가 모두 빠져 있다.",
+        "fix": "주간 업무 보고서 작성이라는 구체적인 업무 내용과 사용 시점을 description에 포함해야 한다."
+      },
+      {
+        "id": "semantic.3-2",
+        "kind": "semantic",
+        "status": "FAIL",
+        "severity": "MAJOR",
+        "target": "doc-assistant",
+        "reason": "고를 때 단서가 되는 표현이 충분하다 아님: 사용자가 주간 보고서 작성 요청 시 쓰는 표현이 description에 전혀 없다.",
+        "fix": "'주간 보고서 작성', '이번 주 업무 정리', '다음 주 계획' 등의 표현을 추가해야 한다."
+      },
+      {
+        "id": "semantic.3-3",
+        "kind": "semantic",
+        "status": "FAIL",
+        "severity": "MAJOR",
+        "target": "doc-assistant",
+        "reason": "description 과 본문·frontmatter 의 의미가 일치한다 아님: description이 SKILL.md 본문의 업무 범위를 반영하지 못한다.",
+        "fix": "본문에 있는 주간 업무 보고서 작성 업무 내용을 description에 반영해야 한다."
+      },
+      {
+        "id": "semantic.3-4",
+        "kind": "semantic",
+        "status": "FAIL",
+        "severity": "BLOCKER",
+        "target": "doc-assistant",
+        "reason": "호출 조건이 본문에만 있지 않다(body-only trigger 없음) 아님: 언제 써야 하는지 정보가 본문에만 있고 description에는 없다.",
+        "fix": "사용 시점 정보를 description에 포함해야 한다.",
+        "evidence": "실행으로 확인됨: 재현율 0.0"
+      }
+    ],
+    "after": []
+  }
+}
