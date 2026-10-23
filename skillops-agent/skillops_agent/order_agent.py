@@ -134,6 +134,29 @@ async def get_skill(
     )
 
 
+async def list_recent_runs(*, client: httpx.AsyncClient | None = None) -> dict:
+    """최근 실행 요약 목록을 GET /api/executions 로 읽어 그대로 돌려준다.
+
+    order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
+    recent() 가 이 경로를 받는다. 응답은 {"items": [...]} 이고 최신 실행이 앞에 오며 최대 20건이다.
+    성공한 실행과 모의 실행도 들어 있다. skillops-agent/scripts/build_rag_data.py 가 도구 계약을
+    읽을 성공 실행을 찾을 때 쓴다.
+    """
+    return await _get("/api/executions", client)
+
+
+async def get_snapshot(snapshot_id: str, *, client: httpx.AsyncClient | None = None) -> dict:
+    """snapshot manifest 를 GET /api/snapshots/{snapshot_id} 로 읽어 그대로 돌려준다.
+
+    order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
+    snapshot() 이 이 경로를 받는다. 응답의 metadata.source 로 게시본(published-bundle)인지 알 수
+    있다.
+    skillops-agent/scripts/build_rag_data.py 가 게시본으로 돈 실행을 고를 때 쓴다.
+    """
+    _require_uuid("snapshot_id", snapshot_id)
+    return await _get(f"/api/snapshots/{snapshot_id}", client, snapshot_id=snapshot_id)
+
+
 async def _get(path: str, client: httpx.AsyncClient | None, **ref: str) -> Any:
     """path 를 GET 으로 부르고 JSON 본문을 돌려준다.
 
