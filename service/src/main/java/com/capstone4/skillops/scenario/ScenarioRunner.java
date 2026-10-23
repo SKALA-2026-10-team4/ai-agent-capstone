@@ -37,7 +37,7 @@ public class ScenarioRunner {
     /**
      * repeat 를 넣지 않았을 때 같은 주문을 돌리는 횟수다. AI 가 처리하는 단계가 있어 한 번의 통과는 우연일 수 있으므로 여러 번 돌린다.
      * 이 값과 MIN_REPEAT, MAX_REPEAT 는 service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 의 도구 설명 문구와
-     * docs/contracts/mcp-tools-input-output.md 의 run_scenarios 입력 표에도 글자로 적혀 있으므로 함께 고친다.
+     * docs/contracts/mcp-tools-input-output.md 의 run_scenarios 절 보내는 값 표에도 글자로 적혀 있으므로 함께 고친다.
      * 설명 문구가 상수와 같은지는 service/src/test/java/com/capstone4/skillops/mcp/WorkspaceToolsTest.java 의
      * runScenariosDescriptionsMatchRepeatConstants 가 본다.
      * 진단 Agent 는 skillops-agent/skillops_agent/tools.py 의 MCPTools.run_scenarios 에 기본값 2 를 따로 두고 repeat 를 늘 보낸다.
