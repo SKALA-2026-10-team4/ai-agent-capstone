@@ -20,7 +20,13 @@ import com.capstone4.skillops.auth.AuthUser;
 import com.capstone4.skillops.proposal.ProposalException;
 import com.capstone4.skillops.proposal.ProposalService;
 
-/** 승인·거절은 저장된 제안서에 결정을 표시한 뒤 기록한다. SkillOps Agent 로는 보내지 않는다. */
+/**
+ * service/src/main/java/com/capstone4/skillops/approval/ApprovalService.java 의 기본 동작을 보호하는 단위 테스트다.
+ * 승인하면 저장된 제안서에 결정을 표시하고 후보 번호와 승인 번호를 함께 기록하는지, 거절하면 후보 번호와 승인 번호 없이
+ * 기록하는지 본다. 제안서 표시가 거부되면 기록을 남기지 않는지, 마지막 결정을 저장소에서 읽는지도 본다.
+ * 결정을 SkillOps Agent 로 보내지 않으므로 agent_result 는 늘 NOT_SENT 다. 표시와 기록의 순서는
+ * service/src/test/java/com/capstone4/skillops/approval/ApprovalServiceCharacterizationTest.java 가 따로 고정한다.
+ */
 class ApprovalServiceTest {
 
     private final ApprovalRepository repository = mock(ApprovalRepository.class);
@@ -30,6 +36,7 @@ class ApprovalServiceTest {
     private final AuthUser operator = new AuthUser("operator", "운영자", List.of("OPERATOR"));
 
     {
+        // 저장소의 save 는 받은 기록을 그대로 돌려주게 한다.
         given(repository.save(any(Approval.class))).willAnswer(call -> call.getArgument(0));
     }
 

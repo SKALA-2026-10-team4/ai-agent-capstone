@@ -1,0 +1,159 @@
+{
+  "title" : "inventory-check 진단 결과",
+  "summary" : "2026년 10월 21일 14시 3분에 들어온 주문이 payment 단계에서 멈췄습니다. 원인은 inventory-check Skill의 변경에 있습니다. 이 변경만 되돌려 다시 돌렸더니 같은 주문이 끝까지 처리됐습니다. SkillOps가 수정안 2개를 시험했지만 모든 확인을 통과한 안은 없습니다. 담당자가 Skill을 직접 고쳐야 합니다.",
+  "sections" : [ {
+    "key" : "overview",
+    "heading" : "개요",
+    "paragraphs" : [ "2026년 10월 21일 14시 3분에 들어온 주문이 payment 단계에서 멈췄습니다. 원인은 inventory-check Skill의 변경에 있습니다. 이 변경만 되돌려 다시 돌렸더니 같은 주문이 끝까지 처리됐습니다. SkillOps가 수정안 2개를 시험했지만 모든 확인을 통과한 안은 없습니다. 담당자가 Skill을 직접 고쳐야 합니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "what_happened",
+    "heading" : "발생 경위",
+    "paragraphs" : [ "2026년 10월 21일 14시 3분에 들어온 주문이 payment 단계에서 멈췄습니다. 주문 Agent가 이 실패를 기록했고, SkillOps가 그 기록으로 진단을 시작했습니다.", "이 단계가 받아야 할 값이 앞 단계에서 넘어오지 않았습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ {
+      "label" : "시작 계기",
+      "value" : "주문 실패"
+    }, {
+      "label" : "멈춘 단계",
+      "value" : "payment"
+    }, {
+      "label" : "오류 종류",
+      "value" : "CONTRACT_VIOLATION (Skill 사이 입력값 불일치)"
+    }, {
+      "label" : "받지 못한 값",
+      "value" : "inventory.reserved"
+    }, {
+      "label" : "오류 메시지",
+      "value" : "required input inventory.reserved not found"
+    }, {
+      "label" : "실패한 실행",
+      "value" : "33333333-3333-4333-8333-333333333333"
+    }, {
+      "label" : "수정 전 Skill 세트",
+      "value" : "11111111-1111-4111-8111-111111111111"
+    }, {
+      "label" : "수정 후 Skill 세트",
+      "value" : "22222222-2222-4222-8222-222222222222"
+    } ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "cause",
+    "heading" : "원인",
+    "paragraphs" : [ "주문은 payment 단계에서 멈췄지만 원인은 inventory-check Skill에 있습니다.", "inventory-check Skill에서 아래 부분이 바뀌었습니다.", "SkillOps는 이 변경만 되돌린 연습 공간에서 실패한 주문을 다시 돌렸습니다. 그러자 주문이 끝까지 처리됐고, 그래서 이 변경을 원인으로 확정했습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ {
+      "label" : "바뀌기 전",
+      "value" : "outputs: [inventory.available, inventory.reserved]"
+    }, {
+      "label" : "바뀐 뒤",
+      "value" : "outputs: [inventory.available]"
+    }, {
+      "label" : "원인 확인 실행",
+      "value" : "r_a0000000000000000000000000000001, r_a0000000000000000000000000000002"
+    } ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "intent",
+    "heading" : "변경 의도",
+    "paragraphs" : [ "SkillOps는 이번 변경의 의도를 아래와 같이 이해했습니다.", "수정안을 시험할 때 아래 조건이 지켜지는지도 함께 확인했습니다.", "이 해석이 실제 의도와 다르면 승인하지 말고 거절해 주세요." ],
+    "quote" : "예약 가능 수량을 계속 내놓고 싶다.",
+    "items" : [ "inventory.reservable_quantity != null" ],
+    "facts" : [ ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "candidates",
+    "heading" : "수정안과 시험 결과",
+    "paragraphs" : [ "SkillOps가 수정안 2개를 만들어 각각 따로 마련한 연습 공간에서 시험했습니다.", "실패했던 주문과 기준 주문 3건을 돌렸고, 의도 확인 조건도 함께 확인했습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ ],
+    "parts" : [ {
+      "key" : "candidate",
+      "heading" : "후보 1번 · 바뀐 Skill만 고치기",
+      "paragraphs" : [ "실패했던 주문을 다시 돌렸지만 여전히 멈췄습니다.", "기준 주문 3건도 모두 이전과 같게 처리됐습니다.", "의도 확인 조건도 모두 지켜졌습니다.", "고친 뒤에도 Skill 사이의 입력과 출력이 모두 이어집니다." ],
+      "quote" : null,
+      "items" : [ ],
+      "facts" : [ {
+        "label" : "판정",
+        "value" : "적용 불가"
+      }, {
+        "label" : "고치는 Skill",
+        "value" : "inventory-check"
+      }, {
+        "label" : "AI 설명",
+        "value" : "재고 확인 Skill이 예약 여부를 다시 내놓게 했습니다."
+      }, {
+        "label" : "근거 실행",
+        "value" : "r_c1000000000000000000000000000001, r_c1000000000000000000000000000002"
+      } ],
+      "parts" : [ ],
+      "candidate_no" : 1
+    }, {
+      "key" : "candidate",
+      "heading" : "후보 2번 · 주고받는 값까지 함께 고치기",
+      "paragraphs" : [ "실패했던 주문을 다시 돌렸더니 끝까지 처리됐습니다.", "기준 주문 3건 가운데 1건이 이전과 다르게 처리됐습니다.", "의도 확인 조건도 모두 지켜졌습니다.", "고친 뒤에 입력을 받지 못하는 Skill이 남습니다." ],
+      "quote" : null,
+      "items" : [ ],
+      "facts" : [ {
+        "label" : "판정",
+        "value" : "적용 불가"
+      }, {
+        "label" : "고치는 Skill",
+        "value" : "payment, shipping-reserve"
+      }, {
+        "label" : "AI 설명",
+        "value" : "이 기능을 통해 연결을 맞췄습니다."
+      }, {
+        "label" : "근거 실행",
+        "value" : "r_c2000000000000000000000000000001, r_c2000000000000000000000000000002"
+      } ],
+      "parts" : [ ],
+      "candidate_no" : 2
+    } ],
+    "candidate_no" : null
+  }, {
+    "key" : "decision",
+    "heading" : "추천과 결정 요청",
+    "paragraphs" : [ "모든 확인을 통과한 수정안이 없어 승인할 안이 없습니다.", "담당자가 Skill 편집 화면에서 직접 고친 뒤 다시 저장해 주세요. 저장하면 SkillOps가 같은 검증을 다시 시작합니다.", "이 제안서는 확인한 뒤 거절해서 닫을 수 있습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "reference",
+    "heading" : "참고 정보",
+    "paragraphs" : [ ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ {
+      "label" : "제안서 번호",
+      "value" : "p_1"
+    }, {
+      "label" : "진단 번호",
+      "value" : "5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b"
+    }, {
+      "label" : "변경 번호",
+      "value" : "c_20261021_01"
+    }, {
+      "label" : "제안서를 만든 시각",
+      "value" : "2026년 10월 21일 14시 10분"
+    } ],
+    "parts" : [ ],
+    "candidate_no" : null
+  } ],
+  "tone_warnings" : [ {
+    "where" : "candidates[2].explanation",
+    "phrase" : "을 통해"
+  } ]
+}

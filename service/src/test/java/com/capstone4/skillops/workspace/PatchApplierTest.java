@@ -8,6 +8,14 @@ import org.junit.jupiter.api.Test;
 import com.capstone4.skillops.snapshot.SkillDiffer;
 import com.capstone4.skillops.snapshot.SkillFileDiff;
 
+/**
+ * service/src/main/java/com/capstone4/skillops/workspace/PatchApplier.java 의 apply 를 사례별로 보호한다.
+ * 덩어리 하나와 여럿의 적용, 끝 줄바꿈 보존, 어긋난 덩어리의 줄 번호가 담긴 오류 문구, 머리줄 없는 diff, C-1 SkillDiffer 가
+ * 만든 diff_skill 덩어리, 문맥 없는 끼워 넣기(git diff -U0)의 위치, 접두어 없는 줄 거부, 빈 줄 처리, CRLF 원문,
+ * '\ No newline at end of file' 표시를 본다. 정규화 단계를 고칠 때 이 사례들로 결과가 바뀌지 않았는지 확인한다.
+ * git apply 와 같은 결과를 기대하는 사례는 그 주석에 적었다. 머리줄 없는 diff 와 CRLF 원문처럼 git apply 가 그대로 받지
+ * 않는 사례도 있다.
+ */
 class PatchApplierTest {
 
     @Test
@@ -95,8 +103,9 @@ class PatchApplierTest {
                 .hasMessage("수정 내용의 덩어리 머리줄을 읽을 수 없습니다: @@ 2번째 줄 @@");
     }
 
-    // 문맥 없는 끼워 넣기(git diff -U0 모양). 기대 결과는 git apply --unidiff-zero 가 만든 결과와 같다.
+    // 문맥 없는 끼워 넣기(git diff -U0 모양)를 다룬다. 기대 결과는 git apply --unidiff-zero 가 만든 결과와 같다.
 
+    /** 끼워 넣기와 접두어 시험에 쓰는 다섯 줄 원문이다. */
     static final String FIVE_LINES = "l1\nl2\nl3\nl4\nl5\n";
 
     @Test
@@ -123,7 +132,7 @@ class PatchApplierTest {
 
     @Test
     void zeroOldCountHeaderWithContextKeepsItsStart() {
-        // 줄 수를 잘못 센 머리줄(-2,0 인데 문맥 줄이 있다). 올바른 머리줄 -2,2 +2,3 에 git apply 가 만드는 결과와 같다
+        // 줄 수를 잘못 센 머리줄(-2,0 인데 문맥 줄이 있다)이다. 올바른 머리줄 -2,2 +2,3 에 git apply 가 만드는 결과와 같다.
         assertThat(PatchApplier.apply("a\na\na\na\n", "@@ -2,0 +2,3 @@\n a\n+X\n a\n")).isEqualTo("a\na\nX\na\na\n");
     }
 
@@ -139,13 +148,13 @@ class PatchApplierTest {
 
     @Test
     void insertionPastTheEndFails() {
-        // git 은 파일 끝에 붙이지만, 없는 줄 뒤에 넣으라는 수정은 위치를 잘못 센 것일 수 있어 거부한다
+        // git 은 파일 끝에 붙이지만, 없는 줄 뒤에 넣으라는 수정은 위치를 잘못 센 것일 수 있어 거부한다.
         assertThatThrownBy(() -> PatchApplier.apply(FIVE_LINES, "@@ -6,0 +7 @@\n+X\n"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("맞지 않아");
     }
 
-    // 접두어 없는 줄. java-diff-utils 는 이런 줄을 말없이 버리므로 우리가 먼저 거부한다.
+    // 접두어 없는 줄을 다룬다. java-diff-utils 는 이런 줄을 말없이 버리므로 PatchApplier 가 먼저 거부한다.
 
     @Test
     void contextLineWithoutLeadingSpaceFails() {
@@ -187,5 +196,30 @@ class PatchApplierTest {
     void emptyLinesBetweenHunksAreSeparators() {
         String diff = "@@ -1 +1 @@\n-a\n+A\n\n@@ -4 +4 @@\n-d\n+D\n\n";
         assertThat(PatchApplier.apply("a\nb\nc\nd\n", diff)).isEqualTo("A\nb\nc\nD\n");
+    }
+
+    /** CRLF 원문도 고칠 수 있고, 결과 줄바꿈은 LF 로 이어진다(지금 동작). */
+    @Test
+    void crlfOriginalComesBackWithLfLineEnds() {
+        assertThat(PatchApplier.apply("a\r\nb\r\nc\r\n", "@@ -2,1 +2,1 @@\n-b\n+B\n")).isEqualTo("a\nB\nc\n");
+    }
+
+    /** git diff 의 머리줄(diff --git, index 등)은 첫 '@@' 앞이라 읽지 않는다. 접두어 검사도 하지 않는다. */
+    @Test
+    void ignoresGitHeaderLinesBeforeFirstHunk() {
+        String diff = "diff --git a/x b/x\nindex 1234567..89abcde 100644\n--- a/x\n+++ b/x\n@@ -2,1 +2,1 @@\n-b\n+B\n";
+        assertThat(PatchApplier.apply("a\nb\nc\n", diff)).isEqualTo("a\nB\nc\n");
+    }
+
+    /** 덩어리 본문 줄 앞의 빈 줄은 빈 문맥 줄이고, 첫 '@@' 앞의 빈 줄은 버린다. */
+    @Test
+    void emptyLineRightAfterHeaderIsAContextLine() {
+        assertThat(PatchApplier.apply("\nb\nc\n", "\n\n@@ -1,2 +1,2 @@\n\n-b\n+B\n")).isEqualTo("\nB\nc\n");
+    }
+
+    @Test
+    void noNewlineMarkerIsAccepted() {
+        String diff = "@@ -2,1 +2,1 @@\n-b\n\\ No newline at end of file\n+B\n\\ No newline at end of file\n";
+        assertThat(PatchApplier.apply("a\nb", diff)).isEqualTo("a\nB");
     }
 }

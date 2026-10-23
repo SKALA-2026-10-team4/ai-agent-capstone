@@ -42,7 +42,14 @@ import com.capstone4.skillops.proposal.Proposal;
 import com.capstone4.skillops.proposal.ProposalException;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
-/** 승인 API 의 보안 규칙: 로그인 필요, OPERATOR 만 POST, 위조·만료 토큰 거절, MCP 는 막지 않음. */
+/**
+ * 승인 API(service/src/main/java/com/capstone4/skillops/api/ApprovalController.java)와 그 보안 규칙
+ * (service/src/main/java/com/capstone4/skillops/auth/SecurityConfig.java)을 보호한다.
+ * 결정에는 로그인이 필요하고 OPERATOR 만 승인과 거절 POST 를 할 수 있으며, 위조하거나 만료된 토큰은 401 로 막히는지 본다.
+ * 승인자가 토큰의 사용자로 기록되는지, 본문 검증과 의도 확인 거절이 400 인지, ProposalException 과 낙관적 잠금 실패가
+ * ProposalApiExceptionHandler 를 거쳐 제 코드와 상태로 나가는지, OWNER 도 승인 기록 목록을 읽는지도 본다. MCP(/mcp)와 다른
+ * 담당자의 /api 경로는 인증 때문에 막히지 않아야 한다.
+ */
 @WebMvcTest(ApprovalController.class)
 @Import({ SecurityConfig.class, TokenService.class })
 class ApprovalControllerTest {
@@ -65,11 +72,13 @@ class ApprovalControllerTest {
     @MockitoBean
     ApprovalService approvals;
 
+    /** 설정의 데모 계정으로 토큰을 발급해 토큰 문자열을 돌려준다. */
     private String tokenFor(String username) {
         return tokens.issue(properties.users().stream().filter(u -> u.username().equals(username)).findFirst().orElseThrow())
                 .token();
     }
 
+    /** 기본 본문(BODY)을 담은 승인 요청을 만든다. token 이 null 이면 Authorization 헤더를 붙이지 않는다. */
     private MockHttpServletRequestBuilder approve(String token) {
         MockHttpServletRequestBuilder request = post(APPROVE).contentType(MediaType.APPLICATION_JSON).content(BODY);
         return token == null ? request : request.header("Authorization", "Bearer " + token);
@@ -164,7 +173,8 @@ class ApprovalControllerTest {
 
     @Test
     void other_api_paths_stay_open_for_teammates() throws Exception {
-        // 인증을 붙인 곳 밖의 /api 는 막지 않는다(없는 경로라 404, 401 이 아님).
+        // 인증을 붙인 경로 밖의 /api 는 막지 않는다. /api/skills 는 이 slice 에 없는 경로이므로,
+        // 보안 필터가 401 이나 403 으로 막지 않았는지만 본다.
         mockMvc.perform(get("/api/skills"))
                 .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus())
                         .isNotIn(401, 403));
@@ -199,12 +209,13 @@ class ApprovalControllerTest {
 
     @Test
     void mcp_endpoint_is_not_behind_login() throws Exception {
-        // 이 slice 에는 MCP 서버가 없어 404 지만, 보안 필터가 401 로 막지 않는다는 것을 본다.
+        // 이 slice 에는 MCP 서버가 없어 404 가 나지만, 보안 필터가 401 이나 403 으로 막지 않는지만 본다.
         mockMvc.perform(post("/mcp").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(result -> org.assertj.core.api.Assertions.assertThat(result.getResponse().getStatus())
                         .isNotIn(401, 403));
     }
 
+    /** 위조 토큰과 만료 토큰 시험에 쓰는 operator 의 claim 묶음을 만든다. 발급 시각은 만료 2시간 전이다. */
     private static JwtClaimsSet claims(Instant expiresAt) {
         return JwtClaimsSet.builder().issuer(TokenService.ISSUER).subject("operator")
                 .claim("roles", List.of("OPERATOR")).issuedAt(expiresAt.minusSeconds(7200)).expiresAt(expiresAt).build();

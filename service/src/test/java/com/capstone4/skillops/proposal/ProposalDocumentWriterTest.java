@@ -16,28 +16,44 @@ import com.capstone4.skillops.proposal.ProposalDocument.ToneWarning;
 
 import tools.jackson.databind.json.JsonMapper;
 
+/**
+ * service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 가 만드는 본문의 문장과 구조를 보호하는 단위 테스트다.
+ * F1 픽스처(service/src/test/resources/proposal/f1-proposed.json)로 개요 네 문장, 목차 순서와 key, 절마다의 문단과 사실,
+ * 후보 카드의 판정, 결정 요청, 참고 정보를 확인하고, 원인을 모르는 제안서(service/src/test/resources/proposal/no-root-cause.json)도
+ * 읽을 수 있는 본문이 되는지 본다.
+ * 문장 틀이 ToneCheck 의 금지 표현을 쓰지 않는지, LLM 설명의 금지 표현은 고치지 않고 tone_warnings 에만 남는지도 확인한다.
+ * 시험하지 않은 후보나 의도 확인 조건이 없을 때 시험했다거나 확인했다고 쓰지 않는지도 본다.
+ * fixture 는 service/src/test/java/com/capstone4/skillops/proposal/ 의 ProposalServiceTest, ProposalCharacterizationTest,
+ * ProposalDocumentWriterGoldenTest 도 가져다 쓰고, CREATED 는 ProposalDocumentWriterGoldenTest 가 가져다 쓴다.
+ */
 class ProposalDocumentWriterTest {
 
     static final JsonMapper JSON = JsonMapper.builder().build();
+    /** 제안서를 만든 시각으로 넣는 고정 시각이다. 한국 시각으로 2026년 10월 21일 14시 10분이다. */
     static final Instant CREATED = Instant.parse("2026-10-21T05:10:00Z");
 
+    /** service/src/test/resources/proposal 아래의 제안서 픽스처를 새 Map 으로 읽는다. 테스트가 고쳐도 다른 테스트에 번지지 않는다. */
     @SuppressWarnings("unchecked")
     static Map<String, Object> fixture(String name) {
         return JSON.readValue(Path.of("src/test/resources/proposal/" + name).toFile(), Map.class);
     }
 
+    /** F1 픽스처로 본문을 만든다. */
     static ProposalDocument write() {
         return ProposalDocumentWriter.write("p_1", fixture("f1-proposed.json"), CREATED);
     }
 
+    /** 본문에서 key 가 같은 절을 찾는다. 없으면 테스트가 실패한다. */
     static Section section(ProposalDocument doc, String key) {
         return doc.sections().stream().filter(s -> s.key().equals(key)).findFirst().orElseThrow();
     }
 
+    /** 수정안과 시험 결과 절을 찾는다. */
     static Section candidates(ProposalDocument doc) {
         return section(doc, "candidates");
     }
 
+    /** 후보 설명(explanation)을 모두 지운 제안서 사본을 만든다. 문장 틀만 금지 표현 검사에 걸리게 하려는 것이다. */
     @SuppressWarnings("unchecked")
     static Map<String, Object> withoutExplanations(Map<String, Object> proposal) {
         Map<String, Object> copy = JSON.readValue(JSON.writeValueAsString(proposal), Map.class);
@@ -45,12 +61,14 @@ class ProposalDocumentWriterTest {
         return copy;
     }
 
+    /** 본문에 나오는 모든 글(제목, 개요, 절 제목, 문단, 인용, 글머리표, 사실, 후보 카드)을 모은다. */
     static List<String> allTexts(ProposalDocument doc) {
         List<String> texts = new ArrayList<>(List.of(doc.title(), doc.summary()));
         doc.sections().forEach(s -> collect(s, texts));
         return texts;
     }
 
+    /** 절 하나와 그 안의 후보 카드에 있는 글을 texts 에 더한다. */
     static void collect(Section s, List<String> texts) {
         texts.add(s.heading());
         texts.addAll(s.paragraphs());
@@ -221,6 +239,7 @@ class ProposalDocumentWriterTest {
 
     // ── 시험하지 않은 것을 시험했다고 쓰지 않는다(최종 리뷰) ─────────────────
 
+    /** 2번 후보를 원문에 적용하지 못해 시험하지 않은 후보로 바꾼 F1 제안서다. */
     @SuppressWarnings("unchecked")
     static Map<String, Object> withUntestedSecondCandidate() {
         Map<String, Object> proposal = fixture("f1-proposed.json");
@@ -231,6 +250,7 @@ class ProposalDocumentWriterTest {
         return proposal;
     }
 
+    /** 의도 확인 조건(intent.checks)을 비운 F1 제안서다. */
     @SuppressWarnings("unchecked")
     static Map<String, Object> withoutIntentChecks() {
         Map<String, Object> proposal = fixture("f1-proposed.json");
@@ -271,6 +291,7 @@ class ProposalDocumentWriterTest {
                 .doesNotContain("의도 확인 조건도 모두 지켜졌습니다.");
     }
 
+    /** 제안서의 index 번째 후보를 꺼낸다. index 는 0부터 센다. */
     @SuppressWarnings("unchecked")
     static Map<String, Object> candidate(Map<String, Object> proposal, int index) {
         return ((List<Map<String, Object>>) proposal.get("candidates")).get(index);

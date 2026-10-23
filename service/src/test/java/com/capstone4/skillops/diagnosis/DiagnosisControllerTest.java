@@ -10,6 +10,11 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
+/**
+ * service/src/main/java/com/capstone4/skillops/diagnosis/DiagnosisController.java 의 기본 중계 동작을 보호한다.
+ * 저장 이벤트와 서비스 토큰 헤더가 Agent 의 POST /diagnose 로 넘어가는지, 틀린 서비스 토큰은 Agent 로 넘기기 전에 401 로 막히는지,
+ * 진단 상태 조회가 Agent 의 GET /runs/{id}/events 응답을 그대로 돌려주는지 본다.
+ */
 class DiagnosisControllerTest {
     @Test void forwardsChangeAndServerTokenToAgent(){
         var builder=RestClient.builder().baseUrl("http://agent").defaultHeader("X-Service-Token","server-secret");

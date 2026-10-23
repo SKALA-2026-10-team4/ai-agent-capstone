@@ -2,7 +2,11 @@ package com.capstone4.skillops.scenario;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
@@ -29,7 +33,14 @@ import org.springframework.web.client.RestClient;
 
 import com.capstone4.skillops.workspace.WorkspaceService;
 
-/** 주문 Agent 는 MockRestServiceServer 로 대신한다. trace 응답은 실측 파일이다. */
+/**
+ * service/src/main/java/com/capstone4/skillops/scenario/HarnessFlowRunner.java 가 주문 Agent 를 부르는 순서와 모양을 보호한다.
+ * 연습 공간 파일 전부를 후보 snapshot 으로 올리는지, 같은 묶음이면 snapshot 을 다시 쓰고 바뀌면 다시 올리는지,
+ * 모의 실행에 주문 칸만 보내는지, 기억한 snapshot 이 사라졌을 때만 한 번 다시 올리는지 본다.
+ * 주문 Agent 오류를 어떤 예외와 문구로 알리는지, 운영 폴더 연습 공간과 order 없음을 파일을 읽기 전에 거부하는지도 고정한다.
+ * 주문 Agent 는 MockRestServiceServer 로 대신하고, trace 응답은 주문 Agent 에서 저장한 실측 파일
+ * service/src/test/resources/order-agent/trace-shipped.json 이다.
+ */
 class HarnessFlowRunnerTest {
 
     static final String BASE = "http://order-agent";
@@ -46,6 +57,7 @@ class HarnessFlowRunnerTest {
     HarnessFlowRunner runner = new HarnessFlowRunner(workspaces, new OrderAgentRunClient(builder, BASE));
     Map<String, String> files = new TreeMap<>();
 
+    /** 연습 공간 w_snap 은 snapshot SOURCE 에서 시작했고, skill 두 개와 resources 파일 하나를 갖는다. */
     @BeforeEach
     void setUp() {
         files.put("skills/order-flow/SKILL.md", "---\nname: order-flow\nversion: 1\n---\n");
@@ -82,7 +94,7 @@ class HarnessFlowRunnerTest {
         expectTrace();
 
         runner.runDryRun(request(g01Order()));
-        // 같은 글이면 순서가 다른 Map 이어도 같은 묶음이다
+        // 같은 글이면 순서가 다른 Map 이어도 같은 묶음이다.
         Map<String, String> reversed = new LinkedHashMap<>();
         new TreeMap<>(files).descendingMap().forEach(reversed::put);
         when(workspaces.filesOf("w_snap")).thenReturn(reversed);
@@ -178,7 +190,7 @@ class HarnessFlowRunnerTest {
                 .hasMessageContaining("w_live")
                 .hasMessageContaining("create_workspace")
                 .hasMessageContaining("snapshot_id");
-        // 주문 Agent 는 부르지 않는다
+        // 주문 Agent 는 부르지 않는다.
         server.verify();
     }
 
@@ -194,7 +206,7 @@ class HarnessFlowRunnerTest {
         server.expect(requestTo(BASE + "/api/snapshots/candidates")).andRespond(manifest(CANDIDATE_2));
         expectDryRun(CANDIDATE_2);
         expectTrace();
-        // 다시 올린 snapshot 을 캐시에 넣는다
+        // 다시 올린 snapshot 을 캐시에 넣으므로 세 번째 실행은 다시 올리지 않는다.
         expectDryRun(CANDIDATE_2);
         expectTrace();
 
@@ -250,16 +262,74 @@ class HarnessFlowRunnerTest {
                 .hasMessageContaining("order.customer");
     }
 
+    /** order 가 없는 시험 주문은 주문 Agent 를 부르기 전에 거부한다. */
+    @Test
+    void scenarioWithoutOrderIsRejectedBeforeCallingOrderAgent() {
+        assertThatThrownBy(() -> runner.runDryRun(request(null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("시험 주문 g-01 에 order 가 없습니다");
+        server.verify();
+    }
+
+    /** 시험 주문 order 에 없는 칸은 보내지 않는다. */
+    @Test
+    void absentOrderFieldIsNotSent() {
+        Map<String, Object> order = new LinkedHashMap<>(g01Order());
+        order.remove("shipping");
+        server.expect(requestTo(BASE + "/api/snapshots/candidates")).andRespond(manifest(CANDIDATE));
+        server.expect(requestTo(BASE + "/api/dry-runs"))
+                .andExpect(jsonPath("$.order.customer").value("c_1001"))
+                .andExpect(jsonPath("$.order.shipping").doesNotExist())
+                .andRespond(dryRunStarted());
+        expectTrace();
+
+        runner.runDryRun(request(order));
+
+        server.verify();
+    }
+
+    /** 칸이 있으면 값이 null 이어도 그대로 보낸다. */
+    @Test
+    void nullOrderFieldIsSentAsNull() {
+        Map<String, Object> order = new LinkedHashMap<>(g01Order());
+        order.put("shipping", null);
+        server.expect(requestTo(BASE + "/api/snapshots/candidates")).andRespond(manifest(CANDIDATE));
+        server.expect(requestTo(BASE + "/api/dry-runs"))
+                .andExpect(jsonPath("$.order.shipping").value(nullValue()))
+                .andRespond(dryRunStarted());
+        expectTrace();
+
+        runner.runDryRun(request(order));
+
+        server.verify();
+    }
+
+    /** 운영 폴더 연습 공간과 order 없음은 파일 목록을 읽기 전에 거부한다. */
+    @Test
+    void checksComeBeforeReadingWorkspaceFiles() {
+        when(workspaces.sourceSnapshotIdOf("w_live")).thenReturn(null);
+
+        assertThatThrownBy(() -> runner.runDryRun(new FlowRunner.DryRunRequest("g-01", null, "w_live", Map.of())))
+                .hasMessageContaining("w_live");
+        assertThatThrownBy(() -> runner.runDryRun(request(null)))
+                .hasMessage("시험 주문 g-01 에 order 가 없습니다");
+        verify(workspaces, never()).filesOf(anyString());
+        server.verify();
+    }
+
     // ---- 도우미 ----
 
+    /** snapshot 에서 시작한 연습 공간 w_snap 으로 g-01 을 돌리는 요청을 만든다. skills 는 이 실행기가 쓰지 않아 비워 둔다. */
     private static FlowRunner.DryRunRequest request(Map<String, Object> order) {
         return new FlowRunner.DryRunRequest("g-01", order, "w_snap", Map.of());
     }
 
+    /** 저장소 g-01 의 order 칸이다. */
     private static Map<String, Object> g01Order() {
         return TestFixtures.g01Order();
     }
 
+    /** 그 snapshot 으로 모의 실행 요청이 한 번 오고 시작 응답을 돌려줄 것을 기대한다. */
     private void expectDryRun(String snapshotId) {
         server.expect(requestTo(BASE + "/api/dry-runs"))
                 .andExpect(method(HttpMethod.POST))
@@ -267,6 +337,7 @@ class HarnessFlowRunnerTest {
                 .andRespond(dryRunStarted());
     }
 
+    /** 실행 기록 읽기 요청이 한 번 오고 실측 SHIPPED trace 를 돌려줄 것을 기대한다. */
     private void expectTrace() {
         server.expect(requestTo(BASE + "/api/executions/" + EXECUTION + "/trace"))
                 .andExpect(method(HttpMethod.GET))
@@ -274,17 +345,20 @@ class HarnessFlowRunnerTest {
                         OrderAgentTraceConverterTest.trace("trace-shipped.json")), MediaType.APPLICATION_JSON));
     }
 
+    /** 후보 snapshot 올리기의 성공 응답(snapshot manifest)이다. */
     private static ResponseCreator manifest(String snapshotId) {
         return withSuccess("{\"snapshot_id\":\"" + snapshotId + "\",\"hash\":\"h\",\"created_at\":\"2026-10-21T00:00:00Z\","
                 + "\"metadata\":{\"source\":\"candidate\"},\"files\":[]}", MediaType.APPLICATION_JSON);
     }
 
+    /** SHIPPED 로 끝난 모의 실행 응답이다. execution_id 와 run_id 는 EXECUTION 과 RUN 이다. */
     private static ResponseCreator dryRunStarted() {
         return withSuccess("{\"execution_id\":\"" + EXECUTION + "\",\"run_id\":\"" + RUN
                 + "\",\"order_id\":\"4f966e14-04ac-4ff3-9ccf-df454aca378f\",\"final_status\":\"SHIPPED\",\"completion\":\"COMPLETED\"}",
                 MediaType.APPLICATION_JSON);
     }
 
+    /** 주문 Agent 에 snapshot 이 없다는 404 SNAPSHOT_NOT_FOUND 응답이다. */
     private static ResponseCreator snapshotNotFound() {
         return withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
                 .body("{\"code\":\"SNAPSHOT_NOT_FOUND\",\"message\":\"실행 자료를 확인할 수 없습니다: SNAPSHOT_NOT_FOUND\","

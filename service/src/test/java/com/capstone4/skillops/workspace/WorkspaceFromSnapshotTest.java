@@ -25,7 +25,13 @@ import com.capstone4.skillops.snapshot.OrderAgentException;
 import com.capstone4.skillops.snapshot.SnapshotManifest;
 import com.capstone4.skillops.snapshot.SnapshotManifest.FileEntry;
 
-/** 주문 Agent snapshot 에서 연습 공간을 시작하는 경로. 주문 Agent 는 Mockito 로 대신한다. */
+/**
+ * service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 에서 주문 Agent snapshot 으로 연습 공간을
+ * 시작하는 경로(snapshot_id 를 준 create)와, 그 연습 공간을 읽는 filesOf, sourceSnapshotIdOf 를 보호한다.
+ * skill 과 자원을 가르는 경로 규칙, snapshot 맨 위 칸의 버전 사용, 끝 줄바꿈 보존, skills/ 밖 파일 무시,
+ * 주문 Agent 오류를 바꾸지 않고 올리는지, 실패하면 아무것도 저장하지 않는지를 본다.
+ * 주문 Agent(OrderAgentClient)와 저장소는 Mockito 로 대신한다.
+ */
 class WorkspaceFromSnapshotTest {
 
     static final String SNAPSHOT = "11111111-2222-3333-4444-555555555555";
@@ -34,7 +40,7 @@ class WorkspaceFromSnapshotTest {
     SkillVersionStore store = mock(SkillVersionStore.class);
     OrderAgentClient orderAgent = mock(OrderAgentClient.class);
     WorkspaceService service = new WorkspaceService(repository, store, orderAgent);
-    /** manifest 에 올라간 파일들. serve() 를 부를 때마다 하나씩 늘어난다. */
+    /** manifest 에 올라간 파일 목록이다. serve 나 manifest 를 부를 때마다 하나씩 늘어난다. */
     List<FileEntry> entries = new ArrayList<>();
 
     @BeforeEach
@@ -56,7 +62,7 @@ class WorkspaceFromSnapshotTest {
         assertThat(saved.getSkills()).containsOnlyKeys("order-flow", "payment");
         assertThat(saved.getSkills().get("payment")).isEqualTo(new WorkspaceSkill(1, skillText("payment", 1)));
         assertThat(saved.getResources()).isEmpty();
-        // 운영 폴더는 읽지 않는다
+        // 운영 폴더는 읽지 않는다.
         verifyNoInteractions(store);
     }
 
@@ -191,7 +197,7 @@ class WorkspaceFromSnapshotTest {
 
     @Test
     void filesOfTreatsMissingResourcesAsEmpty() {
-        // 이 칸이 생기기 전에 만든 연습 공간: resources, source_snapshot_id 가 null
+        // 이 칸이 생기기 전에 만든 연습 공간은 resources 와 source_snapshot_id 가 null 이다.
         when(repository.findById("w_old")).thenReturn(Optional.of(WorkspaceRecord.open(
                 "w_old", Instant.parse("2026-10-20T00:00:00Z"), Map.of("payment", new WorkspaceSkill(1, "payment text")),
                 null, null)));
@@ -208,7 +214,7 @@ class WorkspaceFromSnapshotTest {
                 .hasMessage("workspace_id w_x 이 없습니다. create_workspace 로 먼저 만드세요");
     }
 
-    /** 주문 Agent 실행기(harness)는 snapshot 에서 시작한 연습 공간만 돌린다. 그 판단에 쓴다. */
+    /** 주문 Agent 실행기(harness)는 snapshot 에서 시작한 연습 공간만 돌리고, sourceSnapshotIdOf 가 그 판단 근거를 준다. */
     @Test
     void sourceSnapshotIdOfTellsWhereTheWorkspaceStarted() {
         when(repository.findById("w_a")).thenReturn(Optional.of(WorkspaceRecord.open("w_a",
@@ -226,6 +232,42 @@ class WorkspaceFromSnapshotTest {
     }
 
     @Test
+    void snapshotSkillVersionsAreSorted() {
+        serve("skills/payment/SKILL.md", skillText("payment", 1));
+        serve("skills/order-flow/SKILL.md", skillText("order-flow", 2));
+
+        assertThat(service.create(null, SNAPSHOT).skillVersions().keySet()).containsExactly("order-flow", "payment");
+    }
+
+    /** 돌려준 번호와 시각은 저장한 것과 같다. 시각은 마이크로초로 자른다. 번호는 w_ 와 영숫자 8자다. */
+    @Test
+    void snapshotStartReturnsWhatItSaved() {
+        serve("skills/payment/SKILL.md", skillText("payment", 1));
+
+        var created = service.create(null, SNAPSHOT);
+
+        WorkspaceRecord saved = savedRecord();
+        assertThat(created.workspaceId()).isEqualTo(saved.getWorkspaceId()).matches("w_[A-Za-z0-9]{8}");
+        assertThat(created.createdAt()).isEqualTo(saved.getCreatedAt());
+        assertThat(created.createdAt().getNano() % 1000).isZero();
+        assertThat(saved.getStatus()).isEqualTo(WorkspaceRecord.Status.OPEN);
+    }
+
+    /** skills/ 밖의 파일은 읽지도 복사하지도 않는다. */
+    @Test
+    void filesOutsideSkillsAreNotCopied() {
+        manifest("README.md");
+        serve("skills/payment/SKILL.md", skillText("payment", 1));
+
+        service.create(null, SNAPSHOT);
+
+        WorkspaceRecord saved = savedRecord();
+        assertThat(saved.getSkills()).containsOnlyKeys("payment");
+        assertThat(saved.getResources()).isEmpty();
+        verify(orderAgent, never()).readText(SNAPSHOT, "README.md");
+    }
+
+    @Test
     void snapshotStartWithoutOrderAgentConfiguredFails() {
         WorkspaceService withoutClient = new WorkspaceService(repository, store);
 
@@ -235,6 +277,7 @@ class WorkspaceFromSnapshotTest {
 
     // ---- 도우미 ----
 
+    /** 맨 위 칸에 name 과 version 만 있는 최소 SKILL.md 글을 만든다. */
     private static String skillText(String name, int version) {
         return "---\nname: " + name + "\nversion: " + version + "\n---\n# " + name + "\n";
     }
@@ -245,12 +288,17 @@ class WorkspaceFromSnapshotTest {
         when(orderAgent.readText(SNAPSHOT, path)).thenReturn(text);
     }
 
+    /**
+     * manifest 에 path 를 더하고, getSnapshot 이 지금까지 더한 파일 목록을 돌려주게 한다. readText 는 정하지 않으므로
+     * 이 경로만으로 더한 파일을 읽으면 Mockito 기본값 null 이 온다.
+     */
     private void manifest(String path) {
         entries.add(new FileEntry(path, "hash-" + entries.size(), 10));
         when(orderAgent.getSnapshot(SNAPSHOT)).thenReturn(new SnapshotManifest(
                 SNAPSHOT, "snapshot-hash", "2026-10-21T00:00:00Z", Map.of(), List.copyOf(entries)));
     }
 
+    /** repository.save 에 넘어간 WorkspaceRecord 를 꺼낸다. save 가 정확히 한 번 불렸는지도 함께 확인한다. */
     private WorkspaceRecord savedRecord() {
         ArgumentCaptor<WorkspaceRecord> captor = ArgumentCaptor.forClass(WorkspaceRecord.class);
         verify(repository).save(captor.capture());
