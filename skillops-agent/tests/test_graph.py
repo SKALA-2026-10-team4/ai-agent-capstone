@@ -211,6 +211,34 @@ async def test_broken_contract_cannot_be_valid(tools, monkeypatch, field, violat
 
 
 @pytest.mark.asyncio
+async def test_metadata_error_cannot_be_recommended(tools, monkeypatch):
+    """필수 정보 오류가 있으면 실행이 통과해도 제안서에 무효와 오류 근거를 남긴다."""
+    original = tools.apply_patch
+    error = {
+        "skill": "payment",
+        "field": "owner",
+        "code": "INVALID_SKILL_FORMAT",
+        "message": "owner는 비어 있지 않은 문자열이어야 합니다",
+    }
+
+    async def missing_owner(*args):
+        """실행이 통과하는 stub 응답에 owner 누락 결과를 추가한다."""
+        response = await original(*args)
+        response["metadata_errors"] = [error]
+        return response
+
+    monkeypatch.setattr(tools, "apply_patch", missing_owner)
+    result = await run(initial())
+
+    assert result["error"] is None
+    assert not any(c["valid"] for c in result["candidates"])
+    assert all(c["results"]["no_broken_links"] for c in result["candidates"])
+    assert all(c["results"]["metadata_valid"] is False for c in result["candidates"])
+    assert all(c["metadata_errors"] == [error] for c in result["proposal"]["candidates"])
+    assert result["proposal"]["status"] == "no_valid_fix"
+
+
+@pytest.mark.asyncio
 async def test_normal_saved_change_ends_without_llm(tools, monkeypatch):
     original = tools.create_workspace
 

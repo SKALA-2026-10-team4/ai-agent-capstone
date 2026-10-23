@@ -23,7 +23,28 @@ service의 `SkillHeader`와 snapshot 분석용 `Frontmatter`는 `skill/SkillFron
 
 snapshot diff의 빈 맵 반환, 깨진 YAML의 hunk 보존, hunk ID·위치 계산 규칙은 유지한다. `closingLine`은 원문 줄 위치 계산이므로 빈 frontmatter에서도 닫는 구분선 위치를 반환할 수 있다.
 
-1단계는 owner/description/depends_on 검증과 주문 Agent와의 라이브러리 연결을 완료하지 않았다. 이후 2단계에서 기존 graph의 선행 단계 검증 결과를 patch와 Python에 전달했다. owner/description 등 전체 실행 계약과 파서의 서버 간 통합은 후속 범위다. [1단계 변경 내역](../changes/2026-10-23-skill-parser-phase1.md).
+1단계는 owner/description/depends_on 검증과 주문 Agent와의 라이브러리 연결을 완료하지 않았다. 이후 2단계에서 기존 graph의 선행 단계 검증 결과를 patch와 Python에 전달했고, 3단계에서 아래 필수 정보 검사를 추가했다. 서버 간 라이브러리 통합과 전체 실행 계약의 통일은 아직 완료하지 않았다. [1단계 변경 내역](../changes/2026-10-23-skill-parser-phase1.md).
+
+## 필수 정보 검사 (#72 · 3단계)
+
+service의 `SkillMetadataValidator`는 실제 주문 Agent `SkillLoader.load`의 필수 정보 기준을 따른다. `SkillFrontmatter.readForExecution`으로 실행용 문서 경계를 읽으며 diff용의 느슨한 경계 규칙은 유지한다. 각 서버가 하나의 라이브러리를 쓰는 구조는 아니며, [공통 문서 fixture](examples/skill-metadata-cases.json)를 두 서버의 테스트에서 실제로 읽어 기준이 어긋나는 것을 방지한다.
+
+| 항목 | 실행용 필수 정보 기준 |
+|---|---|
+| 폴더 이름 | 64자 이하, `[a-z][a-z0-9]*(?:-[a-z0-9]+)*`. 위반하면 `INVALID_SKILL_NAME`. |
+| `name` | 폴더 이름과 같은 문자열. 누락·다른 값·잘못된 타입은 오류. |
+| `version` | 1 이상의 Java Integer. 누락·null·문자열·실수·Integer 범위 초과는 오류. workspace revision과의 일치 검사는 이번 범위에 포함하지 않는다. |
+| `owner`, `description` | 공백뿐이지 않은 문자열. 누락·null·목록·숫자·불리언은 오류. |
+| 본문 | 닫는 구분선 이후 `strip()` 후 비어 있지 않은 텍스트. 업무 내용의 타당성은 검사하지 않는다. |
+| 경계 | 첫 `---`와 닫는 `---` 뒤 줄바꿈이 필요. CRLF를 LF로 해석한다. diff에서 지원하는 닫는 구분선 EOF를 실행용으로는 허용하지 않는다. 원문은 변경하지 않는다. |
+| YAML | SafeConstructor, 중복 키 금지, 컬렉션 별칭 0개, 100,000 코드 포인트 제한. YAML 해석 실패는 `frontmatter` 오류 하나로 반환. |
+| 오류 | `{skill, field, code, message}`. 폴더 이름 이외의 오류 코드는 `INVALID_SKILL_FORMAT`. 읽을 수 있는 문서는 여러 필드 오류를 모은다. |
+
+`WorkspaceService.apply`는 변경한 문서뿐 아니라 workspace의 모든 Skill을 이름순으로 검사해 `metadata_errors`에 담는다. 실행기가 flow 밖의 문서도 후보 조회에서 읽기 때문이다. 필드 오류 순서는 name, version, owner, description, body다.
+
+**저장과 합격은 별개다.** 기존의 원문 불일치·기준 버전 불일치·변경한 단계 parse error·entry 분석 실패 거부 정책은 유지한다. 이를 통과한 patch는 필수 정보 오류가 있어도 실험용으로 저장한다. Python은 `metadata_valid=false`로 판정하고 오류 상세를 후보에 남겨 추천에서 제외한다. `no_broken_links`는 입력·선행 단계 연결 의미를 유지한다.
+
+검사 범위는 위 필수 정보와 문서 형식이다. 선택 목록의 null 처리, 모든 flow 구조, 단계 수·중첩 flow·실행 의미를 완전히 통일한 것은 아니다. 실제 주문 Agent의 운영 로더는 수정하지 않았다. [MCP v1.2 명세](mcp-tools-input-output.md#8-수정-적용하기--apply_patch).
 
 ## 단계 skill
 
@@ -62,7 +83,7 @@ version: 1
 - 키는 `<네임스페이스>.<필드>`. 네임스페이스는 skill 이 `outputs` 에 선언한 접두어다.
   `order.*` 는 입력 주문에서 오고, 그 외는 모두 앞선 skill 의 출력이다.
 - **계약 일관성 검사**(W1, 기준 4): `steps` 순서대로 각 skill 의 `inputs` ⊆ `order.*` ∪ (앞선 skill 들의 `outputs`).
-- 로더는 frontmatter 만 파싱한다. 본문은 검사하지 않고 system prompt 에 그대로 주입한다.
+- 로더는 frontmatter를 파싱하고 빈 본문을 거부한다. 본문 업무 내용은 해석하지 않고 모델에 전달한다.
   그래서 "본문은 바꿨는데 frontmatter 는 그대로"가 장애 유형 F1 이 된다.
 
 ## 위치

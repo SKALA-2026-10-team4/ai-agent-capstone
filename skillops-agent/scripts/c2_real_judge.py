@@ -75,7 +75,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from skillops_agent.config import MCP_URL, ORDER_AGENT_URL  # noqa: E402
-from skillops_agent.contracts import execution_uuid, patch_contract_ok  # noqa: E402
+from skillops_agent.contracts import execution_uuid, patch_contract_ok, patch_metadata_ok  # noqa: E402
 from skillops_agent.mcp_client import first_text, mcp_client  # noqa: E402
 
 # 실험 값은 여기에 모여 있다.
@@ -130,7 +130,7 @@ class Candidate:
 class Verdict:
     """후보 하나의 판정 결과다. judge 가 채우고 table 과 evidence 가 읽는다.
 
-    error가 있으면 판정하지 못한 것이다. 두 연결 오류 목록은 apply_patch 결과이며
+    error가 있으면 판정하지 못한 것이다. 연결·필수 정보 오류 목록은 apply_patch 결과이며
     all_passed는 run_scenarios 결과다.
     """
 
@@ -138,6 +138,7 @@ class Verdict:
     error: str | None = None
     broken_links: list[dict] = field(default_factory=list)
     dependency_violations: list[dict] = field(default_factory=list)
+    metadata_errors: list[dict] = field(default_factory=list)
     all_passed: bool = False
     # scenario_id 별 run_scenarios 결과 항목이다.
     results: dict[str, dict] = field(default_factory=dict)
@@ -384,11 +385,17 @@ def is_valid(v: Verdict, replay_id: str) -> bool:
     """후보가 유효한지 본다.
 
     시험 주문 네 개(g-01~g-03 과 재현 주문)가 모두 결과에 있고 의도 확인까지 합격이며,
-    run_scenarios 의 all_passed 가 참이고 끊긴 연결이 없어야 유효하다.
+    run_scenarios의 all_passed가 참이고 연결·필수 정보 오류가 없어야 유효하다.
     """
     needed = [*GOLDEN_IDS, replay_id]
     full_set = all(sid in v.results and v.results[sid]["passed"] for sid in needed)
-    return bool(v.all_passed and full_set and not v.broken_links and not v.dependency_violations)
+    return bool(
+        v.all_passed
+        and full_set
+        and not v.broken_links
+        and not v.dependency_violations
+        and not v.metadata_errors
+    )
 
 
 def mark(ok: bool) -> str:
@@ -399,16 +406,28 @@ def mark(ok: bool) -> str:
 def table(verdicts: list[Verdict], replay_id: str) -> str:
     """후보별 판정을 Markdown 표 글로 만든다.
 
-    칸은 후보, 끊긴 연결 수, 기준 주문 세 개와 재현 주문의 의도 제외 합격 여부, 의도 확인, 유효
+    칸은 후보, 연결 오류 수, 필수 정보 오류 수, 기준 주문·재현 주문 합격 여부, 의도 확인, 유효
     여부다. 판정하지 못한 후보는 나머지 칸을 '-' 로 채우고 '판정 못 함' 과 이유를 찍는다.
     """
-    head = ["후보", "끊긴 연결", *GOLDEN_IDS, "실제 실패 주문 재현", "의도 확인", "유효"]
+    head = [
+        "후보",
+        "끊긴 연결",
+        "필수 정보 오류",
+        *GOLDEN_IDS,
+        "실제 실패 주문 재현",
+        "의도 확인",
+        "유효",
+    ]
     rows = [head, ["---"] * len(head)]
     for v in verdicts:
         if v.error:
-            rows.append([v.label, "-", "-", "-", "-", "-", "-", f"판정 못 함 ({v.error})"])
+            rows.append([v.label, "-", "-", "-", "-", "-", "-", "-", f"판정 못 함 ({v.error})"])
             continue
-        cells = [v.label, str(len(v.broken_links) + len(v.dependency_violations))]
+        cells = [
+            v.label,
+            str(len(v.broken_links) + len(v.dependency_violations)),
+            str(len(v.metadata_errors)),
+        ]
         for sid in [*GOLDEN_IDS, replay_id]:
             r = v.results.get(sid)
             cells.append(mark(base_passed(r)) if r else "-")
@@ -493,12 +512,15 @@ async def judge(client, candidate: Candidate, broken: str, replay_id: str) -> Ve
             client, "apply_patch", {"workspace_id": ws["workspace_id"], "patches": patches}
         )
         patch_contract_ok(applied)
+        patch_metadata_ok(applied)
         verdict.broken_links = applied["broken_links"]
         verdict.dependency_violations = applied["dependency_violations"]
+        verdict.metadata_errors = applied["metadata_errors"]
         print(
             f"  {candidate.label}: apply_patch changed_skills={applied['changed_skills']} "
             f"broken_links={applied['broken_links']} "
-            f"dependency_violations={applied['dependency_violations']}"
+            f"dependency_violations={applied['dependency_violations']} "
+            f"metadata_errors={applied['metadata_errors']}"
         )
         report = await call(
             client,
@@ -532,6 +554,7 @@ async def evidence(agent: OrderAgent, verdicts: list[Verdict], replay_id: str) -
         print(
             f"  끊긴 연결: {json.dumps(v.broken_links, ensure_ascii=False)}  "
             f"선행 단계 위반: {json.dumps(v.dependency_violations, ensure_ascii=False)}  "
+            f"필수 정보 오류: {json.dumps(v.metadata_errors, ensure_ascii=False)}  "
             f"run_scenarios.all_passed={v.all_passed}"
         )
         for sid in [*GOLDEN_IDS, replay_id]:

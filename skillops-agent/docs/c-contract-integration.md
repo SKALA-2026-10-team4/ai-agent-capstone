@@ -1,6 +1,6 @@
 # B의 현재 C 계약 적용 (#60)
 
-> **2026-10-23 · #72 apply_patch v1.1:** 기존 `broken_links`와 필수 `dependency_violations:[{skill,missing_dependency}]`가 모두 비어야 후보의 `no_broken_links`가 참이다. 새 필드 누락·null·잘못된 타입은 ContractError로 중단한다. service와 Python을 함께 배포해야 하며 stub과 `c2_real_judge.py`도 같은 계약을 사용한다. [최신 명세](../../docs/contracts/mcp-tools-input-output.md#8-수정-적용하기--apply_patch)
+> **2026-10-23 · #72 apply_patch v1.2:** `broken_links`와 `dependency_violations`는 `no_broken_links`, 필수 `metadata_errors:[{skill,field,code,message}]`는 `metadata_valid`로 판정한다. 두 검사가 모두 참이어야 후보가 합격한다. 검사 목록의 누락·null·잘못된 타입은 ContractError다. 필수 정보 오류는 patch 저장 실패와 구분해 후보에 보존한다. service와 Python을 함께 배포해야 하며 stub과 `c2_real_judge.py`도 같은 계약을 사용한다. [최신 명세](../../docs/contracts/mcp-tools-input-output.md#8-수정-적용하기--apply_patch)
 
 > 후속 구현: 저장 이벤트 자동 전달·중복 방지·진행 조회·화면 연결은 `docs/skill-save-auto-diagnosis.md`에 정리했다. 아래의 자동 연동 미구현·메모리 상태 관련 설명은 해당 후속 구현으로 대체된다.
 

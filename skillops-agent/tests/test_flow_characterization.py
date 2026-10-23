@@ -423,12 +423,14 @@ async def test_happy_path_candidate_intent_and_proposal_shape(stub, llm):
         "rank",
         "explanation",
         "validation_error",
+        "metadata_errors",
     ]
     assert list(candidate["results"].items()) == [
         ("fixes_failure", True),
         ("keeps_old_orders", {"passed": 3, "total": 3}),
         ("keeps_intent", True),
         ("no_broken_links", True),
+        ("metadata_valid", True),
         ("changed_skill_count", 1),
         ("tools_called", ["inventory.reserve", "inventory.reserve"]),
     ]

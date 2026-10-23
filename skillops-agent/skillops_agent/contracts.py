@@ -261,6 +261,26 @@ def patch_contract_ok(applied: dict) -> bool:
     return not applied["broken_links"] and not applied["dependency_violations"]
 
 
+def patch_metadata_ok(applied: dict) -> bool:
+    """필수 정보 오류 목록을 검증하며 누락된 서버 검사 결과는 계약 오류로 처리한다."""
+    errors = applied.get("metadata_errors")
+    if not isinstance(errors, list):
+        raise ContractError("invalid apply_patch response")
+    for item in errors:
+        if (
+            not isinstance(item, dict)
+            or any(
+                not isinstance(item.get(key), str) or not item[key].strip()
+                for key in ("skill", "field", "code", "message")
+            )
+            or item["code"] not in ("INVALID_SKILL_NAME", "INVALID_SKILL_FORMAT")
+            or item["field"]
+            not in ("name", "version", "owner", "description", "body", "frontmatter")
+        ):
+            raise ContractError("invalid apply_patch response")
+    return not errors
+
+
 def check_diff_evidence(diff: dict, before: dict, after: dict) -> list[dict]:
     """diff_skill 응답이 before·after 두 파일을 비교했고 hunk 가 온전한지 보고 hunk 를 준다.
 

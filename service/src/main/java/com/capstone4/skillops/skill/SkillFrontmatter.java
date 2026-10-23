@@ -13,6 +13,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 /** workspace와 snapshot 분석이 공유하는 frontmatter 경계·안전한 YAML 해석 기능이다. */
 public final class SkillFrontmatter {
 
+    /** 실행기와 같은 경계로 읽은 메타데이터와 본문이다. 원문은 바꾸지 않는다. */
+    public record ExecutionDocument(Map<String, Object> fields, String body) {
+    }
+
     // 기존 snapshot diff의 구분선·LF/CRLF·EOF 규칙을 보존한다.
     private static final Pattern BLOCK = Pattern.compile("\\A---\\R(.*?)\\R---(\\R|\\z)", Pattern.DOTALL);
 
@@ -39,6 +43,18 @@ public final class SkillFrontmatter {
         return fields;
     }
 
+    /** 주문 실행기처럼 LF/CRLF 경계와 YAML 100,000 코드 포인트 제한을 적용한다. */
+    public static ExecutionDocument readForExecution(String text) {
+        String normalized = text == null ? "" : text.replace("\r\n", "\n");
+        int end = normalized.indexOf("\n---\n", 4);
+        if (!normalized.startsWith("---\n") || end < 0) {
+            throw new IllegalArgumentException("실행용 SKILL.md의 frontmatter 구분선이 없습니다");
+        }
+        LoaderOptions options = safeOptions();
+        options.setCodePointLimit(100_000);
+        return new ExecutionDocument(fieldsOf(normalized.substring(4, end), options), normalized.substring(end + 5));
+    }
+
     /** 원문에서 기존 계약에 맞는 첫 frontmatter 블록을 추출한다. */
     private static String yamlBlock(String text) {
         if (text == null) {
@@ -50,9 +66,19 @@ public final class SkillFrontmatter {
 
     /** 호출별 안전한 YAML 파서로 값을 읽고 원래 필드 순서와 null을 보존한다. */
     private static Map<String, Object> fieldsOf(String yaml) {
+        return fieldsOf(yaml, safeOptions());
+    }
+
+    /** 중복 키와 컬렉션 별칭을 거부하는 호출별 YAML 옵션을 만든다. */
+    private static LoaderOptions safeOptions() {
         LoaderOptions options = new LoaderOptions();
         options.setAllowDuplicateKeys(false);
         options.setMaxAliasesForCollections(0);
+        return options;
+    }
+
+    /** 지정된 안전 옵션으로 YAML 객체를 읽으며 기존 diff의 빈 맵 처리도 유지한다. */
+    private static Map<String, Object> fieldsOf(String yaml, LoaderOptions options) {
         Object loaded = new Yaml(new SafeConstructor(options)).load(yaml);
         if (!(loaded instanceof Map<?, ?> map)) {
             return Map.of();

@@ -15,6 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.capstone4.skillops.common.RandomIds;
+import com.capstone4.skillops.skill.SkillMetadataValidator;
+import com.capstone4.skillops.skill.SkillMetadataValidator.Violation;
 import com.capstone4.skillops.snapshot.DependencyAnalyzer;
 import com.capstone4.skillops.snapshot.DependencyGraph;
 import com.capstone4.skillops.snapshot.OrderAgentClient;
@@ -103,10 +105,10 @@ public class WorkspaceService {
     public record DependencyViolation(String skill, String missingDependency) {
     }
 
-    /** patch 적용 결과에 입력 누락과 선행 단계 누락을 구분해 담는다. */
+    /** patch 적용 결과에 연결 오류와 전체 workspace의 필수 정보 오류를 구분해 담는다. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record PatchResult(String workspaceId, List<ChangedSkill> changedSkills, List<BrokenLink> brokenLinks,
-            List<DependencyViolation> dependencyViolations) {
+            List<DependencyViolation> dependencyViolations, List<Violation> metadataErrors) {
     }
 
     /** workspaces 표의 JPA 저장소다. 이 서비스는 findById 와 save 만 쓴다. */
@@ -311,8 +313,8 @@ public class WorkspaceService {
      * apply_patch 의 본체다. 연습 공간의 skill 에 수정(unified diff)을 차례로 적용하고, 고친 뒤에 끊긴 연결이 남았는지
      * 검사한다. service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 의 applyPatch 가 부른다.
      * 전부 적용하거나 하나도 적용하지 않는다. 하나라도 실패하면 IllegalArgumentException 을 던지고 아무것도 저장하지 않는다.
-     * 입력·선행 단계 연결이 끊겨도 수정은 저장하고 두 오류 목록을 돌려준다.
-     * Agent의 _judge는 broken_links와 dependency_violations가 모두 비어 있어야 연결 검사를 통과시킨다.
+     * 입력·선행 단계 연결 또는 필수 정보 오류가 있어도 기존 거부 조건에 걸리지 않으면 저장하고 오류 목록을 돌려준다.
+     * Agent의 _judge는 두 연결 목록과 별도로 metadata_errors를 metadata_valid 판정에 사용한다.
      * 같은 skill 을 여러 번 고치면 앞의 수정이 들어간 글 위에 다음 수정을 적용한다.
      *
      * 단계는 입력 검사, 연습 공간 조회와 OPEN 확인, 복사본에 수정 적용(applyOne), 연결 분석(analyze), 맨 위 칸을 깨는 수정
@@ -338,11 +340,19 @@ public class WorkspaceService {
         }
         DependencyGraph graph = analyze(skills);
         rejectUnreadableHeaders(graph, changed);
+        List<Violation> metadataErrors = metadataErrorsOf(skills);
 
         record.replaceSkills(skills);
         repository.save(record);
         return new PatchResult(workspaceId, changedSkillsOf(skills, changed), brokenLinksOf(graph),
-                dependencyViolationsOf(graph));
+                dependencyViolationsOf(graph), metadataErrors);
+    }
+
+    /** 실행기 후보 조회처럼 flow 밖의 Skill까지 필수 정보를 검사하고 이름순으로 오류를 모은다. */
+    private static List<Violation> metadataErrorsOf(Map<String, WorkspaceSkill> skills) {
+        return skills.entrySet().stream()
+                .flatMap(entry -> SkillMetadataValidator.validate(entry.getKey(), entry.getValue().fullText()).stream())
+                .toList();
     }
 
     /**

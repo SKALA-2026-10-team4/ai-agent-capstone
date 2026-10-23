@@ -1,0 +1,19 @@
+{
+  "workspace_id": "w_abc",
+  "changed_skills": [
+    {
+      "skill": "payment",
+      "version": 2
+    }
+  ],
+  "broken_links": [],
+  "dependency_violations": [],
+  "metadata_errors": [
+    {
+      "skill": "payment",
+      "field": "owner",
+      "code": "INVALID_SKILL_FORMAT",
+      "message": "owner는 비어 있지 않은 문자열이어야 합니다"
+    }
+  ]
+}

@@ -54,6 +54,7 @@ class ApplyPatchTest {
         assertThat(result.changedSkills()).containsExactly(new ChangedSkill("inventory-check", 2));
         assertThat(result.brokenLinks()).isEmpty();
         assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).isEmpty();
         WorkspaceSkill saved = savedRecord().getSkills().get("inventory-check");
         assertThat(saved).isEqualTo(new WorkspaceSkill(1, F1Texts.repaired(), 1));
     }
@@ -253,6 +254,46 @@ class ApplyPatchTest {
         WorkspaceRecord saved = savedRecord();
         assertThat(saved.getSkills().get("inventory-check").fullText()).isEqualTo(F1Texts.repaired());
         assertThat(saved.getSkills().get("notify").fullText()).contains("name: notice");
+        assertThat(result.metadataErrors()).anySatisfy(error -> {
+            assertThat(error.skill()).isEqualTo("notify");
+            assertThat(error.field()).isEqualTo("name");
+        });
+    }
+
+    /** owner를 없애도 실험용 patch는 저장하고 필수 정보 오류를 별도로 알린다. */
+    @Test
+    void savesPatchWithMissingOwnerAndReportsMetadataError() {
+        String patch = "@@ -7,1 +7,0 @@\n-owner: 재무팀\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("payment", 1, patch),
+                new PatchInput("inventory-check", 1, F1Texts.repairOutputsPatch())));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("payment");
+            assertThat(error.field()).isEqualTo("owner");
+            assertThat(error.code()).isEqualTo("INVALID_SKILL_FORMAT");
+        });
+        assertThat(savedRecord().getSkills().get("payment").fullText()).doesNotContain("owner:");
+    }
+
+    /** 실행 flow 밖의 수정하지 않은 문서도 실제 실행기 후보 조회를 고려해 검사한다. */
+    @Test
+    void includesMetadataErrorsOutsideEntryFlow() {
+        Map<String, WorkspaceSkill> skills = new TreeMap<>(record.getSkills());
+        skills.put("unused", new WorkspaceSkill(1, "---\nname: unused\nversion: 1\n"
+                + "description: unused\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"));
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), skills);
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("inventory-check", 1, F1Texts.repairOutputsPatch())));
+
+        assertThat(result.metadataErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("unused");
+            assertThat(error.field()).isEqualTo("owner");
+        });
+        verify(repository).save(any());
     }
 
     /** 입력 공급이 정상이어도 늦게 오는 선행 단계는 별도 오류로 반환하고 patch는 저장한다. */

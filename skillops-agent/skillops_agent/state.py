@@ -13,7 +13,7 @@ skillops-agent/tests/test_pipeline_defaults.py 와 skillops-agent/tests/test_flo
 가 그 순서를 고정한다. TypedDict 는 타입 표시일 뿐이라 런타임에 키나 값을 검사하지 않는다.
 """
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class Hypothesis(TypedDict):
@@ -125,6 +125,8 @@ class CandidateResults(TypedDict):
     keeps_intent: bool
     # apply_patch의 broken_links와 dependency_violations가 모두 비었는지다.
     no_broken_links: bool
+    # apply_patch의 필수 정보 오류 목록이 비었는지다. 연결 오류와 별개로 판정한다.
+    metadata_valid: bool
     # 후보가 고친 skill 수다. v1 계약에서 footprint 가 changed_skill_count 로 바뀌었다.
     changed_skill_count: int
     # 재현 실행 기록의 TOOL_REQUEST 이벤트에서 뽑은 도구 이름이다(PB-007). 재현 실행마다 모은
@@ -143,6 +145,8 @@ class Candidate(TypedDict):
 
     # patch 형식 오류나 apply_patch 의 INVALID_INPUT 거절 이유다. 값이 있으면 후보는 무효다.
     validation_error: str | None
+    # 저장된 patch에서 발견한 필수 정보 오류다. 적용 실패 사유와 구분해 보존한다.
+    metadata_errors: NotRequired[list[dict]]
     # 1부터 매기는 후보 번호다. v1 계약에서 문자열 id 가 정수 candidate_no 로 바뀌었다.
     candidate_no: int
     # v1 계약에서 local, contract, flow 가 차례로 same_skill, linked_skills, run_order 로 바뀌었다.
@@ -153,7 +157,7 @@ class Candidate(TypedDict):
     patches: list[Patch]
     # verify_candidates 노드가 채운다. 형식 오류나 apply_patch 거절로 시험하지 못하면 None 이다.
     results: CandidateResults | None
-    # fixes_failure, keeps_old_orders 전부 통과, keeps_intent, no_broken_links 가 모두 참일 때만
+    # 재현·회귀·의도·연결·필수 정보 검사가 모두 통과한 경우에만
     # True 다. 형식 오류나 적용 거절 후보는 False 이고, 검증 전에는 None 이다.
     valid: bool | None
     # 검증 실행 ID 전체다. v1 계약에서 evidence 가 evidence_run_ids 로 바뀌었다. 적용된 후보인데
