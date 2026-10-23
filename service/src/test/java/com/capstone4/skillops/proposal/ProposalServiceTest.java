@@ -24,19 +24,28 @@ import org.mockito.ArgumentCaptor;
 import com.capstone4.skillops.proposal.ProposalService.SavedProposal;
 import com.capstone4.skillops.scenario.TestFixtures.InMemoryRunLedger;
 
+/**
+ * service/src/main/java/com/capstone4/skillops/proposal/ProposalService.java 의 저장(save)과 결정 표시(markDecided)의 기본 규칙을
+ * 보호하는 단위 테스트다. 저장 쪽은 결과의 계약 모양, 같은 진단 재저장, 근거 실행과 원인 근거 실행의 대조, valid, status,
+ * 추천 후보, 후보 번호 검사, 적용에 실패한 후보의 근거 면제를 확인한다. 결정 표시 쪽은 승인할 때만 intent.confirmed 를 채우는지 보고,
+ * 두 번째 결정, 수정안 없는 제안서의 승인, 합격하지 않은 후보 번호, 없는 제안서를 거부하는지 본다.
+ * 거부 메시지 전체와 규칙의 우선순위는 service/src/test/java/com/capstone4/skillops/proposal/ProposalCharacterizationTest.java 가
+ * 따로 고정한다.
+ */
 class ProposalServiceTest {
 
     ProposalRepository repository = mock(ProposalRepository.class);
     InMemoryRunLedger ledger = new InMemoryRunLedger();
     ProposalService service = new ProposalService(repository, ledger,
             Clock.fixed(Instant.parse("2026-10-21T05:10:00Z"), ZoneOffset.UTC));
-    /** 테스트마다 새로 읽는 F1 제안서. 값을 바꿔 가며 거부 규칙을 시험한다 */
+    /** 테스트마다 새로 읽는 F1 제안서다. 테스트가 값을 바꿔 가며 거부 규칙을 시험한다. */
     Map<String, Object> f1Copy = f1();
 
     @BeforeEach
     void setUp() {
         given(repository.save(any(Proposal.class))).willAnswer(call -> call.getArgument(0));
         given(repository.findByThreadId(anyString())).willReturn(Optional.empty());
+        // F1 픽스처가 근거로 적은 원인 실행과 후보 실행을 장부에 미리 남긴다.
         ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000001", false);
         ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000002", true);
         ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", true);
@@ -45,20 +54,24 @@ class ProposalServiceTest {
         ledger.record("w_c2", "g-02", "r_c2000000000000000000000000000002", false);
     }
 
+    /** F1 픽스처(service/src/test/resources/proposal/f1-proposed.json)를 새로 읽는다. */
     static Map<String, Object> f1() {
         return ProposalDocumentWriterTest.fixture("f1-proposed.json");
     }
 
+    /** 제안서의 index 번째 후보를 꺼낸다. index 는 0부터 센다. */
     @SuppressWarnings("unchecked")
     static Map<String, Object> candidate(Map<String, Object> proposal, int index) {
         return ((List<Map<String, Object>>) proposal.get("candidates")).get(index);
     }
 
+    /** index 번째 후보의 results 를 꺼낸다. */
     @SuppressWarnings("unchecked")
     static Map<String, Object> results(Map<String, Object> proposal, int index) {
         return (Map<String, Object>) candidate(proposal, index).get("results");
     }
 
+    /** 저장소의 save 에 넘어간 제안서를 꺼낸다. */
     Proposal captured() {
         ArgumentCaptor<Proposal> saved = ArgumentCaptor.forClass(Proposal.class);
         then(repository).should().save(saved.capture());
@@ -186,6 +199,10 @@ class ProposalServiceTest {
 
     // ── 결정 표시(markDecided) ─────────────────────────────────────────────
 
+    /**
+     * 주어진 상태로 저장된 제안서 p_1 을 저장소 mock 이 돌려주게 한다.
+     * no_valid_fix 면 합격 후보가 없고, 그 밖의 상태면 1번이 합격 후보다.
+     */
     Proposal stored(String status) {
         Proposal proposal = Proposal.create("p_1", "5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b", status, f1Copy, Map.of(),
                 "no_valid_fix".equals(status) ? List.of() : List.of(1), Instant.parse("2026-10-21T05:00:00Z"));
@@ -193,6 +210,7 @@ class ProposalServiceTest {
         return proposal;
     }
 
+    /** 던진 예외가 ProposalException 이고 코드와 HTTP 상태가 기대와 같은지 본다. */
     static void assertProblem(Throwable thrown, String code, int httpStatus) {
         assertThat(thrown).isInstanceOf(ProposalException.class);
         ProposalException e = (ProposalException) thrown;

@@ -1,18 +1,41 @@
 <script setup>
+// 주문 실행과 실행 기록 화면이다. frontend/src/router/index.js 가 /orders 경로에 연결한다.
+// order-agent 의 실제 Harness 가 고른 snapshot 의 Skill 로 주문을 처리하고 trace 를 남긴다.
+// 주문은 frontend/src/api/orderAgent.js 의 createOrder(POST /api/orders)로 보내고
+// order-agent/backend/src/main/java/com/capstone4/orderagent/controller/OrderController.java 의
+// create() 가 받는다. createOrder 는 주문마다 새 Idempotency-Key 를 만들고,
+// 응답을 받지 못하면 같은 키로 결과를 다시 조회한다(간격과 마감은 frontend/src/config.js 의
+// ORDER_RECOVERY). 위쪽 frontend/src/components/SnapshotPicker.vue 에서 고른 세트로 실행하거나,
+// snapshot_id 없이 보내 order-agent 가 현재 게시본을 새 snapshot 으로 고정해 실행하게 할 수 있다.
+// 그 고정은 OrderHarness 가 SnapshotService 의 capture() 로 한다. 두 클래스는
+// order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java 와
+// order-agent/backend/src/main/java/com/capstone4/orderagent/workspace/SnapshotService.java 다.
+// 상품 선택지는 orderAgent.js 의 listProducts(GET /api/products)로 읽고,
+// order-agent/backend/src/main/java/com/capstone4/orderagent/controller/ProductController.java 의
+// list() 가 돌려준다.
+// 실행 기록은 두 탭으로 보여 준다. '최근' 탭은 GET /api/executions 가 주는 최근 20건으로,
+// frontend/src/stores/workspace.js 의 executions 에 들어 있다. '실행 실패만' 탭은 orderAgent.js 의
+// listFailedExecutions 로 읽는 GET /api/executions/failed 목록이고,
+// order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
+// failed() 가 돌려준다. 줄을 누르면 frontend/src/views/ExecutionView.vue 의 실행 상세 화면으로
+// 간다.
+// 프리셋은 order-agent/docs/team-scenarios.md 의 시나리오 1과 2이며, 기본 폼(form)과 함께
+// 이 파일 위쪽의 PRESETS 에서 고친다.
 import { computed, onMounted, reactive, ref } from 'vue'
 import { createOrder, listFailedExecutions, listProducts } from '@/api/orderAgent'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { won } from '@/utils/format'
 import { executionLabel } from '@/utils/traceRun'
 import { PlayCircle } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import SnapshotPicker from '@/components/SnapshotPicker.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 
-// 주문 실행. order-agent 의 실제 Harness 가 고른 snapshot 의 Skill 로 주문을 처리하고 trace 를 남긴다.
-// 프리셋은 order-agent/docs/team-scenarios.md 의 시나리오 1·2.
 const ws = useWorkspaceStore()
 
+// 상품 선택지다. ProductController 의 list() 가 주는 이름, 단가, 재고를 보여 준다.
 const products = ref([])
+// 주문 폼의 기본값이다(시나리오 1의 정상 주문).
 const form = reactive({
   customer: 'c_1001',
   sku: 'CAMP-LANTERN-LED',
@@ -21,11 +44,17 @@ const form = reactive({
   country: 'KR',
   express: false,
 })
+// true 면 위에서 고른 snapshot 으로 실행하고,
+// false 면 snapshot_id 없이 보내 현재 게시본을 새로 고정해 실행한다.
 const usePinned = ref(true)
+// 마지막 주문 응답이다. 모양은
+// order-agent/backend/src/main/java/com/capstone4/orderagent/dto/order/OrderResponse.java 와 같다.
 const result = ref(null)
 const busy = ref(false)
 const error = ref(null)
 
+// 시연용 입력 예시다. 정상 주문, 재고가 0인 상품, 결제가 거절되는 고객, 같은 고객의 선입금 주문이며
+// 모두 order-agent/docs/team-scenarios.md 의 시나리오 1과 2에서 왔다.
 const PRESETS = [
   { label: '정상 주문', customer: 'c_1001', sku: 'CAMP-LANTERN-LED', payment_method: 'card' },
   { label: '재고 부족', customer: 'c_1001', sku: 'CAMP-MUG-STEEL', payment_method: 'card' },
@@ -33,15 +62,22 @@ const PRESETS = [
   { label: '거절 고객 · 선입금', customer: 'c_declined', sku: 'CAMP-LANTERN-LED', payment_method: 'prepaid' },
 ]
 
+// 고른 상품이다. 수량이 재고보다 많으면 정상적인 REJECTED 가 나온다는 안내에 쓴다.
 const product = computed(() => products.value.find((p) => p.sku === form.sku))
+// 주문에 실을 snapshot_id 다. null 이면 order-agent 가 현재 게시본을 새로 고정한다.
 const snapshotForOrder = computed(() => (usePinned.value ? ws.snapshotId : null))
-const won = (n) => `${n.toLocaleString()}원`
 
-// 최근 실행(최대 20건) 또는 실행 실패만(GET /executions/failed — 재고 부족·결제 거절 같은 업무 거절은 빠진다)
+// 실행 기록 탭이다. 'recent' 는 최근 실행(최대 20건)이고, 'failed' 는 실행 실패만 모은 목록이다.
+// 실행 실패 목록(GET /api/executions/failed)에는 재고 부족이나 결제 거절 같은
+// 업무 거절이 들어가지 않는다.
 const listMode = ref('recent')
 const failed = ref([])
 const shownRuns = computed(() => (listMode.value === 'failed' ? failed.value : ws.executions))
 
+/**
+ * '실행 실패만' 탭으로 바꾸고 frontend/src/api/orderAgent.js 의 listFailedExecutions 로
+ * 목록을 읽는다. EvidenceController 의 failed() 가 답하며, 탭을 누를 때마다 다시 읽는다.
+ */
 async function showFailed() {
   listMode.value = 'failed'
   try {
@@ -51,14 +87,28 @@ async function showFailed() {
   }
 }
 
+/**
+ * 실행 기록 한 줄의 글이다. template 의 실행 기록 목록이 줄마다 부른다.
+ * 줄 모양은 frontend/src/utils/traceRun.js 의 executionLabel 이 정한다.
+ * 실행 실패 목록의 항목은 오류를 error 객체로 주므로, 그 category 를 error_category 자리에 넣고
+ * 실패한 skill_id 를 뒤에 붙인다.
+ */
 const runLabel = (x) =>
   x.error ? `${executionLabel({ ...x, error_category: x.error.category })} · ${x.error.skill_id ?? ''}` : executionLabel(x)
 
+/**
+ * 입력 예시 하나를 폼에 채우고 이전 결과를 지운다. 입력 예시 버튼이 부른다.
+ * 수량은 1로 되돌리고 배송 칸은 그대로 둔다.
+ */
 function preset(p) {
   Object.assign(form, { customer: p.customer, sku: p.sku, payment_method: p.payment_method, qty: 1 })
   result.value = null
 }
 
+/**
+ * 상품 목록을 읽는다(GET /api/products). 화면을 열 때와 주문을 마친 뒤 부르므로
+ * 주문으로 줄어든 재고가 선택지에 바로 보인다.
+ */
 async function loadProducts() {
   try {
     products.value = (await listProducts()).items
@@ -67,28 +117,52 @@ async function loadProducts() {
   }
 }
 
+/**
+ * 폼 값을 POST /api/orders 의 주문 요청 본문으로 바꾼다. submit 이 부른다. 본문 모양은
+ * order-agent/backend/src/main/java/com/capstone4/orderagent/dto/order/CreateOrderRequest.java 다.
+ * 상품은 한 가지만 담고, 수량은 숫자로 바꿔 보낸다.
+ */
+function toOrderRequest(f) {
+  return {
+    customer: f.customer,
+    items: [{ sku: f.sku, qty: Number(f.qty) }],
+    payment_method: f.payment_method,
+    shipping: { country: f.country, express: f.express },
+  }
+}
+
+/**
+ * 주문 오류를 화면 문구로 바꾼다. submit 이 createOrder 의 오류를 받으면 부른다.
+ * 입력 오류(field_errors)가 있으면 'field: message' 를 ' · ' 로 잇고, 없으면 오류 문구를
+ * 그대로 쓴다. fieldErrors 는 frontend/src/api/client.js 가 오류 본문의 field_errors 를 옮겨
+ * 담은 값이다.
+ */
+const orderErrorMessage = (e) =>
+  e.fieldErrors?.length ? e.fieldErrors.map((f) => `${f.field}: ${f.message}`).join(' · ') : e.message
+
+/**
+ * 폼으로 주문을 실행한다. '주문 실행' 버튼이 부른다.
+ * createOrder 가 결과를 끝까지 확인해 돌려주면 결과 칸에 보여 주고,
+ * 최근 실행 목록과 상품 재고를 다시 읽는다.
+ * Agent 실행이 실패한 주문도 createOrder 가 다시 조회한 FAILED 주문으로 돌려주므로 오류가 아니라
+ * 결과로 보이고, 실행 trace 링크로 원인을 확인할 수 있다. 입력 오류나 결과를 끝내 확인하지 못한
+ * 경우처럼 createOrder 가 던진 오류는 오류 문구로 보여 준다.
+ */
 async function submit() {
   busy.value = true
   error.value = null
   result.value = null
   try {
-    result.value = await createOrder(
-      {
-        customer: form.customer,
-        items: [{ sku: form.sku, qty: Number(form.qty) }],
-        payment_method: form.payment_method,
-        shipping: { country: form.country, express: form.express },
-      },
-      { snapshotId: snapshotForOrder.value },
-    )
+    result.value = await createOrder(toOrderRequest(form), { snapshotId: snapshotForOrder.value })
     await Promise.all([ws.refreshExecutions(), loadProducts()])
   } catch (e) {
-    error.value = e.fieldErrors?.length ? e.fieldErrors.map((f) => `${f.field}: ${f.message}`).join(' · ') : e.message
+    error.value = orderErrorMessage(e)
   } finally {
     busy.value = false
   }
 }
 
+// 화면을 열 때 상품 목록과 최근 실행 목록을 함께 읽는다.
 onMounted(() => {
   loadProducts()
   ws.refreshExecutions()
@@ -229,10 +303,6 @@ onMounted(() => {
   }
 }
 
-.small {
-  font-size: 12px;
-}
-
 .presets {
   display: flex;
   flex-wrap: wrap;
@@ -277,10 +347,6 @@ input:not([type='checkbox'], [type='radio']) {
   margin-bottom: 12px;
   background: var(--bg);
   border-radius: 6px;
-}
-
-.warn-text {
-  color: var(--warn);
 }
 
 .head {

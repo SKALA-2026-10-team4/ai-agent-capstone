@@ -14,10 +14,31 @@ import com.capstone4.skillops.workspace.WorkspaceService.PatchInput;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 
 /**
- * C-2 의 쓰기·판정 도구 가운데 ⑦ create_workspace, ⑧ apply_patch, ⑨ run_scenarios.
- * 입출력 이름은 계약 5 v1(docs/contracts/mcp-tools-input-output.md)을 따른다. B 의 skillops_agent/tools.py(#52)가 이 이름으로 부른다.
- * 파라미터 이름이 곧 도구 입력 키라서 snake_case 로 쓴다(@McpToolParam 에 이름 속성이 없다).
- * 오류는 C-1 도구와 같은 {code, message, retryable, upstream_status, snapshot_id} 모양이다.
+ * C-2 의 쓰기와 판정 도구 세 개(⑦ create_workspace, ⑧ apply_patch, ⑨ run_scenarios)를 MCP 도구로 내놓는 입구다.
+ * Spring AI MCP Server 의 어노테이션 스캐너가 @McpTool 메서드를 도구로 등록하고, MCP 클라이언트는 POST /mcp 로 부른다.
+ * 메서드는 입력을 그대로 넘기기만 한다. 연습 공간을 만들고 고치는 일은
+ * service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 가, 시험 주문 실행과 채점은
+ * service/src/main/java/com/capstone4/skillops/scenario/ScenarioRunner.java 가 맡는다.
+ * 결과와 예외는 service/src/main/java/com/capstone4/skillops/mcp/WorkspaceToolResults.java 의 run 이 JSON 글 하나로
+ * 바꾼다. 오류는 C-1 도구와 같은 {code, message, retryable, upstream_status, snapshot_id} 모양이다.
+ *
+ * 입출력 이름은 계약 5 v1(docs/contracts/mcp-tools-input-output.md)을 따른다. @McpToolParam 에 이름 속성이 없어서
+ * Java 파라미터 이름이 곧 도구 입력 키가 되므로 파라미터를 snake_case 로 쓴다. 이름을 바꾸면 Agent 의 호출이 깨진다.
+ *
+ * 부르는 쪽은 skillops-agent/skillops_agent/tools.py 의 MCPTools.create_workspace, apply_patch, run_scenarios 다.
+ * 부르는 순서는 skillops-agent/skillops_agent/nodes.py 의 노드가 정한다. fetch_evidence 노드의 _preflight 와
+ * _evaluate_intent_checks, ablate 노드의 _reproduce_failure 는 snapshot 으로 연습 공간을 만들어 시험만 돌린다. ablate 노드의
+ * _ablate_change 와 verify_candidates 노드의 _verify_candidate 는 연습 공간을 만들고 수정을 넣은 뒤 시험을 돌린다.
+ * 실험 하나마다 연습 공간을 새로 만들고 다시 쓰지 않는다. 개발용 skillops-agent/scripts/c2_smoke.py 는 노드를 거치지 않고
+ * create_workspace 와 run_scenarios 를 직접 불러 계약을 확인한다. 이 스크립트는 create_workspace 를 인자 없이 불러 운영
+ * 버전으로 연습 공간을 만든다.
+ * Agent 를 SKILLOPS_USE_STUB_MCP=true 로 띄우면 이 클래스 대신 skillops-agent/skillops_agent/stub_tools.py 의
+ * StubMCPTools 가 같은 이름의 도구를 흉내 낸다.
+ *
+ * 도구 설명 문자열은 MCP 클라이언트가 도구 목록에서 읽는 공개 문서다. run_scenarios 설명의 repeat 기본값과 범위는
+ * ScenarioRunner 의 DEFAULT_REPEAT, MIN_REPEAT, MAX_REPEAT 와 같아야 하고,
+ * service/src/test/java/com/capstone4/skillops/mcp/WorkspaceToolsTest.java 가 이를 확인한다. 상수를 바꾸면 이 설명과
+ * docs/contracts/mcp-tools-input-output.md 의 repeat 설명도 함께 고친다.
  */
 @Component
 public class WorkspaceTools {
@@ -25,11 +46,19 @@ public class WorkspaceTools {
     private final WorkspaceService workspaces;
     private final ScenarioRunner scenarioRunner;
 
+    /** Spring 이 WorkspaceService 와 ScenarioRunner 빈을 넣어 만든다. */
     public WorkspaceTools(WorkspaceService workspaces, ScenarioRunner scenarioRunner) {
         this.workspaces = workspaces;
         this.scenarioRunner = scenarioRunner;
     }
 
+    /**
+     * ⑦ create_workspace 도구다. 운영 skill 을 건드리지 않고 연습용 복사본을 만든다.
+     * 두 입력을 WorkspaceService.create 에 그대로 넘긴다. 둘을 함께 쓸 수 없다는 검사와 어디서 복사할지는 그쪽이 정한다.
+     * Agent 의 노드는 지금 언제나 snapshot_id 만 넣어 부른다. 결과의 skill_versions 는 apply_patch 의 base_version 기준이 된다.
+     * skillops-agent/skillops_agent/nodes.py 의 _ablate_change 는 이 값을 base_version 에 그대로 넣고,
+     * _verify_candidate 는 후보의 base_version 이 이 값과 같은지 먼저 맞춰 본다.
+     */
     @McpTool(name = "create_workspace", description = """
             운영 중인 skill 은 그대로 두고 연습용 복사본(연습 공간)을 만든다.
             시작점은 둘 중 하나다. start_versions 는 운영 폴더의 skill 을, snapshot_id 는 주문 Agent 가 보관한 skill 묶음
@@ -45,6 +74,14 @@ public class WorkspaceTools {
         return WorkspaceToolResults.run(() -> workspaces.create(start_versions, snapshot_id));
     }
 
+    /**
+     * ⑧ apply_patch 도구다. 연습 공간의 SKILL.md 에 unified diff 를 넣고 끊긴 연결을 알려 준다.
+     * WorkspaceService.apply 가 patches 를 적힌 순서대로 모두 적용하거나 하나도 적용하지 않는다.
+     * patches 항목의 키(skill, base_version, patch)는 WorkspaceService.PatchInput 의 @JsonNaming 이 snake_case 로 읽는다.
+     * Agent 쪽에서는 skillops-agent/skillops_agent/nodes.py 의 _ablate_change 가 바뀐 덩어리 하나를 되돌리는 수정을,
+     * _verify_candidate 가 후보 수정안 전체를 넣는다. 원문과 맞지 않는 수정은 INVALID_INPUT 오류가 되고,
+     * _verify_candidate 는 그 후보를 탈락시킨 뒤 다음 후보로 넘어간다.
+     */
     @McpTool(name = "apply_patch", description = """
             연습 공간의 SKILL.md 에 수정 내용(unified diff)을 넣고, 고친 뒤 skill 사이의 연결이 끊긴 곳이 있는지 알려 준다.
             운영 중인 skill 은 바뀌지 않는다. patches 는 적힌 순서대로 적용하고, 하나라도 원문과 맞지 않으면 전부 취소한다(연습 공간은 그대로).
@@ -61,6 +98,13 @@ public class WorkspaceTools {
         return WorkspaceToolResults.run(() -> workspaces.apply(workspace_id, patches));
     }
 
+    /**
+     * ⑨ run_scenarios 도구다. 연습 공간의 skill 로 시험 주문을 모의 실행하고 기대 결과와 비교해 채점한다.
+     * 다섯 입력을 그대로 ScenarioRunner.run 에 넘긴다. 입력 검사와 repeat 기본값, 범위는 그쪽이 정한다.
+     * Agent 의 노드는 skillops-agent/skillops_agent/nodes.py 의 _run_scenarios 로만 이 도구를 부르고, 결과는
+     * skillops-agent/skillops_agent/contracts.py 의 validate_report 가 검사한다. Agent 는 재현 주문을 replay_run_ids 가
+     * 아니라 scenario_ids 에 f-&lt;execution_id&gt; 로 넣는다.
+     */
     @McpTool(name = "run_scenarios", description = """
             연습 공간의 skill 로 시험 주문을 모의 실행하고 기대 결과와 비교해 채점한다.
             같은 주문을 repeat 번(기본 2) 돌려 모두 통과해야 합격이다. 실제 결제·배송은 일어나지 않는다.

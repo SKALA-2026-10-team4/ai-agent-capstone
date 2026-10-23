@@ -1,0 +1,90 @@
+{
+  "title" : "Skill 변경 진단 결과",
+  "summary" : "2026년 10월 21일 15시 30분에 들어온 주문이 payment 단계에서 멈췄습니다. 바뀐 부분을 하나씩 되돌려 시험했지만 원인을 하나로 확정하지 못했습니다. 시험할 수정안은 만들지 못했습니다. 담당자가 Skill을 직접 고쳐야 합니다.",
+  "sections" : [ {
+    "key" : "overview",
+    "heading" : "개요",
+    "paragraphs" : [ "2026년 10월 21일 15시 30분에 들어온 주문이 payment 단계에서 멈췄습니다. 바뀐 부분을 하나씩 되돌려 시험했지만 원인을 하나로 확정하지 못했습니다. 시험할 수정안은 만들지 못했습니다. 담당자가 Skill을 직접 고쳐야 합니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "what_happened",
+    "heading" : "발생 경위",
+    "paragraphs" : [ "2026년 10월 21일 15시 30분에 들어온 주문이 payment 단계에서 멈췄습니다. 주문 Agent가 이 실패를 기록했고, SkillOps가 그 기록으로 진단을 시작했습니다.", "이 단계가 받아야 할 값이 앞 단계에서 넘어오지 않았습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ {
+      "label" : "시작 계기",
+      "value" : "주문 실패"
+    }, {
+      "label" : "멈춘 단계",
+      "value" : "payment"
+    }, {
+      "label" : "오류 종류",
+      "value" : "CONTRACT_VIOLATION (Skill 사이 입력값 불일치)"
+    }, {
+      "label" : "받지 못한 값",
+      "value" : "inventory.reserved"
+    }, {
+      "label" : "실패한 실행",
+      "value" : "44444444-4444-4444-8444-444444444444"
+    }, {
+      "label" : "수정 전 Skill 세트",
+      "value" : "11111111-1111-4111-8111-111111111111"
+    }, {
+      "label" : "수정 후 Skill 세트",
+      "value" : "22222222-2222-4222-8222-222222222222"
+    } ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "cause",
+    "heading" : "원인",
+    "paragraphs" : [ "SkillOps가 바뀐 부분을 하나씩 되돌려 실패한 주문을 다시 돌렸지만, 주문이 끝까지 처리된 경우가 없었습니다. 그래서 원인을 하나로 확정하지 못했습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "candidates",
+    "heading" : "수정안과 시험 결과",
+    "paragraphs" : [ "시험할 수정안을 만들지 못했습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "decision",
+    "heading" : "추천과 결정 요청",
+    "paragraphs" : [ "모든 확인을 통과한 수정안이 없어 승인할 안이 없습니다.", "담당자가 Skill 편집 화면에서 직접 고친 뒤 다시 저장해 주세요. 저장하면 SkillOps가 같은 검증을 다시 시작합니다.", "이 제안서는 확인한 뒤 거절해서 닫을 수 있습니다." ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ ],
+    "parts" : [ ],
+    "candidate_no" : null
+  }, {
+    "key" : "reference",
+    "heading" : "참고 정보",
+    "paragraphs" : [ ],
+    "quote" : null,
+    "items" : [ ],
+    "facts" : [ {
+      "label" : "제안서 번호",
+      "value" : "p_1"
+    }, {
+      "label" : "진단 번호",
+      "value" : "7d1e2f3a-0b1c-4d2e-8f3a-4b5c6d7e8f90"
+    }, {
+      "label" : "제안서를 만든 시각",
+      "value" : "2026년 10월 21일 14시 10분"
+    } ],
+    "parts" : [ ],
+    "candidate_no" : null
+  } ],
+  "tone_warnings" : [ ]
+}

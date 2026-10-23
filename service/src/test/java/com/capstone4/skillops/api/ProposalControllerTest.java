@@ -25,7 +25,11 @@ import com.capstone4.skillops.auth.TokenService;
 import com.capstone4.skillops.proposal.Proposal;
 import com.capstone4.skillops.proposal.ProposalService;
 
-/** 화면이 읽는 제안서 목록·상세. 로그인한 사람은 누구나 읽는다. */
+/**
+ * 화면이 읽는 제안서 목록과 상세(service/src/main/java/com/capstone4/skillops/api/ProposalController.java)를 보호한다.
+ * 로그인하지 않으면 401 이고 로그인한 사람은 역할과 상관없이 읽는지, 목록 요약의 칸 값, 상세에 담기는 본문과 원본 제안서와
+ * 마지막 결정, 결정 전 상세의 빈 decision, 없는 번호의 404 PROPOSAL_NOT_FOUND 를 본다.
+ */
 @WebMvcTest(ProposalController.class)
 @Import({ SecurityConfig.class, TokenService.class })
 class ProposalControllerTest {
@@ -45,11 +49,13 @@ class ProposalControllerTest {
     @MockitoBean
     ApprovalService approvals;
 
+    /** 설정의 데모 계정으로 토큰을 발급해 토큰 문자열을 돌려준다. */
     private String tokenFor(String username) {
         return tokens.issue(properties.users().stream().filter(u -> u.username().equals(username)).findFirst().orElseThrow())
                 .token();
     }
 
+    /** 목록과 상세 시험에 쓰는 제안서 예시를 만든다. 후보는 둘이고, 추천 후보와 합격 후보는 1번이다. */
     static Proposal proposal() {
         Map<String, Object> payload = Map.of(
                 "root_cause", Map.of("skill", "inventory-check"),

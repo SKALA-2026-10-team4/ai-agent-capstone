@@ -68,7 +68,9 @@ cd frontend && npm install && npm run dev    # http://localhost:5173 · /api →
 ```bash
 cd service && ./gradlew build            # 컴파일 + 테스트
 cd skillops-agent && uv run pytest && uv run ruff check .
-cd frontend && npm run lint && npm run build
+cd frontend && npm run lint && npm run test:unit && npm run build
+cd order-agent/backend && ./gradlew test   # 통합 테스트까지: order-agent/README.md 의 db-test 절차
+cd order-agent/frontend && npm test && npm run lint && npm run build
 ```
 
 ## 필요한 로컬 도구 (팀 공통)

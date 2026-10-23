@@ -1,3 +1,9 @@
+// order-agent/frontend/src/composables/useOrder.js 의 핵심 주문 흐름과 order-agent/frontend/src/utils/validation.js 의
+// estimate, validate 를 보호한다.
+// 지키는 동작은 중복 제출 방지, 업무 거절을 HTTP 실패가 아닌 확정 결과로 다루는 것, 네트워크 오류 뒤 입력 잠금과 추가 POST 없는 복구,
+// 404 ORDER_NOT_FOUND 를 확인한 뒤에만 허용하는 같은 key 와 body 의 재전송, 400 입력 거절의 잠금 해제,
+// 상품 재조회 실패가 확정 주문을 지우지 않는 것, polling 한도에서 FAILED 를 만들지 않는 것, dispose 뒤 늦은 응답 무시다.
+// 가짜 API 를 주입해 node --test 에서 서버 없이 돈다.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useOrder } from "../src/composables/useOrder.js";
@@ -7,11 +13,13 @@ import { defaultForm, estimate, validate } from "../src/utils/validation.js";
 const products = [
   { sku: "CAMP-LANTERN-LED", unit_price: 30000, stock_quantity: 10 },
 ];
+/** 가짜 주문 응답을 만든다. 기본 상태는 SHIPPED 다. */
 const result = (status = "SHIPPED") => ({
   order_id: "order-1",
   status,
   steps: [],
 });
+/** 모든 호출이 성공하는 가짜 주문 API 를 만든다. overrides 로 테스트마다 필요한 함수만 바꾼다. */
 const api = (overrides = {}) => ({
   listProducts: async () => ({ items: products }),
   createOrder: async () => result(),
@@ -19,6 +27,7 @@ const api = (overrides = {}) => ({
   getByRequest: async () => result(),
   ...overrides,
 });
+/** 요청 키를 fixed-key 로 고정한 useOrder 를 만든다. */
 const make = (overrides = {}, options = {}) =>
   useOrder(api(overrides), { uuid: () => "fixed-key", ...options });
 

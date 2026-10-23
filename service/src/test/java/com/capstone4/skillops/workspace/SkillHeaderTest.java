@@ -8,6 +8,11 @@ import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * service/src/main/java/com/capstone4/skillops/workspace/SkillHeader.java 의 parse 를 저장소의 실제 SKILL.md
+ * (skills/payment, skills/order-flow)로 보호한다. 운영 skill 의 맨 위 칸 모양이 바뀌어 간이 파서가 읽지 못하게 되면 여기서
+ * 먼저 깨진다. 테스트는 service 폴더에서 돌기 때문에 ../skills 를 읽는다.
+ */
 class SkillHeaderTest {
 
     @Test

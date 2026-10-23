@@ -1,18 +1,33 @@
 <script setup>
+// 왼쪽 메뉴(사이드바)다. frontend/src/App.vue 가 meta.public 이 아닌 모든 화면에 붙인다.
+// 메뉴는 담당자의 일 순서대로 묶었다. 개선안을 받고(검증·진단 기록, 받은 개선안),
+// Skill 을 손보고(Skill 편집, 버전 비교), 실행해 본다(주문 실행 · 기록).
+// '받은 개선안' 옆 숫자는 검토 대기 제안서 수다. frontend/src/api/proposals.js 의 listProposals 로
+// 목록을 읽고 frontend/src/utils/proposalView.js 의 awaitsDecision 에 맞는 것만 센다. 목록 요청은
+// service/src/main/java/com/capstone4/skillops/api/ProposalController.java 의 list() 가 받는다.
+// 아래쪽에는 mock 모드 표시(frontend/src/api/client.js 의 USE_MOCK), 로그인한 사용자,
+// 로그아웃 버튼이 있다. frontend/src/stores/auth.js 의 user 로 사용자를 보여 주고, loggedIn 으로
+// 검토 대기 수를 셀지 정하고, logout 으로 로그아웃한다.
+// 화면 폭이 900px 이하이면 style 의 media query 가 위쪽 가로 막대로 바꾼다. 이 900px 는
+// frontend/src/App.vue 와 frontend/src/components/DiffView.vue 의 기준과 같은 값이다.
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { FileDiff, FilePen, GitCompareArrows, Inbox, LogOut, PlayCircle, Sparkles } from 'lucide-vue-next'
 import { USE_MOCK } from '@/api/client'
 import { listProposals } from '@/api/proposals'
+import { HOME_PATH, LOGIN_PATH } from '@/router/paths'
 import { awaitsDecision } from '@/utils/proposalView'
 import { useAuthStore } from '@/stores/auth'
 
-// 왼쪽 메뉴. 담당자의 일 순서대로 묶었다: 개선안 받기 → Skill 손보기 → 실행해 보기.
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+// 검토 대기 제안서 수다. 0 이면 배지를 숨긴다.
 const pending = ref(0)
 
+// 메뉴 묶음과 항목이다. 메뉴를 더하거나 순서를 바꿀 때 여기를 고치고,
+// to 는 frontend/src/router/index.js 의 경로와 맞춘다.
+// badge 가 true 인 항목 옆에 검토 대기 수를 붙인다.
 const GROUPS = [
   { title: '개선안', items: [{ to: '/diagnoses', label: '검증·진단 기록', icon: Sparkles }, { to: '/proposals', label: '받은 개선안', icon: Inbox, badge: true }] },
   {
@@ -25,14 +40,25 @@ const GROUPS = [
   { title: '실행', items: [{ to: '/orders', label: '주문 실행 · 기록', icon: PlayCircle }] },
 ]
 
+// 로그인 응답의 역할 이름을 화면 이름으로 바꾸는 표다. 역할 이름은
+// service/src/main/resources/application.yml 의 데모 계정 roles 와 같다.
+// 표에 없는 역할은 이름을 그대로 보여 준다.
 const ROLE = { OWNER: '업무 담당자', OPERATOR: '운영자' }
 
+/**
+ * auth store 의 세션을 지우고 로그인 화면으로 보낸다. 아래쪽 로그아웃 버튼이 부른다.
+ * next 를 붙이지 않으므로 다시 로그인하면 첫 화면으로 간다.
+ */
 function logout() {
   auth.logout()
-  router.push('/login')
+  router.push(LOGIN_PATH)
 }
 
-// 승인·거절 뒤 다른 화면으로 가면 숫자가 바로 맞도록 이동할 때마다 다시 센다.
+/**
+ * 검토 대기 제안서 수를 다시 센다. 승인하거나 거절한 뒤 다른 화면으로 가면 숫자가 바로 맞도록,
+ * 아래 watch 가 처음 그릴 때와 주소가 바뀔 때마다 부른다.
+ * 로그인 전이면 service 를 부르지 않고, 목록을 읽지 못하면 0 으로 두어 배지를 숨긴다.
+ */
 async function countPending() {
   if (!auth.loggedIn) return
   try {
@@ -46,7 +72,7 @@ watch(() => route.fullPath, countPending, { immediate: true })
 
 <template>
   <aside class="sidebar">
-    <RouterLink to="/proposals" class="brand">
+    <RouterLink :to="HOME_PATH" class="brand">
       <span class="logo"><Sparkles :size="18" /></span>
       <span>SkillOps</span>
     </RouterLink>

@@ -11,6 +11,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * service/src/main/java/com/capstone4/skillops/workspace/LiveFolderSkillVersionStore.java 를 임시 폴더로 보호한다.
+ * 맨 위 칸에서 운영 버전을 읽는지, 운영 버전일 때만 원문을 주는지, 예전 버전과 없는 skill 의 오류 문구가 글자 그대로인지
+ * 본다.
+ */
 class LiveFolderSkillVersionStoreTest {
 
     @TempDir
@@ -18,6 +23,7 @@ class LiveFolderSkillVersionStoreTest {
 
     LiveFolderSkillVersionStore store;
 
+    /** 임시 폴더에 버전 3 인 skill a 하나를 만들고 그 폴더를 읽는 store 를 준비한다. */
     @BeforeEach
     void setUp() throws Exception {
         Files.createDirectories(dir.resolve("a"));

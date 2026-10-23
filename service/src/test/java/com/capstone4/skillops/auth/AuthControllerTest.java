@@ -20,6 +20,12 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.jayway.jsonpath.JsonPath;
 
+/**
+ * service/src/main/java/com/capstone4/skillops/auth/AuthController.java 의 로그인과 GET /api/auth/me 를 보호한다.
+ * 로그인하면 roles claim 이 담긴 서명 토큰과 2시간 수명이 나오는지, 틀린 비밀번호와 없는 계정이 같은 401 을 받는지, 빈 칸이 400 인지,
+ * /api/auth/me 가 토큰의 사용자를 돌려주고 토큰이 없으면 401 과 WWW-Authenticate 헤더를 주는지 본다.
+ * 계정과 비밀번호는 service/src/main/resources/application.yml 의 데모 계정 기본값을 쓴다.
+ */
 @WebMvcTest(AuthController.class)
 @Import({ SecurityConfig.class, TokenService.class })
 class AuthControllerTest {
@@ -30,6 +36,7 @@ class AuthControllerTest {
     @Autowired
     JwtDecoder decoder;
 
+    /** 로그인 요청을 보내고 응답 본문을 글로 돌려준다. */
     private String login(String username, String password) throws Exception {
         return mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))

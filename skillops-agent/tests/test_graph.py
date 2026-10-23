@@ -1,4 +1,20 @@
-"""Graph tests with C-shaped fixtures and fake LLM, no network or paid calls."""
+"""C 모양 fixture 와 가짜 LLM 으로 진단 그래프 전체를 돌리는 흐름 테스트다.
+
+네트워크와 유료 호출은 없다. skillops-agent/skillops_agent/graph.py 의 graph 를 끝까지 실행하고,
+nodes 모듈의 get_tools 와 make_structured_llm 을 skillops-agent/skillops_agent/stub_tools.py 의
+StubMCPTools 와 가짜 LLM 으로 바꿔 끼운다. skillops-agent/skillops_agent/nodes.py 의 노드가 지켜야
+할 다음 동작을 보호한다.
+- 정상 경로에서 원인을 확정하고 후보를 검증해 계약 모양의 제안서를 저장한다(EVALUATED).
+- MCP 오류, 빈 결과, 기준 snapshot 누락, changed_paths 불일치, 수정 없는 후보의 재현 실패,
+  모르는 change_no, 빈 LLM 응답, save_proposal 거절을 성공으로 보지 않는다.
+- workspace 는 늘 후보 snapshot 으로 만들고, 의도 조건은 재현 시나리오에만 붙이며, 근거 실행 수와
+  tools_called 를 남긴다.
+- 끊긴 연결이 있는 후보는 무효이고, 거절된 후보 하나가 다른 후보 검증을 멈추지 않는다. patch 와
+  후보 생성 프롬프트는 현재 원문을 기준으로 한다.
+- 저장 직후 사전 검증(VALIDATED, BASELINE_FAILED)과 diagnosis_only(S5)는 LLM 을 부르지 않는다.
+- 읽을 수 없는 의도 조건은 run_scenarios 로 보내지 않고 이유와 함께 버리며, 의도 프롬프트에는
+  원인을 되돌려 통과한 실행의 값 이름이 들어간다.
+"""
 
 from types import SimpleNamespace
 from uuid import uuid4
@@ -12,6 +28,7 @@ from skillops_agent.tools import MCPToolError
 
 
 def initial(**extra):
+    """stub 의 고정 실패 실행을 진단하는 실패 진단 요청(type=failure)의 초기 상태를 만든다."""
     return {
         "trigger": {"type": "failure", "execution_id": StubMCPTools.EXECUTION, **extra},
         "max_steps": 40,
@@ -19,6 +36,8 @@ def initial(**extra):
 
 
 class FakeChain:
+    """with_structured_output 체인의 대역이다. ainvoke 가 정해 둔 출력을 돌려준다."""
+
     def __init__(self, output):
         self.output = output
 
@@ -27,6 +46,7 @@ class FakeChain:
 
 
 def fake_llm(schema):
+    """make_structured_llm 의 대역이다. 출력 클래스 이름(schema.__name__)으로 고정 출력을 고른다."""
     values = {
         "_HypothesesOutput": {
             "hypotheses": [
@@ -59,6 +79,7 @@ def fake_llm(schema):
 
 @pytest.fixture
 def tools(monkeypatch):
+    """StubMCPTools 하나를 만들어 nodes 의 get_tools 와 make_structured_llm 을 바꿔 끼운다."""
     stub = StubMCPTools()
     monkeypatch.setattr(nodes, "get_tools", lambda: stub)
     monkeypatch.setattr(nodes, "make_structured_llm", fake_llm)
@@ -66,6 +87,7 @@ def tools(monkeypatch):
 
 
 async def run(state):
+    """새 thread_id 와 recursion_limit 100 으로 그래프를 끝까지 돌린다."""
     return await graph.ainvoke(
         state, {"configurable": {"thread_id": str(uuid4())}, "recursion_limit": 100}
     )
@@ -75,7 +97,8 @@ async def run(state):
 async def test_real_event_shape_and_changed_skill_are_used(tools):
     result = await run(initial())
     assert result["error"] is None
-    assert result["root_cause"]["skill"] == "inventory-check"  # failure location is payment
+    # 실패 위치는 payment 지만 원인은 inventory-check 변경이다.
+    assert result["root_cause"]["skill"] == "inventory-check"
     assert result["root_cause"]["hunk_id"] == "fixture-hunk"
     assert result["root_cause"]["proof_run_ids"]
     assert result["candidates"][0]["valid"]
@@ -156,7 +179,8 @@ async def test_checks_are_scoped_to_replay_and_all_trials_have_evidence(tools, m
     result = await run(initial())
     assert any(ids == ["g-01", "g-02", "g-03"] for ids, _ in calls)
     assert all(all(i.startswith("f-") for i in ids) for ids, kw in calls if kw.get("extra_checks"))
-    assert len(result["candidates"][0]["evidence_run_ids"]) == 10  # 3*2 + 1*2 + 1*2
+    # 회귀 3개, 재현 1개, 의도 1개를 각각 VERIFY_REPEAT(2)번 돌린 실행 ID 다.
+    assert len(result["candidates"][0]["evidence_run_ids"]) == 10
     assert "inventory.reserve" in result["candidates"][0]["results"]["tools_called"]
 
 
@@ -318,7 +342,8 @@ async def test_rejected_candidate_does_not_abort_other_candidates(tools, monkeyp
     async def reject_first_candidate(workspace, patches):
         nonlocal count
         count += 1
-        if count == 2:  # first apply is ablation, second is the first repair candidate
+        # 첫 적용은 원인 실험이고 두 번째 적용이 첫 수정 후보다.
+        if count == 2:
             raise MCPToolError(
                 "apply_patch", {"code": "INVALID_INPUT", "message": "candidate conflict"}
             )
@@ -397,6 +422,8 @@ async def test_rejected_save_ends_in_error(tools, monkeypatch):
 
 
 def intent_llm(checks):
+    """의도 출력의 checks 만 바꾼 가짜 LLM(make_structured_llm 대역)을 만든다."""
+
     def make(schema):
         chain = fake_llm(schema)
         if schema.__name__ == "_IntentOutput":

@@ -1,7 +1,25 @@
 <script setup>
-import { money, statusText, timestamp } from "../utils/format.js";
+// 주문 결과 패널이다. 상태 배지, 주문 식별자, 영수증, 결제, 배송, 알림 요약, Agent 실행 ID, 처리 단계,
+// 진행 안내와 오류 안내, 그리고 결과 확인, 재전송, 새 주문 버튼을 보여준다.
+// 버튼은 recover, resend, new-order 이벤트만 올린다. order-agent/frontend/src/App.vue 가 그 이벤트를
+// order-agent/frontend/src/composables/useOrder.js 의 recover, resend, newOrder 에 연결한다.
+// "상태 다시 확인" 버튼은 requestState 가 recoverable 일 때, 재전송 버튼은 canResend 일 때,
+// 새 주문 버튼은 주문이 있고 입력이 잠기지 않았을 때만 보인다.
+// 상태 배지는 상태값을 소문자로 바꾼 클래스를 단다. order-agent/frontend/src/styles/main.css 는 .pill.hold 같은 클래스로
+// 색을 정하고, order-agent/frontend/tests/e2e/order.spec.js 와 order-agent/frontend/tests/e2e/evidence.spec.js 는
+// .pill.shipped 같은 클래스로 결과를 찾는다.
+// 라벨은 order-agent/frontend/src/utils/format.js 에서 오고, 처리 단계는 order-agent/frontend/src/components/OrderSteps.vue 가 그린다.
+import { computed } from "vue";
+import {
+  money,
+  notificationLabel,
+  orderStatusLabel,
+  paymentStatusLabel,
+  timestamp,
+} from "../utils/format.js";
 import OrderSteps from "./OrderSteps.vue";
-defineProps({
+// previous 는 보이는 결과가 지금 입력과 다른 직전 주문의 결과인지 나타내고, requestId 는 제출한 요청의 Idempotency-Key 다.
+const props = defineProps({
   order: Object,
   previous: Boolean,
   requestState: String,
@@ -10,12 +28,21 @@ defineProps({
   locked: Boolean,
   requestId: String,
 });
+// recover 는 "상태 다시 확인", resend 는 "같은 요청으로 재전송", new-order 는 "새 주문 작성" 버튼이 올린다.
 defineEmits(["recover", "resend", "new-order"]);
-const paymentLabels = {
-  PAID: "승인 완료",
-  DECLINED: "결제 거절",
-  NOT_ATTEMPTED: "미실행",
-};
+// 진행 안내 문구다. submitting 이면 주문을 처리하는 중이라고, polling 이면 서버의 주문 상태를 확인하는 중이라고 알린다.
+const progressText = computed(() =>
+  props.requestState === "submitting"
+    ? "주문을 처리하고 있습니다."
+    : "서버의 주문 상태를 확인하고 있습니다.",
+);
+// 오류 안내 제목이다. recoverable 이면 결과 확인이 필요하다고 쓰고, 그 밖의 상태에서는 요청을 확인하라고 쓴다.
+// 접수 전 입력 거절(settled)과, 이전 오류를 남긴 채 recover 가 조회하는 polling 이 그 밖의 상태에 해당한다.
+const errorTitle = computed(() =>
+  props.requestState === "recoverable"
+    ? "결과 확인이 필요해요"
+    : "요청을 확인해주세요",
+);
 </script>
 <template>
   <section
@@ -30,7 +57,7 @@ const paymentLabels = {
         <h2 id="result-title">주문 결과</h2>
       </div>
       <span v-if="order" class="pill" :class="order.status.toLowerCase()">{{
-        statusText[order.status] || order.status
+        orderStatusLabel(order.status)
       }}</span>
     </div>
     <div
@@ -39,18 +66,10 @@ const paymentLabels = {
       role="status"
     >
       <span class="spinner" aria-hidden="true"></span>
-      {{
-        requestState === "submitting"
-          ? "주문을 처리하고 있습니다."
-          : "서버의 주문 상태를 확인하고 있습니다."
-      }}
+      {{ progressText }}
     </div>
     <div v-if="error" class="notice error" role="alert">
-      <strong>{{
-        requestState === "recoverable"
-          ? "결과 확인이 필요해요"
-          : "요청을 확인해주세요"
-      }}</strong>
+      <strong>{{ errorTitle }}</strong>
       <p>{{ error.message }}</p>
     </div>
     <template v-if="order">
@@ -84,7 +103,7 @@ const paymentLabels = {
         <div>
           <dt>결제</dt>
           <dd>
-            {{ paymentLabels[order.payment.status] || order.payment.status }}
+            {{ paymentStatusLabel(order.payment.status) }}
           </dd>
         </div>
         <div>
@@ -94,9 +113,7 @@ const paymentLabels = {
         <div>
           <dt>성공 알림</dt>
           <dd>
-            {{
-              order.notification.status === "SENT" ? "Mock 기록 완료" : "미실행"
-            }}
+            {{ notificationLabel(order.notification.status) }}
           </dd>
         </div>
       </dl>

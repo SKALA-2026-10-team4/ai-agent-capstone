@@ -28,9 +28,18 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import tools.jackson.databind.json.JsonMapper;
 
-/** B 의 Agent(skillops-agent/skillops_agent/tools.py)가 읽는 계약 5 v1 이름(B 의 #52 이후)과 C-1 과 같은 오류 모양을 고정한다. */
+/**
+ * service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 와
+ * service/src/main/java/com/capstone4/skillops/mcp/WorkspaceToolResults.java 가 내놓는 MCP 도구 계약을 고정한다.
+ * B 의 Agent(skillops-agent/skillops_agent/tools.py 의 MCPTools)가 읽는 결과 JSON 의 키 이름과 순서(계약 5 v1, B 의 #52
+ * 이후 이름), C-1 도구와 같은 오류 모양 {code, message, retryable, upstream_status, snapshot_id}, 예외 종류별 오류 code 를
+ * 본다. IllegalArgumentException 은 INVALID_INPUT, OrderAgentException 은 그 code, 그 밖의 RuntimeException 은
+ * INTERNAL_ERROR 다. 일부 시험은 SyncMcpToolProvider 로 실제 MCP 등록을 거쳐 입력 schema 의 snake_case 키와 필수 입력,
+ * repeat 설명이 ScenarioRunner 상수와 같은지 확인한다. WorkspaceService 와 ScenarioRunner 는 Mockito 로 대신한다.
+ */
 class WorkspaceToolsTest {
 
+    /** 도구 결과 글을 Map 으로 읽는 JSON 변환기다. */
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     WorkspaceService workspaces = mock(WorkspaceService.class);
@@ -169,7 +178,10 @@ class WorkspaceToolsTest {
         assertThat(error.get("retryable")).isEqualTo(false);
     }
 
-    /** B 의 tools.py 가 보내는 snake_case 입력(patches[].base_version)이 MCP 를 거쳐 PatchInput 으로 들어오는지 본다. */
+    /**
+     * B 의 skillops-agent/skillops_agent/tools.py 가 보내는 snake_case 입력(patches[].base_version)이 MCP 를 거쳐
+     * PatchInput 으로 들어오는지 본다.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void applyPatchTakesSnakeCaseInputThroughMcp() {
@@ -193,7 +205,10 @@ class WorkspaceToolsTest {
         assertThat(mapOf(textOf(result)).get("changed_skills")).isEqualTo(List.of(Map.of("skill", "inventory-check", "version", 2)));
     }
 
-    /** scenario_ids 와 replay_run_ids 는 둘 다 선택이다. B 가 지금 보내는 {workspace_id, scenario_ids, repeat} 도 그대로 받는다. */
+    /**
+     * scenario_ids 와 replay_run_ids 는 둘 다 선택이다. B 의 skillops-agent/skillops_agent/tools.py 가 확인 조건 없이 보내는
+     * {workspace_id, scenario_ids, repeat} 도 그대로 받는다.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void runScenariosTakesReplayRunIdsThroughMcp() {
@@ -220,6 +235,23 @@ class WorkspaceToolsTest {
         assertThat(first.get("replay_of_run_id")).isEqualTo(alias);
         assertThat(golden.isError()).isFalse();
         assertThat(mapOf(textOf(golden)).get("all_passed")).isEqualTo(true);
+    }
+
+    /**
+     * MCP 클라이언트에 보이는 repeat 기본값과 범위 설명은 ScenarioRunner 의 상수와 같아야 한다. 상수를 바꾸면 설명도 함께
+     * 고친다.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void runScenariosDescriptionsMatchRepeatConstants() {
+        SyncToolSpecification spec = new SyncMcpToolProvider(List.of(tools)).getToolSpecifications().stream()
+                .filter(s -> s.tool().name().equals("run_scenarios")).findFirst().orElseThrow();
+        Map<String, Object> properties = (Map<String, Object>) spec.tool().inputSchema().get("properties");
+        Map<String, Object> repeat = (Map<String, Object>) properties.get("repeat");
+
+        assertThat(spec.tool().description()).contains("repeat 번(기본 " + ScenarioRunner.DEFAULT_REPEAT + ")");
+        assertThat(repeat.get("description")).isEqualTo("같은 주문을 돌릴 횟수(" + ScenarioRunner.MIN_REPEAT + "~"
+                + ScenarioRunner.MAX_REPEAT + ", 기본 " + ScenarioRunner.DEFAULT_REPEAT + ")");
     }
 
     @Test
@@ -253,11 +285,13 @@ class WorkspaceToolsTest {
         assertThat(error.get("retryable")).isEqualTo(false);
     }
 
+    /** 도구 결과 JSON 글을 키 순서가 남는 Map 으로 읽는다. */
     @SuppressWarnings("unchecked")
     private static Map<String, Object> mapOf(String json) {
         return JSON.readValue(json, Map.class);
     }
 
+    /** CallToolResult 의 첫 content 블록 글을 꺼낸다. 도구 결과와 오류는 모두 이 글 하나에 담긴다. */
     private static String textOf(CallToolResult result) {
         return ((TextContent) result.content().getFirst()).text();
     }

@@ -1,21 +1,28 @@
 <script setup>
-// 제안서 본문. service 가 저장할 때 만든 document(목차·문장)를 그대로 그린다. 글은 모두 텍스트 보간으로만 넣는다.
-// 제목(document.title)은 화면 머리(PageHeader)가 보여 주므로 여기서는 절만 그린다.
-// 사실 칸의 값이 실행 번호 목록이면 번호마다 실행 화면 링크로 보여 준다(근거를 직접 열어 확인할 수 있게).
-import { executionPath } from '@/utils/traceRun'
+// 제안서 본문 컴포넌트다. service 가 제안서를 저장할 때 한 번 만든 document
+// (목차 순서의 절과 문장)를 그대로 그린다. document 의 모양은
+// service/src/main/java/com/capstone4/skillops/proposal/ProposalDocument.java 가 정한다.
+// 글은 모두 텍스트 보간으로만 넣으므로 글 속의 HTML 태그도 글자 그대로 보인다.
+// 제목(document.title)은 화면 머리(PageHeader)가 보여 주므로 여기서는 sections 만 그린다.
+// 사실 목록은 frontend/src/components/ProposalFacts.vue 가 그린다. 사실 칸의 값이 실행 번호
+// 목록이면 번호마다 실행 화면 링크로 보여 주어 담당자가 근거 실행을 직접 열어 확인할 수 있게 한다.
+// frontend/src/views/ProposalView.vue 가 쓴다. key 가 intent 인 절 아래에는
+// intent slot(의도 확인 체크)을, candidates 인 절 아래에는
+// candidates slot(고른 후보의 patch 비교)을 연다.
+// 이 key 값은 service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 가
+// 절에 붙이는 key 와 같아야 하므로 그쪽을 바꾸면 여기도 고친다.
+import ProposalFacts from './ProposalFacts.vue'
 
-// "r_…, r_…" 처럼 모두 실행 번호일 때만 링크 목록으로 바꾼다. 아니면 null(글 그대로 보여 준다).
-function runLinks(value) {
-  const ids = String(value).split(', ')
-  const paths = ids.map(executionPath)
-  return paths.every(Boolean) ? ids.map((id, i) => ({ id, to: paths[i] })) : null
-}
-
+// selectedNo 는 지금 고른 후보 번호이며 그 후보 카드를 강조한다.
+// canSelect 가 false 면 후보를 고를 수 없다. ProposalView 는 canSelect 를 넘기지 않으므로
+// 지금은 기본값 true 로 쓴다.
 defineProps({
   document: { type: Object, required: true },
   selectedNo: { type: Number, default: null },
   canSelect: { type: Boolean, default: true },
 })
+// 후보 카드(parts)나 '후보 n번 고르기' 버튼을 누르면 select 이벤트로
+// 그 후보 번호(candidate_no)를 올려 보낸다. ProposalView 가 받아 selectedNo 를 바꾼다.
 defineEmits(['select'])
 </script>
 
@@ -28,15 +35,7 @@ defineEmits(['select'])
       <ul v-if="section.items.length" class="items">
         <li v-for="item in section.items" :key="item"><code>{{ item }}</code></li>
       </ul>
-      <dl v-if="section.facts.length" class="facts">
-        <template v-for="fact in section.facts" :key="fact.label">
-          <dt>{{ fact.label }}</dt>
-          <dd v-if="runLinks(fact.value)" class="runs">
-            <RouterLink v-for="run in runLinks(fact.value)" :key="run.id" :to="run.to">{{ run.id }}</RouterLink>
-          </dd>
-          <dd v-else>{{ fact.value }}</dd>
-        </template>
-      </dl>
+      <ProposalFacts v-if="section.facts.length" :facts="section.facts" />
       <div v-if="section.parts.length" class="parts">
         <article
           v-for="part in section.parts"
@@ -47,15 +46,7 @@ defineEmits(['select'])
         >
           <h3>{{ part.heading }}</h3>
           <p v-for="(text, j) in part.paragraphs" :key="`q${j}`" class="para">{{ text }}</p>
-          <dl v-if="part.facts.length" class="facts">
-            <template v-for="fact in part.facts" :key="fact.label">
-              <dt>{{ fact.label }}</dt>
-              <dd v-if="runLinks(fact.value)" class="runs">
-                <RouterLink v-for="run in runLinks(fact.value)" :key="run.id" :to="run.to" @click.stop>{{ run.id }}</RouterLink>
-              </dd>
-              <dd v-else>{{ fact.value }}</dd>
-            </template>
-          </dl>
+          <ProposalFacts v-if="part.facts.length" :facts="part.facts" stop-click />
           <button
             type="button"
             class="ghost sm pick"
@@ -98,25 +89,6 @@ blockquote {
   padding-left: 20px;
 }
 
-.facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 20px;
-  margin: 14px 0 0;
-  font-size: var(--fs-sm);
-}
-
-.facts dt {
-  color: var(--muted);
-}
-
-.facts dd {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
 .parts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -136,12 +108,6 @@ blockquote {
   color: var(--text);
   font: inherit;
   cursor: pointer;
-}
-
-.runs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
 }
 
 .pick {
