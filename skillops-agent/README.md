@@ -26,6 +26,7 @@ uv run scripts/mcp_smoke.py              # service(8080) 가 떠 있을 때: MCP
 | `policy` | `policy-outcomes` 등 | 정상 거절(REJECTED/HOLD)은 결함이 아님 | `rag/policies/*.md` (사람이 쓰고 version 을 올린다) |
 | `guideline` | `guide-*` | 계약 복구와 되돌리기 구분, 계약 오류를 의도로 단정하지 않기 | `rag/guides/*.md` (운영자가 쓰고 version 을 올린다) |
 | `case` | `case-*` | 증상 → 원인 skill → 올바른 수정 / 피해야 할 수정 | `rag/cases.json`. 처음에는 `order-agent/docs/scenarios` 의 S2·S3·S4·S6 으로 만들었다 |
+| `case` | `case-p_*` | 운영자가 승인·반려한 제안서에서 만든 사례. 승인은 승인한 후보가 올바른 수정, 반려는 추천 후보가 피해야 할 수정이다 | service 의 `/api/approvals`·`/api/proposals` → `rag/proposal_cases.json` 에 쌓는다 (저장소에 올리지 않는다) |
 
 ```bash
 uv run scripts/build_rag_data.py                       # 주문 Agent(:8081) 필요. 게시본 성공 실행을 찾아 쓴다
@@ -35,6 +36,8 @@ uv run scripts/build_rag_data.py --execution-id <UUID> # 실행을 직접 지정
 - 다시 만들 때: 주문 Agent 의 도구·반환 값(`ToolCatalog`, `OrderToolService`), 게시본 SKILL.md, `OrderFlowPolicy` 가 바뀌었을 때, 또는 `rag/guides/`·`rag/policies/`·`rag/cases.json` 을 고쳤을 때.
 - 최근 실행 20건에 게시본으로 성공한 실행이 없으면 멈춘다. 주문 화면(:5174)에서 기본 세트로 정상 주문을 한 번 실행한 뒤 다시 돌린다.
 - `ToolCatalog` 와 실행 기록이 어긋나면(한쪽에만 있는 skill, 다른 도구) `WARN` 을 찍는다.
+- 제안서 사례는 `SKILLOPS_RAG_SERVICE_USERNAME`·`SKILLOPS_RAG_SERVICE_PASSWORD` 를 주고 돌릴 때 읽는다. 결정 전(proposed)·유효 안 없음 제안서는 쓰지 않는다. 같은 제안서는 한 번만 쌓이고, 계정 없이 돌리면 이미 쌓인 사례만 쓴다.
+- 사례의 `confidence` 는 `확인됨(시나리오 문서)`, `확인됨(원인 실험·운영자 승인)`, `추정` 가운데 하나다. 반려는 사유가 남지 않아 항상 `추정` 이다.
 - 항목마다 `skills`, `fields`, `error_categories` 를 붙여 skill 이름과 오류 종류로 정확히 꺼낸다. 자동 생성 항목에는 `generated_at`, `bundle_version`(`<release>@<snapshot hash 앞 12자>`)이 붙는다.
 - 사례로 평가할 때는 같은 케이스의 사례를 조회 대상에서 뺀다. 답을 미리 보여 주지 않기 위해서다.
 ### 진단 노드에 붙이기

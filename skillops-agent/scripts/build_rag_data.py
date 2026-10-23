@@ -24,7 +24,17 @@ from pathlib import Path
 # 넣는다.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import os  # noqa: E402
+
+import httpx  # noqa: E402
+
 from skillops_agent import order_agent, rag_data  # noqa: E402
+from skillops_agent.config import SERVICE_URL  # noqa: E402
+
+# 승인·반려된 제안서를 읽을 service 계정이다. 비어 있으면 새 제안서 사례를 읽지 않고, 이미 쌓인
+# 사례와 시나리오 사례만 쓴다.
+SERVICE_USERNAME = os.getenv("SKILLOPS_RAG_SERVICE_USERNAME", "")
+SERVICE_PASSWORD = os.getenv("SKILLOPS_RAG_SERVICE_PASSWORD", "")
 
 # 게시본으로 본다고 판단하는 snapshot metadata 다.
 PUBLISHED_SOURCES = {"published-bundle"}
@@ -49,6 +59,54 @@ async def find_published_run() -> tuple[dict, dict] | None:
         if is_published(snapshot):
             return await order_agent.get_trace(run["execution_id"]), snapshot
     return None
+
+
+async def decided_proposals() -> list[dict] | None:
+    """service 에 로그인해 승인·반려된 제안서 상세를 읽는다. 계정이 없거나 service 가 없으면 None.
+
+    결정 기록(GET /api/approvals, 최근 50건)과 제안서 목록(GET /api/proposals, 최근 100건)에서
+    결정된 제안서 id 를 모은 뒤 GET /api/proposals/{id} 로 상세를 읽는다.
+    """
+    if not (SERVICE_USERNAME and SERVICE_PASSWORD):
+        return None
+    try:
+        async with httpx.AsyncClient(base_url=SERVICE_URL, timeout=10) as http:
+            login = await http.post("/api/auth/login", json={"username": SERVICE_USERNAME,
+                                                             "password": SERVICE_PASSWORD})
+            login.raise_for_status()
+            headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            ids = {a["proposal_id"] for a in
+                   (await http.get("/api/approvals", headers=headers)).json().get("items", [])}
+            ids |= {p["proposal_id"] for p in
+                    (await http.get("/api/proposals", headers=headers)).json().get("items", [])
+                    if p.get("status") in ("approved", "rejected")}
+            details = []
+            for proposal_id in sorted(ids):
+                response = await http.get(f"/api/proposals/{proposal_id}", headers=headers)
+                response.raise_for_status()
+                details.append(response.json())
+            return details
+    except httpx.HTTPError as exc:
+        print(f"WARN: 제안서를 읽지 못해 시나리오 사례만 씁니다 ({exc})")
+        return None
+
+
+async def error_phases(details: list[dict]) -> dict[str, str]:
+    """제안서의 실패 실행마다 EXECUTION_ERROR 의 phase 를 읽는다. 읽지 못한 실행은 넣지 않는다."""
+    phases = {}
+    for detail in details:
+        execution = ((detail.get("proposal") or {}).get("failure") or {}).get("execution_id")
+        if not execution or execution in phases:
+            continue
+        try:
+            trace = await order_agent.get_trace(execution)
+        except order_agent.OrderAgentError:
+            continue
+        for event in trace.get("events", []):
+            phase = (event.get("data") or {}).get("phase")
+            if event.get("kind") == "EXECUTION_ERROR" and phase:
+                phases[execution] = phase
+    return phases
 
 
 async def main() -> int:
@@ -83,9 +141,20 @@ async def main() -> int:
     policy_source = rag_data.FLOW_POLICY_PATH.read_text(encoding="utf-8")
     constants = rag_data.read_flow_policy_constants(policy_source)
     catalog = rag_data.read_tool_catalog(rag_data.TOOL_CATALOG_PATH.read_text(encoding="utf-8"))
+    # 운영자가 결정한 제안서를 사례로 쌓는다. 계정이 없으면 지난번에 쌓은 사례만 쓴다.
+    details = await decided_proposals()
+    new_cases = []
+    if details is None:
+        print("INFO: SKILLOPS_RAG_SERVICE_USERNAME/PASSWORD 가 없어 새 제안서 사례는 읽지 않습니다")
+    else:
+        new_cases = rag_data.cases_from_proposals(details, await error_phases(details))
+    proposal_cases = rag_data.merge_proposal_cases(new_cases) if (
+        new_cases or rag_data.PROPOSAL_CASES_PATH.exists()) else []
+    print(f"제안서 사례: 이번에 읽은 {len(new_cases)}건, 쌓인 전체 {len(proposal_cases)}건")
     data, warnings = rag_data.build(
         trace, snapshot, listing["items"], constants, catalog,
-        rag_data.load_guides(), rag_data.load_policies(), rag_data.load_cases(),
+        rag_data.load_guides(), rag_data.load_policies(),
+        rag_data.load_cases() + proposal_cases,
     )
     path = rag_data.write(data)
     # ToolCatalog 와 실행 기록이 어긋나면 데이터는 저장하되 알린다. 반환 값이 빈 도구 계약이 생길 수
