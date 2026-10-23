@@ -232,6 +232,22 @@ def check_skill_md(
     return meta, results
 
 
+def entry_structure(metas: dict[str, dict]) -> dict:
+    """frontmatter 의 steps 로 진입 skill 과 하위 단계를 나눈다.
+
+    다른 skill 의 steps 에 들어 있는 skill 은 하위 단계라 사용자 요청에서 직접 불리면 안 되고, 그
+    일은 steps 를 가진 진입 skill(예: order-flow)이 받는다. metas 는 {skill 이름: frontmatter}.
+    steps 를 가진 skill 이 없으면 모든 skill 이 진입 skill 이다.
+    """
+    sub_steps = {}
+    for name, meta in metas.items():
+        for step in (meta or {}).get("steps") or []:
+            if isinstance(step, str) and step != name:
+                sub_steps.setdefault(step, name)
+    entries = [name for name in metas if name not in sub_steps]
+    return {"entries": entries, "sub_steps": sub_steps}
+
+
 # ── 수정안 ─────────────────────────────────────────────────────────────────────
 
 

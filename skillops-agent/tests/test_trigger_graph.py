@@ -316,3 +316,63 @@ async def test_body_and_plain_expectations_reach_diagnose_and_propose(llm):
         assert f"기대: {T} 이 불려야 함" in prompt
     # 선택 Agent 는 본문을 보지 않는다(이름과 description 만).
     assert "# 본문" not in fake.prompts["_SelectionOutput"][0]
+
+
+async def test_generate_eval_set_uses_structure_and_remaps_sub_step_cases(llm):
+    from skillops_agent.trigger_nodes import generate_eval_set
+
+    flow = "---\nname: order-flow\ndescription: 주문 처리\nsteps: [payment]\n---\n본문\n"
+    pay = "---\nname: payment\ndescription: 결제한다\n---\n본문\n"
+    generated = [
+        {"query": "카드로 주문해줘", "expected_skill": "order-flow", "should_trigger": True},
+        {"query": "결제만 해줘", "expected_skill": "payment", "should_trigger": True},
+        {"query": "날씨 알려줘", "expected_skill": "none", "should_trigger": True},
+    ]
+    fake = llm([GOOD], generated)
+    result = await generate_eval_set({
+        "target_skill": "order-flow",
+        "skills": [{"name": "order-flow", "skill_md": flow}, {"name": "payment", "skill_md": pay}],
+        "cases": [], "seed_queries": ["주문할게요"], "repeat": 1,
+    })
+    # 하위 단계 일만 시키는 질의는 규칙으로 none 이 된다(팀 기준).
+    assert [(c["query"], c["expected_skill"]) for c in result["cases"]] == [
+        ("카드로 주문해줘", "order-flow"), ("결제만 해줘", "none"), ("날씨 알려줘", "none"),
+    ]
+    assert result["remapped"] == [
+        {"query": "결제만 해줘", "from": "payment", "to": "none", "should_trigger": True}
+    ]
+    assert result["structure"]["sub_steps"] == {"payment": "order-flow"}
+    assert "payment 은 order-flow 의 하위 단계" in fake.prompts["_EvalQueriesOutput"][0]
+    assert "_SelectionOutput" not in fake.calls  # 진단 그래프는 돌지 않는다
+
+
+async def test_generate_eval_set_stops_on_blocker_without_llm(llm):
+    from skillops_agent.trigger_nodes import generate_eval_set
+
+    fake = llm([GOOD])
+    result = await generate_eval_set({
+        "target_skill": T,
+        "skills": [{"name": T, "skill_md": skill_md(T, "")}, SKILLS[1]],
+        "cases": [], "seed_queries": ["보고서 써줘"],
+    })
+    assert result["status"] == "BLOCKED" and result["cases"] == []
+    assert fake.calls == {}
+
+
+def test_remap_sub_step_by_structure():
+    # 팀 기준: 하위 단계 일만 시키는 요청은 intent 와 관계없이 진입 skill 도 불리면 안 된다.
+    from skillops_agent.trigger_nodes import _remap_sub_step
+
+    one_entry = {"entries": ["order-flow"], "sub_steps": {"payment": "order-flow"}}
+    two_entries = {"entries": ["order-flow", "faq"], "sub_steps": {"payment": "order-flow"}}
+    for intent in ("should_call", "should_not_call", None):
+        case = {"intent": intent, "query": "결제 진행해줘", "expected_skill": "payment",
+                "should_trigger": True}
+        fixed = _remap_sub_step(case, one_entry, "order-flow")
+        assert (fixed["expected_skill"], fixed["should_trigger"]) == ("none", True)
+        fixed = _remap_sub_step(case, two_entries, "order-flow")
+        assert (fixed["expected_skill"], fixed["should_trigger"]) == ("order-flow", False)
+    # 하위 단계가 정답이 아니면 그대로 둔다.
+    plain = {"intent": "should_call", "query": "주문", "expected_skill": "order-flow",
+             "should_trigger": True}
+    assert _remap_sub_step(plain, one_entry, "order-flow") is plain

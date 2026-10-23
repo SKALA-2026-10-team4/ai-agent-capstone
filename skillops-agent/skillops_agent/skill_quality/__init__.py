@@ -9,6 +9,7 @@ from .rule_checker import (
     check_eval_set,
     check_proposal,
     check_skill_md,
+    entry_structure,
     parse_skill_md,
 )
 from .schemas import Finding, blockers, failed, finding, grade, reasons
@@ -19,6 +20,7 @@ __all__ = [
     "check_eval_set",
     "check_proposal",
     "check_skill_md",
+    "entry_structure",
     "failed",
     "finding",
     "grade",

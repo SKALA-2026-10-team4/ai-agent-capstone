@@ -45,6 +45,9 @@ class TriggerState(TypedDict, total=False):
 
     # 진행
     quality: dict  # {"findings": [...]} skill_quality 규칙 검사 결과
+    structure: dict  # {"entries": [...], "sub_steps": {하위: 진입}} frontmatter steps 로 정함
+    generation_dropped: list[dict]  # 생성한 질의 중 규칙에 맞지 않아 버린 것과 이유
+    generation_remapped: list[dict]  # 하위 단계 정답을 구조로 고친 기록 {query, from, to}
     baseline: dict | None  # 원래 description 으로 잰 결과(trigger_metrics.measure)
     diagnosis: dict | None  # 마지막 진단
     proposal: dict | None  # 마지막 개선안

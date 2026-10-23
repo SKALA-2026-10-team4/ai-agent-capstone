@@ -240,3 +240,28 @@ def test_sample_eval_set_skill_files_pass_rule_checks():
     for s in skills:
         _, findings = check_skill_md(s["skill_md"], s["folder"], names)
         assert failed(findings) == [], s["name"]
+
+
+# ── 진입 구조 ──────────────────────────────────────────────────────────────────
+
+
+def test_entry_structure_from_steps():
+    from skillops_agent.skill_quality import entry_structure
+
+    metas = {
+        "order-flow": {"steps": ["order-intake", "payment"]},
+        "order-intake": {},
+        "payment": {"depends_on": ["order-intake"]},
+        "faq": {},
+    }
+    s = entry_structure(metas)
+    assert s["entries"] == ["order-flow", "faq"]
+    assert s["sub_steps"] == {"order-intake": "order-flow", "payment": "order-flow"}
+    assert entry_structure({"a": {}, "b": {}}) == {"entries": ["a", "b"], "sub_steps": {}}
+
+
+def test_repository_skills_have_order_flow_as_only_entry():
+    from skillops_agent.skill_quality import entry_structure, parse_skill_md
+
+    metas = {s["name"]: parse_skill_md(s["skill_md"])[0] for s in load_skill_dir(SKILLS_DIR)}
+    assert entry_structure(metas)["entries"] == ["order-flow"]

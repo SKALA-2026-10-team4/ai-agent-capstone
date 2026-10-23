@@ -72,8 +72,11 @@ class _DescriptionProposalOutput(_PydanticModel):
     rationale: str
 
 
-# 생성한 평가 질의 하나다. 형식은 trigger_state.TriggerCase 와 같다.
+# 생성한 평가 질의 하나다. 형식은 trigger_state.TriggerCase 에 intent 를 더했다. intent 는 LLM 이
+# 이 질의를 어느 쪽으로 만들었는지 기록할 뿐이고, 정답은 check_case 와 _remap_sub_step 규칙이
+# 정한다.
 class _EvalCaseItem(_PydanticModel):
+    intent: Literal["should_call", "should_not_call"]
     query: str
     expected_skill: str
     should_trigger: bool
@@ -210,14 +213,14 @@ def _finding_lines(findings: list[dict]) -> str:
     return "\n".join(lines) or "없음"
 
 
-def _check_skill_files(skills: list[dict]) -> tuple[list[dict], list[dict]]:
+def _check_skill_files(skills: list[dict]) -> tuple[list[dict], list[dict], dict]:
     """skill_md(SKILL.md 원문)가 있는 skill 만 형식을 검사한다.
 
     description 이 비어 있으면 frontmatter 의 description 을 채운다. 원문이 없는 skill 은 검사하지
-    않는다(호출 진단은 이름과 description 만으로도 돈다).
+    않는다(호출 진단은 이름과 description 만으로도 돈다). (카드, 검사 결과, 진입 구조) 를 돌려준다.
     """
     names = {s["name"] for s in skills}
-    findings, cards = [], []
+    findings, cards, metas = [], [], {}
     for skill in skills:
         card = {"name": skill["name"], "description": skill.get("description") or ""}
         text = skill.get("skill_md")
@@ -229,8 +232,23 @@ def _check_skill_files(skills: list[dict]) -> tuple[list[dict], list[dict]]:
             # 본문은 선택 Agent 에는 보이지 않고, 진단·개선안이 Skill 의 실제 업무를 알 때만 쓴다.
             if meta:
                 card["body"] = quality.parse_skill_md(text)[1].strip()
+                metas[skill["name"]] = meta
         cards.append(card)
-    return cards, findings
+    return cards, findings, quality.entry_structure(metas)
+
+
+def _structure_text(structure: dict) -> str:
+    """진입 skill 과 하위 단계를 프롬프트 줄로 만든다. 코드가 frontmatter steps 로 정한 사실이다."""
+    sub = structure.get("sub_steps") or {}
+    if not sub:
+        return "없음 (모든 skill 을 사용자 요청에서 직접 고를 수 있습니다)"
+    lines = [f"- 사용자 요청에서 직접 고를 수 있는 진입 skill: {', '.join(structure['entries'])}"]
+    lines += [
+        f"- {step} 은 {parent} 의 하위 단계라 직접 불리면 안 됩니다. "
+        f"이 일을 요청하면 {parent} 가 받습니다."
+        for step, parent in sub.items()
+    ]
+    return "\n".join(lines)
 
 
 # ── 노드 ───────────────────────────────────────────────────────────────────────
@@ -254,7 +272,7 @@ def load_eval_set(state: TriggerState) -> dict:
             "quality": {"findings": problems},
         }
 
-    skills, skill_findings = _check_skill_files(clean["skills"])
+    skills, skill_findings, structure = _check_skill_files(clean["skills"])
     cases = clean["cases"]
     blocked = quality.blockers(skill_findings)
     if blocked:
@@ -275,6 +293,7 @@ def load_eval_set(state: TriggerState) -> dict:
         cases=cases,
         repeat=state.get("repeat") or TRIGGER_SELECT_REPEAT,
         quality={"findings": skill_findings},
+        structure=structure,
         baseline=None,
         diagnosis=None,
         proposal=None,
@@ -298,29 +317,62 @@ async def generate_eval_queries(state: TriggerState) -> dict:
         description=target["description"],
         body=_body_text(target),
         other_skills=_skill_list(_others(state)),
+        structure=_structure_text(state.get("structure") or {}),
         seed_queries="\n".join(f"- {q}" for q in state.get("seed_queries") or []) or "없음",
         positive_count=GENERATED_POSITIVE_COUNT,
         negative_count=GENERATED_NEGATIVE_COUNT,
     )
 
+    # 규칙으로 정답을 고치고 거른다. 하위 단계가 정답으로 적힌 질의는 구조로 정답을 다시 정하고,
     # 형식이 틀린 질의와 중복 질의는 버린다.
     names = {s["name"] for s in state["skills"]}
-    cases, seen = [], set()
+    structure = state.get("structure") or {}
+    cases, seen, dropped, remapped = [], set(), [], []
     for item in out.cases:
-        case, problems = check_case(item.model_dump(), names)
-        if problems or case["query"] in seen:
-            continue
-        seen.add(case["query"])
-        cases.append(case)
+        raw = item.model_dump()
+        fixed = _remap_sub_step(raw, structure, target["name"])
+        if fixed is not raw:
+            remapped.append({
+                "query": raw.get("query"), "from": raw.get("expected_skill"),
+                "to": fixed["expected_skill"], "should_trigger": fixed["should_trigger"],
+            })
+        case, problems = check_case(fixed, names)
+        if problems:
+            dropped.append({**raw, "reason": quality.reasons(problems)[0]})
+        elif case["query"] in seen:
+            dropped.append({**raw, "reason": "중복 질의"})
+        else:
+            seen.add(case["query"])
+            cases.append(case)
 
     if not has_positive(cases, target["name"]):
         raise ContractError("generated cases have no query that should trigger the target")
     return _progress(
         state,
         "generate_eval_queries",
-        f"평가 질의 {len(cases)}개를 만들었습니다.",
+        f"평가 질의 {len(cases)}개를 만들었고 정답 {len(remapped)}개를 구조로 고쳤으며 "
+        f"{len(dropped)}개를 버렸습니다.",
         cases=cases,
+        generation_dropped=dropped,
+        generation_remapped=remapped,
     )
+
+
+def _remap_sub_step(raw: dict, structure: dict, target: str) -> dict:
+    """하위 단계가 정답으로 적힌 생성 질의의 정답을 skill 구조로 다시 정한다.
+
+    해당 없으면 raw 를 그대로 돌려준다.
+
+    팀 기준: 하위 단계 일만 따로 시키는 요청(예: "결제 진행해줘")은 주문이 아니므로 진입 skill 도
+    불리면 안 된다. LLM 이 붙인 intent 와 관계없이 구조로만 정한다.
+    - 진입 skill 이 대상 하나뿐이면 아무 skill 도 불리면 안 되므로 none
+    - 다른 진입 skill 도 있으면 대상 skill 이 불리면 안 되는 질의로 둔다
+    """
+    if raw.get("expected_skill") not in (structure.get("sub_steps") or {}):
+        return raw
+    if structure.get("entries") == [target]:
+        return {**raw, "expected_skill": NONE_SKILL, "should_trigger": True}
+    return {**raw, "expected_skill": target, "should_trigger": False}
 
 
 async def measure_baseline(state: TriggerState) -> dict:
@@ -528,3 +580,29 @@ def report(state: TriggerState) -> dict:
         },
     }
     return _progress(state, "report", msg, report=result, diagnosis_status=status)
+
+
+async def generate_eval_set(state: TriggerState) -> dict:
+    """그래프를 돌리지 않고 평가 질의만 만든다. scripts/run_trigger.py --generate-only 가 쓴다.
+
+    load_eval_set 의 규칙 검사를 먼저 거치고, BLOCKER 나 입력 오류가 있으면 LLM 을 부르지 않는다.
+    돌려주는 cases 는 LLM 이 만든 초안이라 사람이 훑어본 뒤 평가셋으로 써야 한다.
+    """
+    loaded = load_eval_set(state)
+    merged = {**state, **loaded}
+    result = {
+        "status": loaded["diagnosis_status"],
+        "error": loaded.get("error"),
+        "findings": loaded["quality"]["findings"],
+        "structure": loaded.get("structure"),
+        "cases": [],
+        "dropped": [],
+        "remapped": [],
+    }
+    if result["error"] or result["status"] == TriggerStatus.BLOCKED:
+        return result
+    generated = await generate_eval_queries(merged)
+    result["cases"] = generated["cases"]
+    result["dropped"] = generated["generation_dropped"]
+    result["remapped"] = generated["generation_remapped"]
+    return result

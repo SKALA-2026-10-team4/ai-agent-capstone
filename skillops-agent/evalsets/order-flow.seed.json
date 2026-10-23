@@ -1,0 +1,11 @@
+{
+  "_comment": "실제 skills/ 로 order-flow 평가 질의를 만드는 씨앗 파일이다. run_trigger.py --generate-only 로 order-flow.generated.json 을 만든다. 주문 요청은 단계와 상관없이 진입 skill order-flow 가 받아야 한다(skills/order-flow 의 steps).",
+  "target_skill": "order-flow",
+  "skills_dir": "../../skills",
+  "seed_queries": [
+    "노트북 2대 주문할게요",
+    "카드로 결제해서 주문 넣어줘",
+    "재고 있으면 바로 주문하고 배송 예약해줘"
+  ],
+  "cases": []
+}
