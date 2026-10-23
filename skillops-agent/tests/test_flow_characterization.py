@@ -580,11 +580,15 @@ async def test_run_id_alias_trigger_is_normalized(stub, llm, monkeypatch):
     assert scenario_calls(calls)[0] == ([REPLAY], {"repeat": 1, "extra_checks": None})
 
 
+# hypothesize 프롬프트에서 이전 기각 가설이 들어가는 섹션의 머리다.
+PREV_FAILURES_HEADER = "## 이전 시도에서 기각된 가설 (재시도일 때만, 첫 시도면 없음)\n"
+
+
 @pytest.mark.asyncio
 async def test_prompts_receive_previous_failures_none_on_first_try(stub, llm):
     await run(initial())
     [hypothesis_prompt] = llm.prompts_for("_HypothesesOutput")
-    assert "기각된 가설이 있으면 참고하세요: 없음" in hypothesis_prompt
+    assert PREV_FAILURES_HEADER + "없음\n" in hypothesis_prompt
     [candidate_prompt] = llm.prompts_for("_CandidatesOutput")
     assert "'skill_versions': {'order-flow': 1, 'inventory-check': 1, 'payment': 1}" in (
         candidate_prompt
@@ -626,9 +630,9 @@ async def test_hypothesis_retry_escalates_to_proposal_after_three_rejections(
     ]
     prompts = llm.prompts_for("_HypothesesOutput")
     assert len(prompts) == 3
-    assert "참고하세요: 없음" in prompts[0]
-    assert "참고하세요: change 1: ablation 재현 실패" in prompts[1]
-    assert "참고하세요: change 1: ablation 재현 실패" in prompts[2]
+    assert PREV_FAILURES_HEADER + "없음\n" in prompts[0]
+    assert PREV_FAILURES_HEADER + "change 1: ablation 재현 실패" in prompts[1]
+    assert PREV_FAILURES_HEADER + "change 1: ablation 재현 실패" in prompts[2]
     assert result["root_cause"] is None
     saved = stub.saved[-1]
     assert saved["status"] == "no_valid_fix"

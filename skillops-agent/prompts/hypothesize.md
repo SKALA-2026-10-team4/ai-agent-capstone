@@ -8,8 +8,11 @@
 ## SKILL.md diff (hunk 목록)
 {diff}
 
+## 이전 시도에서 기각된 가설 (재시도일 때만, 첫 시도면 없음)
+{previous_failures}
+
 ## 지시사항
 - diff의 각 hunk가 장애와 어떻게 연결되는지 분석하세요.
 - change_no(입력 목록의 1부터 시작하는 번호), summary, confidence(0.0~1.0)를 가진 가설 목록을 반환하세요.
 - confidence가 높은 것을 먼저 배치하세요.
-- 이전 시도에서 기각된 가설이 있으면 참고하세요: {previous_failures}
+- 이전 시도에서 기각된 가설이 있으면, 그 change_no 는 되돌려도 장애가 사라지지 않았다는 뜻입니다. 같은 change_no 를 같은 이유로 다시 앞에 두지 말고, 남은 hunk 나 hunk 사이의 조합을 먼저 검토하세요.
