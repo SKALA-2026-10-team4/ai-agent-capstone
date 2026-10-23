@@ -83,24 +83,67 @@ def measure(cases: list[TriggerCase], selections: list[list[str]], target: str) 
         or (_wrongly_chose_target(r, target) and target in r["selected"])
     ]
 
+    # target 을 고르면 틀리는 질의가 하나도 없으면 정밀도는 늘 1.0 이라 의미가 없다.
+    # 그때는 재지 않는다(None).
+    negatives = sum(1 for r in rows if _wrongly_chose_target(r, target))
     return {
         "recall": _ratio(pos_hits, pos_total),
         "recall_range": [min(by_round), max(by_round)] if by_round else None,
-        "precision": _ratio(chosen_right, chosen_right + chosen_wrong),
+        "precision": _ratio(chosen_right, chosen_right + chosen_wrong) if negatives else None,
         "accuracy": _ratio(all_hits, all_total),
         "stolen_by": dict(stolen_by.most_common()),
+        # 숫자를 읽을 때 같이 봐야 하는 크기다. 1.0 이 몇 건 중에서 나왔는지 보여 준다.
+        "counts": {
+            "cases": len(rows),
+            "positive_cases": len(positives),
+            "negative_cases": negatives,
+            "recall_hits": f"{pos_hits}/{pos_total}",
+        },
         "misses": misses,
         "rows": rows,
     }
 
 
+def split_of(case: dict) -> str:
+    """질의의 묶음이다. split 이 없으면 진단용(dev)이다."""
+    return case.get("split") or "dev"
+
+
+def measure_split(cases: list[TriggerCase], selections: list[list[str]], target: str) -> dict:
+    """진단용(dev)과 채점용(holdout)을 따로 잰다.
+
+    돌려주는 값은 dev 의 measure 결과에 "holdout" 키(holdout measure 결과, 없으면 None)를 더한
+    것이다.
+    LLM 에는 dev 의 틀린 질의만 보여 주고, 통과 판정은 holdout 이 있으면 holdout 으로 한다(judge).
+    """
+    pairs = list(zip(cases, selections, strict=True))
+    dev = [(c, s) for c, s in pairs if split_of(c) == "dev"]
+    hold = [(c, s) for c, s in pairs if split_of(c) == "holdout"]
+    result = measure([c for c, _ in dev], [s for _, s in dev], target)
+    result["holdout"] = (
+        measure([c for c, _ in hold], [s for _, s in hold], target) if hold else None
+    )
+    return result
+
+
+def judged(m: dict) -> dict:
+    """통과 판정에 쓰는 지표다. holdout 이 있으면 holdout, 없으면 dev(같은 질의로 채점)다."""
+    return m.get("holdout") or m
+
+
 def regressions(before: dict, after: dict) -> list[str]:
-    """변경 전 통과 → 변경 후 실패로 바뀐 질의 목록이다(기획안 회귀 건수)."""
-    return [
+    """변경 전 통과 → 변경 후 실패로 바뀐 질의 목록이다(기획안 회귀 건수).
+
+    dev 와 holdout 을 모두 본다.
+    """
+    lost = [
         b["query"]
         for b, a in zip(before["rows"], after["rows"], strict=True)
         if b["passed"] and not a["passed"]
     ]
+    if before.get("holdout") and after.get("holdout"):
+        lost += regressions(before["holdout"], after["holdout"])
+    return lost
 
 
 def _recall_change(before: float | None, after: float | None) -> float | None:
@@ -132,6 +175,9 @@ def judge(before: dict, after: dict) -> tuple[bool, list[str]]:
     target 이 불려야 하는 질의가 있는데 개선안에서 한 번도 불리지 않으면(재현율 0) 실패다.
     """
     reasons = []
+    # 통과 판정은 LLM 이 보지 못한 holdout 으로 한다. holdout 이 없으면 같은 질의(dev)로 채점한다.
+    lost = regressions(before, after)
+    before, after = judged(before), judged(after)
     changes = {
         "재현율": _recall_change(before["recall"], after["recall"]),
         "정밀도": _precision_change(before["precision"], after["precision"]),
@@ -150,20 +196,35 @@ def judge(before: dict, after: dict) -> tuple[bool, list[str]]:
     for name, subject, key in subjects:
         if changes[name] is not None and changes[name] < 0:
             reasons.append(f"호출 {subject} 내려갔습니다({before[key]} → {after[key]}).")
-    lost = regressions(before, after)
     if lost:
         reasons.append(f"회귀 {len(lost)}건: " + ", ".join(lost))
     return not reasons, reasons
 
 
 def no_issue(metrics: dict) -> bool:
-    """원래 description 으로 고칠 것이 없는지 본다. 재현율 1 이고 잘못 불린 적이 없어야 한다."""
-    return metrics["recall"] == 1.0 and metrics["precision"] in (None, 1.0)
+    """원래 description 으로 고칠 것이 없는지 본다.
+
+    dev·holdout 모두 재현율 1 이고 잘못 불린 적이 없어야 한다.
+    """
+    parts = [metrics] + ([metrics["holdout"]] if metrics.get("holdout") else [])
+    return all(m["recall"] == 1.0 and m["precision"] in (None, 1.0) for m in parts)
+
+
+_SUMMARY_KEYS = ("recall", "recall_range", "precision", "accuracy", "stolen_by", "counts")
 
 
 def summary(metrics: dict) -> dict:
-    """보고서와 프롬프트에 넣을 지표만 남긴다(질의별 rows 는 뺀다)."""
-    return {k: metrics[k] for k in ("recall", "recall_range", "precision", "accuracy", "stolen_by")}
+    """보고서와 프롬프트에 넣을 지표만 남긴다(질의별 rows 는 뺀다).
+
+    holdout 이 있으면 같이 넣는다.
+    """
+    out = {k: metrics.get(k) for k in _SUMMARY_KEYS}
+    if metrics.get("holdout"):
+        out["holdout"] = {k: metrics["holdout"].get(k) for k in _SUMMARY_KEYS}
+    return out
 
 
-__all__ = ["NONE_SKILL", "case_hit", "judge", "measure", "no_issue", "regressions", "summary"]
+__all__ = [
+    "NONE_SKILL", "case_hit", "judge", "judged", "measure", "measure_split", "no_issue",
+    "regressions", "split_of", "summary",
+]

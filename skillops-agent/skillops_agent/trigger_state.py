@@ -31,6 +31,7 @@ class TriggerCase(TypedDict):
     expected_skill: str
     should_trigger: bool
     order: NotRequired[dict]  # 주문 Agent 모드의 주문 데이터. 이때 query 는 이름표다
+    split: NotRequired[str]  # dev(진단·개선, LLM 이 봄, 기본) | holdout(채점만, LLM 이 못 봄)
 
 
 class TriggerState(TypedDict, total=False):

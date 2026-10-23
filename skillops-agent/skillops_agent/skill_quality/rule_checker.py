@@ -17,6 +17,8 @@ import yaml
 
 from .schemas import Finding, finding
 
+# 질의 묶음이다. dev 는 진단·개선에 쓰고(LLM 이 봄), holdout 은 채점에만 쓴다(LLM 이 못 봄).
+SPLITS = ("dev", "holdout")
 # 어떤 skill 도 고르지 않은 선택 이름이다. trigger_state.NONE_SKILL 과 같다.
 NONE_SKILL = "none"
 # 선택 Agent 모드다. chat 은 자연어 요청, order-agent 는 실제 주문 Agent 처럼 주문 데이터를 받는다.
@@ -89,9 +91,18 @@ def check_case(
                     "expected_skill none 은 should_trigger true 와만 쓸 수 있습니다.",
                     "아무 skill 도 불리면 안 되는 질의는 none + true 로 쓰세요.")
         )
+    split = case.get("split") if isinstance(case, dict) else None
+    if split is not None and split not in SPLITS:
+        problems.append(
+            finding("rule.case_split", "FAIL", "BLOCKER",
+                    f"split '{split}' 는 지원하지 않습니다.",
+                    "dev(진단·개선용) 또는 holdout(채점용)을 쓰거나 비워 두세요.")
+        )
     if problems:
         return None, problems
     clean = {"query": query.strip(), "expected_skill": expected, "should_trigger": should}
+    if split is not None:
+        clean["split"] = split
     if order is not None:
         clean["order"] = order
     return clean, []
@@ -169,6 +180,16 @@ def check_eval_set(
         problems.append(finding("rule.target_has_positive", "FAIL", "BLOCKER",
                                 f"{target} 이 불려야 하는 질의가 없어 개선을 검증할 수 없습니다.",
                                 "expected_skill=대상, should_trigger=true 인 질의를 넣으세요."))
+    elif any(c.get("split") == "holdout" for c in clean_cases):
+        # holdout 을 쓰면 진단할 dev 와 채점할 holdout 양쪽에 불려야 하는 질의가 있어야 한다.
+        for part in ("dev", "holdout"):
+            subset = [c for c in clean_cases if (c.get("split") or "dev") == part]
+            if not has_positive(subset, target):
+                problems.append(finding(
+                    f"rule.{part}_has_positive", "FAIL", "BLOCKER",
+                    f"{part} 묶음에 {target} 이 불려야 하는 질의가 없습니다.",
+                    f"{part} 묶음에 expected_skill=대상, should_trigger=true 인 질의를 넣으세요.",
+                ))
 
     clean_skills = [
         {**s, "name": s["name"], "description": s.get("description") or ""}

@@ -1,8 +1,377 @@
 {
-  "_comment": "실제 주문 Agent 와 같은 방식(주문 데이터 + 진입 skill 선택, prompts/select_order_agent.md)으로 order-flow 호출을 잰다. skill 은 주문 Agent 가 실제로 읽는 order-agent/skills 번들, 질의는 scenarios/order-agent/golden 의 정상 주문이다.",
+  "_comment": "실제 주문 Agent 와 같은 방식(주문 데이터 + 진입 skill 선택, prompts/select_order_agent.md)으로 order-flow 호출을 잰다. skill 은 order-agent/skills 번들이다. 주문 20건 중 dev 10건(golden 3 + d-01~07)은 진단·개선에 쓰고(LLM 이 봄), holdout 10건(h-01~10)은 채점에만 쓴다(LLM 이 못 봄). 상품·결제 수단·국가는 order-agent 의 실제 값(data.sql, PaymentMockAdapter, ShippingMockAdapter)이다.",
   "target_skill": "order-flow",
   "selector": "order-agent",
   "skills_dir": "../../order-agent/skills",
   "golden_dir": "../../scenarios/order-agent/golden",
-  "cases": []
+  "cases": [
+    {
+      "query": "d-01 의자 2개 선결제 국내",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_1002",
+        "items": [
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 2
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "KR",
+          "express": false
+        }
+      },
+      "split": "dev"
+    },
+    {
+      "query": "d-02 랜턴 3개 카드 미국 배송",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_1003",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 3
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "US",
+          "express": false
+        }
+      },
+      "split": "dev"
+    },
+    {
+      "query": "d-03 랜턴+의자 카드 국내 특급",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_1004",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 1
+          },
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 1
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "KR",
+          "express": true
+        }
+      },
+      "split": "dev"
+    },
+    {
+      "query": "d-04 머그컵 2개 선결제 일본",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_1005",
+        "items": [
+          {
+            "sku": "CAMP-MUG-STEEL",
+            "qty": 2
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "JP",
+          "express": false
+        }
+      },
+      "split": "dev"
+    },
+    {
+      "query": "d-05 의자 1개 결제 거절 고객 선결제",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_declined",
+        "items": [
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 1
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "KR",
+          "express": false
+        }
+      },
+      "split": "dev"
+    },
+    {
+      "query": "d-06 랜턴 5개 카드 일본 특급",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_1006",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 5
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "JP",
+          "express": true
+        }
+      },
+      "split": "dev"
+    },
+    {
+      "query": "d-07 세 상품 묶음 카드 국내",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_1007",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 1
+          },
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 1
+          },
+          {
+            "sku": "CAMP-MUG-STEEL",
+            "qty": 1
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "KR",
+          "express": false
+        }
+      },
+      "split": "dev"
+    },
+    {
+      "query": "h-01 랜턴 2개 선결제 국내",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2001",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 2
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "KR",
+          "express": false
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-02 의자 4개 카드 미국 특급",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2002",
+        "items": [
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 4
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "US",
+          "express": true
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-03 머그컵 1개 카드 국내",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2003",
+        "items": [
+          {
+            "sku": "CAMP-MUG-STEEL",
+            "qty": 1
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "KR",
+          "express": false
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-04 랜턴+머그컵 선결제 일본",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2004",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 1
+          },
+          {
+            "sku": "CAMP-MUG-STEEL",
+            "qty": 2
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "JP",
+          "express": false
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-05 결제 거절 고객 랜턴 카드 국내",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_declined",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 2
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "KR",
+          "express": false
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-06 의자 1개 카드 일본",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2006",
+        "items": [
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 1
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "JP",
+          "express": false
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-07 랜턴 10개 선결제 미국",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2007",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 10
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "US",
+          "express": false
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-08 의자+랜턴 카드 국내 특급",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2008",
+        "items": [
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 2
+          },
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 2
+          }
+        ],
+        "payment_method": "card",
+        "shipping": {
+          "country": "KR",
+          "express": true
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-09 머그컵 3개 선결제 미국 특급",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2009",
+        "items": [
+          {
+            "sku": "CAMP-MUG-STEEL",
+            "qty": 3
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "US",
+          "express": true
+        }
+      },
+      "split": "holdout"
+    },
+    {
+      "query": "h-10 세 상품 묶음 선결제 일본",
+      "expected_skill": "order-flow",
+      "should_trigger": true,
+      "order": {
+        "customer": "c_2010",
+        "items": [
+          {
+            "sku": "CAMP-LANTERN-LED",
+            "qty": 1
+          },
+          {
+            "sku": "CAMP-CHAIR-FOLD",
+            "qty": 1
+          },
+          {
+            "sku": "CAMP-MUG-STEEL",
+            "qty": 1
+          }
+        ],
+        "payment_method": "prepaid",
+        "shipping": {
+          "country": "JP",
+          "express": false
+        }
+      },
+      "split": "holdout"
+    }
+  ]
 }

@@ -286,12 +286,21 @@ async def _select_all(
     return [list(picks[i * repeat : (i + 1) * repeat]) for i in range(len(cases))]
 
 
+def _score_text(m: dict) -> str:
+    """진행 메시지용 점수다. 채점에 쓰는 묶음과 건수를 같이 보여 1.0 이 과장되지 않게 한다."""
+    j = metrics.judged(m)
+    label = "채점용(holdout)" if m.get("holdout") else "전체(진단과 같은 질의)"
+    hits = j["counts"]["recall_hits"]
+    return f"{label} 호출 재현율 {j['recall']}({hits}), 정밀도 {j['precision']}"
+
+
 async def _measure(state: TriggerState, skills: list[SkillCard]) -> dict:
     """주어진 skill 목록으로 평가셋을 돌려 지표를 낸다."""
     selections = await _select_all(
         state["cases"], skills, state["repeat"], state.get("selector") or "chat"
     )
-    return metrics.measure(state["cases"], selections, state["target_skill"])
+    # dev 와 holdout 을 한 번에 물어 따로 잰다. LLM 에는 dev 결과만 보여 준다.
+    return metrics.measure_split(state["cases"], selections, state["target_skill"])
 
 
 # ── 규칙 검사(skill_quality) 연결 ──────────────────────────────────────────────
@@ -479,7 +488,7 @@ async def measure_baseline(state: TriggerState) -> dict:
         state,
         "measure_baseline",
         f"원래 설명으로 질의 {len(state['cases'])}개를 {state['repeat']}번씩 물었더니 "
-        f"호출 재현율이 {baseline['recall']}, 정밀도가 {baseline['precision']} 입니다.",
+        f"{_score_text(baseline)} 입니다.",
         baseline=baseline,
     )
 
@@ -556,7 +565,9 @@ async def _rubric_for(state: TriggerState, target: dict, description: str, recal
 
 def reached_target(attempt: dict) -> bool:
     """통과했고 목표 재현율에도 닿은 안인지 본다. trigger_graph.route_reverify 가 쓴다."""
-    return attempt["passed"] and (attempt["metrics"]["recall"] or 0) >= TRIGGER_TARGET_RECALL
+    return attempt["passed"] and (
+        metrics.judged(attempt["metrics"])["recall"] or 0
+    ) >= TRIGGER_TARGET_RECALL
 
 
 def best_attempt(attempts: list[dict]) -> dict | None:
@@ -567,8 +578,9 @@ def best_attempt(attempts: list[dict]) -> dict | None:
     return max(
         passed,
         key=lambda a: (
-            a["metrics"]["recall"] or 0,
-            1.0 if a["metrics"]["precision"] is None else a["metrics"]["precision"],
+            metrics.judged(a["metrics"])["recall"] or 0,
+            1.0 if metrics.judged(a["metrics"])["precision"] is None
+            else metrics.judged(a["metrics"])["precision"],
             -a["attempt"],
         ),
     )
@@ -606,6 +618,7 @@ async def reverify(state: TriggerState) -> dict:
         record.update(
             metrics=metrics.summary(after),
             misses=after["misses"],
+            holdout_misses=(after.get("holdout") or {}).get("misses", []),
             regressions=metrics.regressions(state["baseline"], after),
             passed=passed,
             reasons=reasons,
@@ -621,10 +634,41 @@ async def reverify(state: TriggerState) -> dict:
         else:
             verdict = f"통과했지만 목표 재현율 {TRIGGER_TARGET_RECALL} 에 못 미칩니다"
         msg = (
-            f"{attempt_no}번째 수정안을 다시 시험했더니 호출 재현율이 "
-            f"{state['baseline']['recall']} 에서 {after['recall']} 로 바뀌었고 {verdict}."
+            f"{attempt_no}번째 수정안을 다시 시험했더니 {_score_text(state['baseline'])} 에서 "
+            f"{_score_text(after)} 로 바뀌었고 {verdict}."
         )
     return _progress(state, "reverify", msg, attempts=state["attempts"] + [record])
+
+
+def _evaluation(state: TriggerState) -> dict:
+    """결과를 어떻게 채점했는지와 검사하지 못한 것을 적는다. 숫자를 과장해 읽지 않게 한다."""
+    target = state["target_skill"]
+    cases = state["cases"]
+    dev = [c for c in cases if metrics.split_of(c) == "dev"]
+    hold = [c for c in cases if metrics.split_of(c) == "holdout"]
+    scored = hold or dev
+    notes = []
+    if not hold:
+        notes.append(
+            "진단·개선에 쓴 질의로 채점했습니다. 처음 보는 질의에서의 성능은 확인하지 않았습니다."
+        )
+    if not any(not c["should_trigger"] or c["expected_skill"] != target for c in scored):
+        notes.append(
+            "채점 질의에 대상 skill 이 불리면 안 되는 질의가 없어 정밀도는 재지 않았습니다(null)."
+        )
+    if not any(c["expected_skill"] != target for c in cases):
+        notes.append(
+            "다른 skill 이 정답인 질의가 없어 다른 skill 호출을 빼앗는 회귀는 검사되지 않았습니다."
+        )
+    if len([c for c in scored if c["should_trigger"] and c["expected_skill"] == target]) < 10:
+        notes.append("채점에 쓴 '불려야 하는 질의'가 10개 미만이라 근거가 약합니다.")
+    return {
+        "mode": "holdout" if hold else "same_set",
+        "dev_cases": len(dev),
+        "holdout_cases": len(hold),
+        "repeat": state["repeat"],
+        "notes": notes,
+    }
 
 
 def report(state: TriggerState) -> dict:
@@ -685,7 +729,13 @@ def report(state: TriggerState) -> dict:
             "repeat": state["repeat"],
             "misses_before": _brief(baseline["misses"]) if baseline else [],
             "misses_after": _brief(passed["misses"]) if passed else [],
+            # 채점용 질의에서 틀린 것. LLM 에는 보여 주지 않았다.
+            "holdout_misses_before": _brief(
+                ((baseline or {}).get("holdout") or {}).get("misses", [])
+            ),
+            "holdout_misses_after": _brief(passed.get("holdout_misses", [])) if passed else [],
         },
+        "evaluation": _evaluation(state),
         # 등급은 대상 skill 의 SKILL.md 규칙 검사로만 매긴다. 원문이 없으면 UNVERIFIED 다.
         "quality": {
             "grade": (

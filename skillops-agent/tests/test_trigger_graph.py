@@ -456,8 +456,11 @@ def test_order_agent_eval_set_resolves_real_bundle_and_golden_orders():
     data = json.loads(path.read_text("utf-8"))
     cases = resolve_cases(data, path.parent)
     skills = resolve_skills(data, path.parent)
-    assert len(cases) == 3
+    # 주문 20건: golden 3 + d-01~07 은 dev, h-01~10 은 holdout
+    assert len(cases) == 20
     assert all(c["order"] and c["expected_skill"] == "order-flow" for c in cases)
+    splits = [c.get("split") or "dev" for c in cases]
+    assert splits.count("dev") == 10 and splits.count("holdout") == 10
     assert "order-flow" in [s["name"] for s in skills]
     from skillops_agent.skill_quality import check_eval_set
 
@@ -567,3 +570,24 @@ async def test_order_agent_mode_uses_order_agent_rubric(monkeypatch, llm):
     (_, system), _ = fake.messages["_TriggerDiagnosisOutput"][0]
     assert "의미 검사 Rubric (주문 Agent 기준)" in system
     assert "새 주문이 들어오면 가장 먼저 선택되어" in system
+
+
+async def test_llm_never_sees_holdout_queries_and_report_says_how_scored(llm):
+    fake = llm([GOOD])
+    hold = [{**c, "query": "HOLDOUT " + c["query"], "split": "holdout"} for c in CASES]
+    result = await run(cases=CASES + hold)
+    for name in ("_TriggerDiagnosisOutput", "_DescriptionProposalOutput"):
+        assert "HOLDOUT" not in fake.prompts[name][0]  # 채점용 질의는 LLM 에 보이지 않는다
+    report = result["report"]
+    assert report["evaluation"]["mode"] == "holdout"
+    assert (report["evaluation"]["dev_cases"], report["evaluation"]["holdout_cases"]) == (4, 4)
+    assert report["after"]["metrics"]["holdout"]["recall"] == 1.0
+    assert report["after"]["metrics"]["holdout"]["counts"]["recall_hits"] == "2/2"
+    assert any("10개 미만" in n for n in report["evaluation"]["notes"])
+
+
+async def test_same_set_scoring_is_stated_in_report(llm):
+    llm([GOOD])
+    report = (await run())["report"]
+    assert report["evaluation"]["mode"] == "same_set"
+    assert any("처음 보는 질의" in n for n in report["evaluation"]["notes"])

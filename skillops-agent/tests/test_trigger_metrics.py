@@ -115,3 +115,62 @@ def test_judge_none_precision_unchanged_passes_on_recall():
 def test_no_issue():
     assert m.no_issue(m.measure(CASES, [[T], [T], ["meeting-summary"], ["none"]], T))
     assert not m.no_issue(m.measure(CASES, [[T], [T], ["meeting-summary"], [T]], T))
+
+
+# ── 진단용(dev) / 채점용(holdout) 분리 ────────────────────────────────────────
+
+# 아래 테스트는 지표 값을 m 이라는 지역 이름으로 받으므로 모듈은 m_ 로 부른다.
+m_ = m
+
+
+def _split_cases():
+    dev = [{**c, "split": "dev"} for c in CASES]
+    hold = [{**c, "query": c["query"] + " (h)", "split": "holdout"} for c in CASES]
+    return dev + hold
+
+
+def test_measure_split_keeps_dev_for_llm_and_holdout_for_scoring():
+    cases = _split_cases()
+    sel = [[T], [T], ["meeting-summary"], ["none"]] + [["none"], [T], ["meeting-summary"], ["none"]]
+    m = m_.measure_split(cases, sel, T)
+    assert m["recall"] == 1.0 and m["holdout"]["recall"] == 0.5
+    assert m_.judged(m) is m["holdout"]
+    assert [r["query"] for r in m["rows"]] == [c["query"] for c in CASES]  # LLM 이 보는 쪽
+    assert m["counts"]["recall_hits"] == "2/2" and m["holdout"]["counts"]["recall_hits"] == "1/2"
+
+
+def test_judge_uses_holdout_not_dev():
+    cases = _split_cases()
+    before = m_.measure_split(cases, [["none"]] * 4 + [["none"]] * 4, T)
+    # dev 는 다 맞혔지만 holdout 은 그대로 → 개선 아님(과적합)
+    overfit = m_.measure_split(
+        cases, [[T], [T], ["meeting-summary"], ["none"]] + [["none"]] * 4, T
+    )
+    passed, reasons = m_.judge(before, overfit)
+    assert not passed and any("재현율 0" in r for r in reasons)
+    # holdout 도 오르면 통과
+    real = m_.measure_split(cases, [[T], [T], ["meeting-summary"], ["none"]] * 2, T)
+    assert m_.judge(before, real) == (True, [])
+
+
+def test_regressions_count_holdout_too():
+    cases = _split_cases()
+    good = [[T], [T], ["meeting-summary"], ["none"]]
+    before = m_.measure_split(cases, good + good, T)
+    after = m_.measure_split(cases, good + [[T], [T], [T], ["none"]], T)
+    assert m_.regressions(before, after) == ["회의 요약해줘 (h)"]
+
+
+def test_precision_is_not_measured_without_negative_cases():
+    only_positive = [CASES[0], CASES[1]]
+    m = m_.measure(only_positive, [[T], [T]], T)
+    assert m["precision"] is None  # 늘 1.0 이 되는 값은 내지 않는다
+    assert m["counts"]["negative_cases"] == 0
+
+
+def test_no_issue_needs_holdout_perfect_too():
+    cases = _split_cases()
+    good = [[T], [T], ["meeting-summary"], ["none"]]
+    assert m_.no_issue(m_.measure_split(cases, good + good, T))
+    assert not m_.no_issue(m_.measure_split(cases, good + [["none"], [T], ["meeting-summary"],
+                                                           ["none"]], T))
