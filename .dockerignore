@@ -1,0 +1,17 @@
+# 루트 context의 주문 backend 빌드에 필요한 소스만 전송한다.
+**
+!order-agent/
+!order-agent/backend/
+!order-agent/backend/**
+!order-agent/skills/
+!order-agent/skills/**
+!shared/
+!shared/skill-parser/
+!shared/skill-parser/**
+**/.env
+**/.env.*
+**/.git
+**/.gradle
+**/build
+**/bin
+**/.DS_Store

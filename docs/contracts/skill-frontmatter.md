@@ -2,6 +2,32 @@
 
 버전: v0 (초안) · 동결 예정: 1일차 09시
 
+## #72 최종 갱신 — 서버 공용 파싱 모듈 (2026-10-23)
+
+아래 1~5단계 설명은 적용 이력이다. 현재 파싱 공통화·안전 설정·크기 제한은 이 절을 우선한다.
+
+service와 주문 Agent는 이제 `shared/skill-parser`의 **동일한 Java SkillParser 모듈**을 Gradle 의존성으로 사용한다. service의 SkillFrontmatter/Frontmatter/SkillHeader와 주문 Agent의 SkillLoader가 같은 YAML 해석기를 호출한다. Java Skill 이름 규칙도 공통 모듈에 위임한다. [모듈 구조·빌드 방법](../../shared/skill-parser/README.md)
+
+| 공통 규칙 | 현재 계약 |
+|---|---|
+| YAML 구현 | SnakeYAML 2.6, 호출별 SafeConstructor 생성 |
+| 중복 키 | 최상위·중첩 객체 모두 거부 |
+| alias·anchor | 컬렉션 alias 거부; 스칼라 alias·미사용 anchor는 기존처럼 허용 |
+| 안전하지 않은 태그 | Java 임의 객체 생성 태그 거부 |
+| 중첩 깊이 | 50 |
+| YAML 크기 | 모든 경로에서 frontmatter 최대 100,000 Unicode 코드 포인트. 정확히 상한은 허용, 초과는 거부 |
+| 줄바꿈·예산 | 해석 시 CRLF를 LF로 맞춘 뒤 동일 예산 적용. UTF-16 길이·UTF-8 바이트 수와 구분 |
+| 문서 본문 | YAML 예산에 포함하지 않음. 기존 snapshot의 파일·묶음 바이트 한도는 별도 유지 |
+| 원문 증거 | 문자열·bytes·해시를 수정하지 않음. 초과·깨진 YAML도 diff hunk는 보존 |
+
+실행과 진단의 **검증 목적은 계속 구분**한다. 실행용 닫는 구분선 뒤 줄바꿈 요구, 분석용 EOF 경계 허용, 분석의 빈 맵 처리, workspace의 기존 필드 정책을 유지한다. 실행 로더의 필수 정보·목록·flow 검증도 유지한다.
+
+크기 초과는 분석에서 YAML 파싱 오류, workspace에서 기존 INVALID_INPUT, 실제 로더에서 기존 INVALID_SKILL_FORMAT으로 처리한다. Skill 조회는 기존 SKILL_METADATA_INVALID로 감싸며 목록은 partial/parse_errors에 오류를 남긴다. diff는 구조화된 frontmatter 해석 실패를 frontmatter_parse_error로 남기고 원문 hunks를 유지한다. 오류 코드나 REST/MCP 필드를 새로 추가하지 않는다. apply_patch v1.3과 Python 요청·응답 계약은 유지한다.
+
+**수락 범위 변경:** 기존 service 분석/workspace가 기본 파서 한도로 읽던 100,000 초과 frontmatter를 이제 실행기와 동일하게 거부한다. 정상 문서·기존 6개 원문·20개 정상 문법의 수락과 해시 보존은 회귀 테스트로 확인한다. 본문을 이 한도로 잘라내지 않는다.
+
+공유 [YAML 안전 fixture](examples/skill-yaml-safety-cases.json)와 두 서버의 SharedYamlSafetyContractTest가 중복 키·alias·태그·Unicode·LF/CRLF·크기 경계를 비교한다. 이로써 #72의 공용 모듈 구조·로더/분석기 적용·YAML 안전 및 크기 제한 통일 항목을 구현했다.
+
 변경 기록: 2026-10-23 · #72 1단계 — service의 workspace/snapshot YAML 해석 공통화, 목록·버전 타입 검사, 간이 실행의 빈 steps 거부.
 
 추가 기록: 2026-10-23 · #72 2단계 — patch 결과에 `depends_on` 선행 단계 누락을 `dependency_violations`로 보존하고 Python 후보 판정에 연결했다. [apply_patch 명세](mcp-tools-input-output.md#8-수정-적용하기--apply_patch)를 참고한다.

@@ -2,6 +2,8 @@
 
 작성일: 2026-10-23 · 상태: 구현 및 로컬 검증 완료 · 자동 수정 제외
 
+후속 검증: 같은 날 [실제 REST·MCP·DB 연결 검증 3개](../reports/2026-10-23-partial-evidence-integration.md)를 추가로 통과했다. 아래 583개 테스트 결과는 최초 구현 시점의 기록이다.
+
 ## 해결한 문제
 
 기존 Python 진단기는 주문 Agent의 목록이 partial이면 diff 호출 전에 종료했다. 이미 조회한 snapshot·trace도 해당 노드에서 반환하지 못해 실행 기록에는 목록 오류의 상세와 원문 증거가 없었다.
@@ -74,7 +76,7 @@ cd skillops-agent
 | 상세 REST·서비스 토큰·목록 | 인증된 상세에서 evidence 조회, 목록에는 원문 evidence 없음 |
 | 기존 정상 진단·후보 판정·사전 검증 | 기존 회귀 테스트 통과 |
 
-테스트는 HTTP/MCP 응답 대역과 실제 임시 SQLite를 사용했다. 실제 주문 Agent/service 서버, 운영 DB, LLM을 호출한 통합 검증은 수행하지 않았다. Java 운영 코드가 바뀌지 않아 Java 전체 테스트는 다시 실행하지 않았다.
+최초 구현 테스트는 HTTP/MCP 응답 대역과 실제 임시 SQLite를 사용했다. 이후 실제 주문 Agent/service와 별도 PostgreSQL·SQLite를 연결한 후속 검증을 완료했다. 실제 LLM 호출은 하지 않았다. Java 운영 코드가 바뀌지 않아 Java 전체 테스트는 다시 실행하지 않았다.
 
 ## 보장 범위
 

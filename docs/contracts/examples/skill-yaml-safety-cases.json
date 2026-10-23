@@ -1,0 +1,12 @@
+[
+  {"id":"plain-values","yaml":"extra: sample\n","valid":true},
+  {"id":"duplicate-root-key","yaml":"extra: one\nextra: two\n","valid":false},
+  {"id":"duplicate-nested-key","yaml":"extra: {key: one, key: two}\n","valid":false},
+  {"id":"collection-alias","yaml":"extra: &items [one]\nother: *items\n","valid":false},
+  {"id":"map-alias","yaml":"extra: &mapping {key: value}\nother: *mapping\n","valid":false},
+  {"id":"scalar-alias","yaml":"extra: &value example\nother: *value\n","valid":true},
+  {"id":"unused-anchor","yaml":"extra: &items [one]\n","valid":true},
+  {"id":"unsafe-tag","yaml":"extra: !!java.io.File [/tmp]\n","valid":false},
+  {"id":"broken-yaml","yaml":"extra: [broken\n","valid":false},
+  {"id":"unicode-value","yaml":"extra: '한글😀'\n","valid":true}
+]

@@ -1,1 +1,3 @@
 rootProject.name = 'skillops-service'
+include 'skill-parser'
+project(':skill-parser').projectDir = file('../shared/skill-parser')

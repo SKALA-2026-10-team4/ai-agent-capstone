@@ -1,18 +1,14 @@
 package com.capstone4.orderagent.harness;
 
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import org.springframework.stereotype.Component;
-import org.yaml.snakeyaml.Yaml;
-import org.yaml.snakeyaml.LoaderOptions;
-import org.yaml.snakeyaml.constructor.SafeConstructor;
+import com.capstone4.skillparser.SkillParser;
 
 /**
  * snapshot 바이트에서 SKILL.md 를 읽어 Skill 레코드로 만들고 검증한다. 후보 목록, flow 정적 검증, 실행 중 입력 검증도 맡는다.
  * 실행 경로(OrderHarness)와 조회 경로(order-agent/backend/src/main/java/com/capstone4/orderagent/workspace/SkillQueryService.java)가
  * 같은 규칙을 쓰도록 한곳에 둔다. 파일 시스템이 아니라 고정된 snapshot 의 파일 맵만 읽으므로 실행 중 파일이 바뀌어도 결과가 흔들리지 않는다.
- * 이 규칙은 다른 모듈이 복제한다. service/src/main/java/com/capstone4/skillops/snapshot/Frontmatter.java 는 YAML 안전 옵션을,
+ * YAML 경계·안전 옵션·크기 제한·Skill 이름은 shared/skill-parser의 SkillParser를 service와 공유한다.
  * service/src/main/java/com/capstone4/skillops/snapshot/DependencyAnalyzer.java 와 frontend/src/utils/flowGraph.js 는 validateFlow 규칙을,
  * frontend/src/utils/frontmatter.js 와 frontend/src/utils/skillSet.js 는 front matter 경계와 필수 값을,
  * skillops-agent/skillops_agent/order_agent.py 는 Skill 이름 규칙을 따라 한다. 규칙을 바꾸면 이 파일들도 함께 맞춘다.
@@ -30,8 +26,6 @@ public class SkillLoader {
      */
     public record Skill(String id, String description, int version, List<String> inputs,
                         List<String> outputs, List<String> dependsOn, List<String> steps, String body, String path, String hash, String owner) {}
-    /** '---' 로 둘러싼 front matter YAML 과 그 뒤 본문이다. */
-    private record FrontMatter(String yaml, String body) {}
     /** 필수 값 검사를 통과한 front matter 메타데이터다. */
     private record Metadata(Map<?,?> fields, String description, int version, String owner) {}
 
@@ -52,8 +46,8 @@ public class SkillLoader {
         String path=skillPath(id); byte[] bytes=files.get(path);
         if (bytes==null) throw new AgentException("UNKNOWN_SKILL");
         try {
-            var text=splitFrontMatter(decodeUtf8(bytes));
-            var metadata=requireMetadata(parseMetadata(text.yaml()),id);
+            var text=SkillParser.readForExecution(bytes);
+            var metadata=requireMetadata(text.fields(),id);
             String body=text.body().strip(); if(body.isEmpty()) throw new AgentException("INVALID_SKILL_FORMAT");
             var m=metadata.fields();
             var steps=strings(m,"steps",false);
@@ -67,27 +61,8 @@ public class SkillLoader {
      * skillops-agent/skillops_agent/order_agent.py 의 SKILL_ID 정규식이 같은 규칙으로 요청을 보내기 전에 거른다.
      */
     public static void validateName(String id) {
-        if (id==null || id.length()>64 || !id.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)*"))
+        if (!SkillParser.isValidName(id))
             throw new AgentException("INVALID_SKILL_NAME");
-    }
-    /** 잘못된 바이트를 거절하는 UTF-8 로 읽고 줄바꿈을 LF 로 맞춘다. */
-    private static String decodeUtf8(byte[] bytes) throws CharacterCodingException {
-        return StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString().replace("\r\n","\n");
-    }
-    /** 맨 앞 '---' 줄과 다음 '---' 줄 사이를 front matter 로, 그 뒤를 본문으로 나눈다. 어느 한쪽 구분선이 없으면 INVALID_SKILL_FORMAT 이다. */
-    private static FrontMatter splitFrontMatter(String text) {
-        if (!text.startsWith("---\n")) throw new AgentException("INVALID_SKILL_FORMAT");
-        int end=text.indexOf("\n---\n",4);
-        if(end<0) throw new AgentException("INVALID_SKILL_FORMAT");
-        return new FrontMatter(text.substring(4,end),text.substring(end+5));
-    }
-    /**
-     * 중복 키, 컬렉션 별칭, 길이를 제한한 안전한 YAML 로 읽는다. SafeConstructor 라 YAML 태그로 임의 Java 객체를 만들 수 없다.
-     * Yaml 은 스레드에 안전하지 않아 호출마다 만든다.
-     */
-    private static Object parseMetadata(String yaml) {
-        var options=new LoaderOptions(); options.setAllowDuplicateKeys(false); options.setMaxAliasesForCollections(0); options.setCodePointLimit(100000);
-        return new Yaml(new SafeConstructor(options)).load(yaml);
     }
     /**
      * front matter 의 필수 값을 확인한다. name 은 폴더 이름과 같아야 하고, description 과 owner 는 비어 있지 않은 문자열,

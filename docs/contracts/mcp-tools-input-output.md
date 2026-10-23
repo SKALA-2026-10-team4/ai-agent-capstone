@@ -1,5 +1,7 @@
 # MCP 도구 입출력 안내
 
+2026-10-23 · #72 공용 파서: service와 주문 Agent가 동일한 skill-parser 모듈을 사용합니다. 분석·workspace·실행 모두 YAML frontmatter 100,000 코드 포인트 제한과 같은 안전 옵션을 적용합니다. 초과 시 기존 파싱 오류 필드·코드로 처리하고 diff 원문 hunks는 보존합니다. 입력·응답 필드와 apply_patch v1.3은 변경하지 않습니다. [현재 SKILL 해석 계약](skill-frontmatter.md#72-최종-갱신--서버-공용-파싱-모듈-2026-10-23).
+
 2026-10-23 · #72 partial 목록의 증거 수집 연동: Python은 기존 원문 파일 REST와 `diff_skill` MCP를 사용해 증거만 저장하고 종료합니다. 새 MCP tool·필드 변경은 없으며 apply_patch v1.3을 유지합니다. 진단 상세 REST의 새 evidence 필드는 [별도 계약](diagnosis-evidence.md)을 따릅니다.
 
 계약 5 · **v1 제안** (v0 초안을 고친 것) · 2026-10-20 · 작성 C-2 · 동결 회의 안건
