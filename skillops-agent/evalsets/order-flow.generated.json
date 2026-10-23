@@ -1,0 +1,82 @@
+{
+  "_comment": "LLM 이 만든 초안이다. 사람이 훑어보고 틀린 질의를 고친 뒤 평가셋으로 쓴다.",
+  "target_skill": "order-flow",
+  "seed_queries": [
+    "노트북 2대 주문할게요",
+    "카드로 결제해서 주문 넣어줘",
+    "재고 있으면 바로 주문하고 배송 예약해줘"
+  ],
+  "cases": [
+    {
+      "query": "노트북 3대 주문해서 결제부터 배송까지 처리해줘",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "재고 확인하고 결제 완료된 주문 배송 예약까지 한 번에 진행해줘",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "고객 주문 접수부터 결제, 배송 예약까지 순서대로 처리해줘",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "상품 재고 확인하고 결제 처리 후 배송 예약까지 부탁해",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "카드 결제 포함해서 주문 접수부터 배송 예약까지 진행해줘",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "재고 있는 상품 5개 주문해서 결제하고 배송 예약까지 처리해줘",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "주문 접수부터 재고 확인, 결제, 배송 예약까지 한 번에 처리해줘",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "결제 완료된 주문을 배송 예약까지 포함해서 처리해줘",
+      "expected_skill": "order-flow",
+      "should_trigger": true
+    },
+    {
+      "query": "주문 상품 재고 확인해줘",
+      "expected_skill": "none",
+      "should_trigger": true
+    },
+    {
+      "query": "고객에게 주문 결과 알려줘",
+      "expected_skill": "none",
+      "should_trigger": true
+    },
+    {
+      "query": "주문 번호 확정해줘",
+      "expected_skill": "none",
+      "should_trigger": true
+    },
+    {
+      "query": "결제 진행해줘",
+      "expected_skill": "none",
+      "should_trigger": true
+    },
+    {
+      "query": "배송 예약만 해줘",
+      "expected_skill": "none",
+      "should_trigger": true
+    },
+    {
+      "query": "주문 처리 절차를 설명해줘",
+      "expected_skill": "none",
+      "should_trigger": true
+    }
+  ],
+  "skills_dir": "../../skills"
+}

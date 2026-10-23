@@ -1,0 +1,536 @@
+{
+  "target_skill": "order-flow",
+  "status": "PROPOSED",
+  "before": {
+    "description": "캠핑용품 주문의 처리 순서",
+    "metrics": {
+      "recall": 0.0,
+      "recall_range": [
+        0.0,
+        0.0
+      ],
+      "precision": null,
+      "accuracy": 0.0,
+      "stolen_by": {
+        "inventory-check": 18,
+        "order-intake": 12
+      },
+      "counts": {
+        "cases": 10,
+        "positive_cases": 10,
+        "negative_cases": 0,
+        "recall_hits": "0/30"
+      },
+      "holdout": {
+        "recall": 0.0,
+        "recall_range": [
+          0.0,
+          0.0
+        ],
+        "precision": null,
+        "accuracy": 0.0,
+        "stolen_by": {
+          "inventory-check": 26,
+          "order-intake": 4
+        },
+        "counts": {
+          "cases": 10,
+          "positive_cases": 10,
+          "negative_cases": 0,
+          "recall_hits": "0/30"
+        }
+      }
+    }
+  },
+  "after": {
+    "description": "이 스킬은 새 캠핑용품 주문이 들어왔을 때 가장 먼저 선택되어 주문 처리 전체 과정을 관리합니다. 주문 접수부터 재고 확인, 결제 처리, 배송 예약, 고객 알림까지 모든 단계를 순서대로 실행하며, 각 단계의 성공 여부에 따라 다음 단계 진행 여부를 결정합니다. 재고 부족이나 결제 거절 같은 문제 발생 시 적절히 처리하여 주문을 중단하거나 보류합니다. 이 스킬은 주문 처리의 시작점이자 전체 흐름을 조율하는 역할을 하며, 개별 단계 업무만 수행하는 하위 단계 스킬과 구분됩니다.",
+    "metrics": {
+      "recall": 1.0,
+      "recall_range": [
+        1.0,
+        1.0
+      ],
+      "precision": null,
+      "accuracy": 1.0,
+      "stolen_by": {},
+      "counts": {
+        "cases": 10,
+        "positive_cases": 10,
+        "negative_cases": 0,
+        "recall_hits": "30/30"
+      },
+      "holdout": {
+        "recall": 1.0,
+        "recall_range": [
+          1.0,
+          1.0
+        ],
+        "precision": null,
+        "accuracy": 1.0,
+        "stolen_by": {},
+        "counts": {
+          "cases": 10,
+          "positive_cases": 10,
+          "negative_cases": 0,
+          "recall_hits": "30/30"
+        }
+      }
+    }
+  },
+  "diagnosis": {
+    "cause_type": "missing_usage_context",
+    "summary": "Agent는 Skill을 고를 때 설명(description)을 봅니다. 지금 설명에는 '새 주문이 들어오면 가장 먼저 선택되어 주문 처리 전체 순서를 관리한다'는 사용 시점과 역할이 빠져 있어서 다른 단계 Skill과 구분되지 않습니다.",
+    "competing_skills": [
+      "inventory-check",
+      "order-intake"
+    ],
+    "missing_contexts": [
+      "새 주문이 들어오면 가장 먼저 선택되어 주문 처리 전체 순서를 관리한다는 역할과 시점"
+    ]
+  },
+  "rationale": "기존 설명은 너무 간단해 진입 스킬임을 드러내지 못해 단계 스킬과 혼동되었다. 새 주문이 들어왔을 때 가장 먼저 선택되어 전체 주문 처리 흐름을 관리한다는 점과 각 단계 실행과 중단 조건을 명확히 하여 진입 스킬 역할을 분명히 했다.",
+  "regressions": [],
+  "attempt_count": 1,
+  "max_attempts": 3,
+  "history": [
+    {
+      "attempt": 1,
+      "description": "이 스킬은 새 캠핑용품 주문이 들어왔을 때 가장 먼저 선택되어 주문 처리 전체 과정을 관리합니다. 주문 접수부터 재고 확인, 결제 처리, 배송 예약, 고객 알림까지 모든 단계를 순서대로 실행하며, 각 단계의 성공 여부에 따라 다음 단계 진행 여부를 결정합니다. 재고 부족이나 결제 거절 같은 문제 발생 시 적절히 처리하여 주문을 중단하거나 보류합니다. 이 스킬은 주문 처리의 시작점이자 전체 흐름을 조율하는 역할을 하며, 개별 단계 업무만 수행하는 하위 단계 스킬과 구분됩니다.",
+      "metrics": {
+        "recall": 1.0,
+        "recall_range": [
+          1.0,
+          1.0
+        ],
+        "precision": null,
+        "accuracy": 1.0,
+        "stolen_by": {},
+        "counts": {
+          "cases": 10,
+          "positive_cases": 10,
+          "negative_cases": 0,
+          "recall_hits": "30/30"
+        },
+        "holdout": {
+          "recall": 1.0,
+          "recall_range": [
+            1.0,
+            1.0
+          ],
+          "precision": null,
+          "accuracy": 1.0,
+          "stolen_by": {},
+          "counts": {
+            "cases": 10,
+            "positive_cases": 10,
+            "negative_cases": 0,
+            "recall_hits": "30/30"
+          }
+        }
+      },
+      "regressions": [],
+      "passed": true,
+      "reasons": [],
+      "checks": []
+    }
+  ],
+  "evidence": {
+    "case_count": 20,
+    "repeat": 3,
+    "misses_before": [
+      {
+        "query": "d-01 의자 2개 선결제 국내",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "d-02 랜턴 3개 카드 미국 배송",
+        "selected": [
+          "inventory-check",
+          "order-intake",
+          "order-intake"
+        ]
+      },
+      {
+        "query": "d-03 랜턴+의자 카드 국내 특급",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "d-04 머그컵 2개 선결제 일본",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "d-05 의자 1개 결제 거절 고객 선결제",
+        "selected": [
+          "order-intake",
+          "order-intake",
+          "order-intake"
+        ]
+      },
+      {
+        "query": "d-06 랜턴 5개 카드 일본 특급",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "d-07 세 상품 묶음 카드 국내",
+        "selected": [
+          "order-intake",
+          "order-intake",
+          "order-intake"
+        ]
+      },
+      {
+        "query": "g-01 랜턴 1개 카드 결제 정상 주문 (주문 Agent)",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "g-02 머그컵 재고 없음 업무 거절 (주문 Agent)",
+        "selected": [
+          "order-intake",
+          "order-intake",
+          "order-intake"
+        ]
+      },
+      {
+        "query": "g-03 결제 거절 고객 보류 (주문 Agent)",
+        "selected": [
+          "order-intake",
+          "inventory-check",
+          "inventory-check"
+        ]
+      }
+    ],
+    "misses_after": [],
+    "holdout_misses_before": [
+      {
+        "query": "h-01 랜턴 2개 선결제 국내",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-02 의자 4개 카드 미국 특급",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-03 머그컵 1개 카드 국내",
+        "selected": [
+          "inventory-check",
+          "order-intake",
+          "order-intake"
+        ]
+      },
+      {
+        "query": "h-04 랜턴+머그컵 선결제 일본",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-05 결제 거절 고객 랜턴 카드 국내",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-06 의자 1개 카드 일본",
+        "selected": [
+          "order-intake",
+          "order-intake",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-07 랜턴 10개 선결제 미국",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-08 의자+랜턴 카드 국내 특급",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-09 머그컵 3개 선결제 미국 특급",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      },
+      {
+        "query": "h-10 세 상품 묶음 선결제 일본",
+        "selected": [
+          "inventory-check",
+          "inventory-check",
+          "inventory-check"
+        ]
+      }
+    ],
+    "holdout_misses_after": []
+  },
+  "evaluation": {
+    "mode": "holdout",
+    "dev_cases": 10,
+    "holdout_cases": 10,
+    "repeat": 3,
+    "notes": [
+      "채점 질의에 대상 skill 이 불리면 안 되는 질의가 없어 정밀도는 재지 않았습니다(null).",
+      "다른 skill 이 정답인 질의가 없어 다른 skill 호출을 빼앗는 회귀는 검사되지 않았습니다."
+    ]
+  },
+  "quality": {
+    "grade": "S",
+    "findings": [],
+    "checked": 61
+  },
+  "semantic": {
+    "grade_before": "A",
+    "grade_after": "S",
+    "before": [
+      {
+        "id": "semantic.3-1",
+        "kind": "semantic",
+        "status": "FAIL",
+        "severity": "MAJOR",
+        "target": "order-flow",
+        "reason": "description 에 WHAT(기능)과 WHEN(시점)이 모두 있다 아님: description에 새 주문이 들어오면 가장 먼저 선택되어 주문 처리 전체 순서를 관리한다는 역할과 시점이 빠져 있다.",
+        "fix": "description에 새 주문이 들어오면 가장 먼저 선택되어 주문 처리 전체 순서를 관리한다는 역할과 시점을 명확히 추가한다."
+      },
+      {
+        "id": "semantic.3-2",
+        "kind": "semantic",
+        "status": "FAIL",
+        "severity": "MAJOR",
+        "target": "order-flow",
+        "reason": "고를 때 단서가 되는 표현이 충분하다 아님: 주문 데이터와 후보 목록만 보고 고를 수 있는 단서가 부족하다. 진입 skill임을 나타내는 새 주문, 전체 처리, 처리 순서 같은 단서가 없다.",
+        "fix": "진입 skill임을 나타내는 새 주문, 전체 처리, 처리 순서 같은 단서를 description에 포함한다."
+      }
+    ],
+    "after": []
+  },
+  "robustness": {
+    "before": {
+      "robust": false,
+      "broken_by": [
+        "order.original",
+        "order.target_last",
+        "order.reversed",
+        "rival.order-intake",
+        "rival.inventory-check",
+        "rival.payment",
+        "rival.shipping-reserve",
+        "rival.notify"
+      ],
+      "cases": 5,
+      "results": [
+        {
+          "id": "order.original",
+          "kind": "order",
+          "detail": "원래 순서",
+          "hits": "0/5",
+          "passed": false,
+          "chosen_instead": [
+            "inventory-check",
+            "order-intake"
+          ]
+        },
+        {
+          "id": "order.target_first",
+          "kind": "order",
+          "detail": "대상을 맨 앞에",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "order.target_last",
+          "kind": "order",
+          "detail": "대상을 맨 뒤에",
+          "hits": "1/5",
+          "passed": false,
+          "chosen_instead": [
+            "order-intake"
+          ]
+        },
+        {
+          "id": "order.reversed",
+          "kind": "order",
+          "detail": "순서를 거꾸로",
+          "hits": "3/5",
+          "passed": false,
+          "chosen_instead": [
+            "inventory-check",
+            "order-intake"
+          ]
+        },
+        {
+          "id": "rival.order-intake",
+          "kind": "rival",
+          "detail": "order-intake 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "4/5",
+          "passed": false,
+          "chosen_instead": [
+            "order-intake"
+          ]
+        },
+        {
+          "id": "rival.inventory-check",
+          "kind": "rival",
+          "detail": "inventory-check 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "3/5",
+          "passed": false,
+          "chosen_instead": [
+            "order-intake"
+          ]
+        },
+        {
+          "id": "rival.payment",
+          "kind": "rival",
+          "detail": "payment 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "2/5",
+          "passed": false,
+          "chosen_instead": [
+            "order-intake"
+          ]
+        },
+        {
+          "id": "rival.shipping-reserve",
+          "kind": "rival",
+          "detail": "shipping-reserve 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "1/5",
+          "passed": false,
+          "chosen_instead": [
+            "inventory-check",
+            "order-intake"
+          ]
+        },
+        {
+          "id": "rival.notify",
+          "kind": "rival",
+          "detail": "notify 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "0/5",
+          "passed": false,
+          "chosen_instead": [
+            "inventory-check",
+            "order-intake"
+          ]
+        }
+      ]
+    },
+    "after": {
+      "robust": true,
+      "broken_by": [],
+      "cases": 5,
+      "results": [
+        {
+          "id": "order.original",
+          "kind": "order",
+          "detail": "원래 순서",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "order.target_first",
+          "kind": "order",
+          "detail": "대상을 맨 앞에",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "order.target_last",
+          "kind": "order",
+          "detail": "대상을 맨 뒤에",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "order.reversed",
+          "kind": "order",
+          "detail": "순서를 거꾸로",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "rival.order-intake",
+          "kind": "rival",
+          "detail": "order-intake 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "rival.inventory-check",
+          "kind": "rival",
+          "detail": "inventory-check 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "rival.payment",
+          "kind": "rival",
+          "detail": "payment 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "rival.shipping-reserve",
+          "kind": "rival",
+          "detail": "shipping-reserve 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        },
+        {
+          "id": "rival.notify",
+          "kind": "rival",
+          "detail": "notify 설명에 '주문을 처리한다.' 를 붙임",
+          "hits": "5/5",
+          "passed": true,
+          "chosen_instead": []
+        }
+      ]
+    }
+  }
+}

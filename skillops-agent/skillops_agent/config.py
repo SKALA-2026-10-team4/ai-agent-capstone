@@ -132,3 +132,29 @@ RANK_FALLBACK_EVIDENCE_COUNT = 2
 # LLM 샘플링 온도다. skillops-agent/skillops_agent/llm.py 의 make_llm 이 쓴다.
 # 같은 입력에 출력이 흔들리지 않게 0.0 으로 둔다.
 LLM_TEMPERATURE = 0.0
+
+# ── 호출(트리거) 진단 튜닝 값 ──────────────────────────────────────────────────
+# skillops-agent/skillops_agent/trigger_graph.py 와 trigger_nodes.py 가 쓴다. 회귀 진단 그래프와
+# 따로 움직이므로 위 표(test_pipeline_defaults.py)에는 넣지 않고
+# skillops-agent/tests/test_trigger_graph.py 가 값을 고정한다.
+
+# 진단 → 개선안 → 재검증을 반복하는 최대 횟수다. 다 쓰면 no_valid_fix 로 끝난다.
+MAX_TRIGGER_ATTEMPTS = 3
+# 질의 하나를 선택 Agent 에 묻는 횟수다. 기획안 2-3 "한 번의 실행으로 판정하지 않는다"를 따르며,
+# 과반을 맞혀야 그 질의를 통과로 본다. 그래서 홀수로 둔다.
+TRIGGER_SELECT_REPEAT = 3
+# 선택 Agent 를 동시에 부르는 최대 수다. API 속도 제한에 걸리면 줄인다.
+TRIGGER_CONCURRENCY = 8
+# 개선안 description 의 최대 글자 수다. 넘는 안은 재검증하지 않고 버린다.
+TRIGGER_DESCRIPTION_MAX = 1024
+# 목표 호출 재현율이다. 통과한 안이 이 값에 못 미치면 남은 시도로 더 고치고, 끝나면 통과한 안 중
+# 가장 좋은 안을 제안한다.
+TRIGGER_TARGET_RECALL = 0.9
+
+# ── 진입 skill 견고성 검사(trigger_robustness) ─────────────────────────────────
+# 정답이 늘 진입 skill 하나인 주문 Agent 는 "몇 개 맞히나"보다 "무엇을 바꾸면 깨지나"를 본다.
+# 변형마다 앞에서 이 수만큼의 질의만 1번씩 묻는다(변형 8개 × 5건 = 40회 호출).
+ROBUSTNESS_CASES = 5
+# 단계 skill description 끝에 붙여 진입 skill 처럼 보이게 하는 문구다. 누가 단계 skill 을 대충 고친
+# 상황을 흉내 낸다.
+ROBUSTNESS_RIVAL_PHRASE = "주문을 처리한다."
