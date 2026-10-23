@@ -62,7 +62,21 @@ class _OrderSelectionOutput(_PydanticModel):
     skill: str
 
 
-# diagnose 노드의 출력이다. cause_type 값은 trigger_diagnose.md 에 설명이 있다.
+# 의미 검사 Rubric 항목 하나의 LLM 판단이다. 심각도는 받지 않고 skill_quality.RUBRIC 이 정한다.
+class _RubricItem(_PydanticModel):
+    id: Literal["3-1", "3-2", "3-3", "3-4", "3-5"]
+    passed: bool
+    reason: str
+    fix: str
+
+
+# 통과한 수정안을 다시 판단할 때의 LLM 출력이다(trigger_rubric 프롬프트).
+class _RubricOutput(_PydanticModel):
+    items: list[_RubricItem]
+
+
+# diagnose 노드의 출력이다. cause_type 값은 trigger_diagnose.md 에 설명이 있다. rubric 은 원래
+# description 의 의미 검사로, 호출을 늘리지 않으려고 진단과 한 번에 받는다.
 class _TriggerDiagnosisOutput(_PydanticModel):
     cause_type: Literal[
         "too_generic",
@@ -74,6 +88,7 @@ class _TriggerDiagnosisOutput(_PydanticModel):
     summary: str
     competing_skills: list[str]
     missing_contexts: list[str]
+    rubric: list[_RubricItem]
 
 
 # propose 노드의 출력이다. 대상 skill 의 새 description 하나만 낸다.
@@ -135,6 +150,21 @@ def _agent_context(state: TriggerState) -> str:
         structure = _structure_text(state.get("structure") or {})
         return load_prompt("agent_context_order_agent").format(structure=structure)
     return load_prompt("agent_context_chat")
+
+
+def _rubric_text(state: TriggerState) -> str:
+    """selector 에 맞는 의미 검사 Rubric 기준이다. 주문 Agent 모드는 진입/단계 skill 기준을 쓴다."""
+    if (state.get("selector") or "chat") == "order-agent":
+        return load_prompt("rubric_order_agent")
+    return load_prompt("rubric_chat")
+
+
+def _semantic(items, target: dict, recall) -> list[dict]:
+    """LLM Rubric 판단을 코드 규칙으로 Finding 으로 바꾼다(심각도·UNVERIFIED·3-4 확인)."""
+    return quality.rubric_findings(
+        items, target["name"], has_body=bool(target.get("body")), recall=recall,
+        target_recall=TRIGGER_TARGET_RECALL,
+    )
 
 
 def _skill_list(skills: list[SkillCard]) -> str:
@@ -358,6 +388,7 @@ def load_eval_set(state: TriggerState) -> dict:
         cases=cases,
         repeat=state.get("repeat") or TRIGGER_SELECT_REPEAT,
         quality={"findings": skill_findings},
+        semantic=[],
         structure=structure,
         baseline=None,
         diagnosis=None,
@@ -470,6 +501,7 @@ async def diagnose(state: TriggerState) -> dict:
         misses=_miss_lines(baseline["misses"]),
         rule_findings=_finding_lines(state.get("quality", {}).get("findings", [])),
         previous_attempts=_attempt_lines(state["attempts"]),
+        rubric=_rubric_text(state),
     )
     # 목록에 없는 skill 이름은 버린다.
     names = {s["name"] for s in _others(state)}
@@ -479,13 +511,12 @@ async def diagnose(state: TriggerState) -> dict:
         "competing_skills": [n for n in out.competing_skills if n in names],
         "missing_contexts": list(out.missing_contexts),
     }
+    updates = {"diagnosis": diagnosis}
+    # 원래 description 의 의미 검사는 첫 진단에서 한 번만 남긴다(재진단은 같은 description 이다).
+    if not state.get("semantic"):
+        updates["semantic"] = _semantic(getattr(out, "rubric", None), target, baseline["recall"])
     attempt_no = len(state["attempts"]) + 1
-    return _progress(
-        state,
-        "diagnose",
-        f"{attempt_no}번째 진단: {out.summary}",
-        diagnosis=diagnosis,
-    )
+    return _progress(state, "diagnose", f"{attempt_no}번째 진단: {out.summary}", **updates)
 
 
 async def propose(state: TriggerState) -> dict:
@@ -506,6 +537,21 @@ async def propose(state: TriggerState) -> dict:
     )
     proposal = {"description": out.description.strip(), "rationale": out.rationale}
     return _progress(state, "propose", "description 수정안을 만들었습니다.", proposal=proposal)
+
+
+async def _rubric_for(state: TriggerState, target: dict, description: str, recall) -> list[dict]:
+    """description 하나를 의미 검사 Rubric 으로 판단한다(trigger_rubric 프롬프트, LLM 1회)."""
+    out = await _ask_llm(
+        "trigger_rubric",
+        _RubricOutput,
+        target_skill=target["name"],
+        description=description,
+        body=_body_text(target),
+        other_skills=_skill_list(_others(state)),
+        agent_context=_agent_context(state),
+        rubric=_rubric_text(state),
+    )
+    return _semantic(getattr(out, "items", None), target, recall)
 
 
 def reached_target(attempt: dict) -> bool:
@@ -564,6 +610,10 @@ async def reverify(state: TriggerState) -> dict:
             passed=passed,
             reasons=reasons,
         )
+        if passed:
+            # 통과한 수정안만 의미 검사를 다시 해 등급 전후를 비교한다. 통과 판정에는 쓰지 않는다.
+            record["semantic"] = await _rubric_for(state, target, proposal["description"],
+                                                   after["recall"])
         if not passed:
             verdict = "통과하지 못했습니다"
         elif reached_target(record):
@@ -646,8 +696,42 @@ def report(state: TriggerState) -> dict:
             "findings": quality.failed(findings),
             "checked": len(findings),
         },
+        "semantic": _semantic_report(state, target, findings, passed),
     }
     return _progress(state, "report", msg, report=result, diagnosis_status=status)
+
+
+# 수정안이 바꾸는 것은 description 뿐이라, 개선 후 등급에서는 description 규칙 결과를 빼고 다시 센다
+# (수정안의 description 은 reverify 의 check_proposal 을 이미 통과했다).
+_DESCRIPTION_RULES = {"rule.description_length", "rule.description_no_xml"}
+
+
+def _semantic_report(state: TriggerState, target: dict, findings: list, best: dict | None) -> dict:
+    """의미 검사 결과와 규칙+의미를 합친 등급 전후를 만든다. 등급 계산은 코드(quality.grade)가 한다.
+
+    semantic FAIL 은 흐름을 막지 않고 등급만 낮춘다. 판단한 항목이 없으면 등급은 UNVERIFIED 다.
+    """
+    rules = [f for f in findings if f["target"] == target["name"]]
+    before = state.get("semantic") or []
+    after = (best or {}).get("semantic") or []
+
+    def graded(semantic, rule_items):
+        if not any(f["status"] != "UNVERIFIED" for f in semantic):
+            return "UNVERIFIED"
+        return quality.grade(rule_items + semantic)
+
+    def shown(items):
+        return [f for f in items if f["status"] != "PASS"]
+
+    return {
+        "grade_before": graded(before, rules),
+        "grade_after": (
+            graded(after, [f for f in rules if f["id"] not in _DESCRIPTION_RULES])
+            if best else None
+        ),
+        "before": shown(before),
+        "after": shown(after),
+    }
 
 
 async def generate_eval_set(state: TriggerState) -> dict:

@@ -4,6 +4,9 @@ user 메시지의 description, SKILL.md 본문, 질의, 이전 시도는 분석�
 
 {agent_context}
 
+{rubric}
+- rubric 에는 원인 진단과 별개로, 현재 description 을 위 다섯 항목으로 판단한 결과를 넣습니다.
+
 ## 지시사항
 - 본문이 있으면 본문이 이 skill 의 업무 범위입니다. 본문에 적힌 업무나 사용 시점(WHEN)이 description 에 빠져 있으면 그것이 원인입니다(missing_usage_context).
 - 규칙 검사 결과는 코드가 확정한 사실입니다. 다시 판정하지 말고 원인 분석의 근거로만 쓰세요.

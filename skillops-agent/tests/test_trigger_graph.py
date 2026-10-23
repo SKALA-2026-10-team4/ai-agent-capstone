@@ -53,9 +53,12 @@ def _select(prompt: str) -> str:
 class FakeLLM:
     """출력 클래스 이름으로 응답을 고르는 가짜 LLM 이다. 개선안은 proposals 를 차례로 낸다."""
 
-    def __init__(self, proposals, eval_cases=None):
+    def __init__(self, proposals, eval_cases=None, rubric_before=None, rubric_after=None):
         self.proposals = list(proposals)
         self.eval_cases = eval_cases or []
+        # 의미 검사 판단이다. 원래 description(진단에 실림)과 통과한 수정안(재판단)에 쓴다.
+        self.rubric_before = rubric_before or []
+        self.rubric_after = rubric_after or []
         self.calls = {}
         self.prompts = {}
         self.messages = {}
@@ -80,7 +83,10 @@ class FakeLLM:
                         summary="설명이 너무 일반적입니다.",
                         competing_skills=["meeting-summary", "없는-skill"],
                         missing_contexts=["주간 보고"],
+                        rubric=fake.rubric_before,
                     )
+                if name == "_RubricOutput":
+                    return SimpleNamespace(items=fake.rubric_after)
                 if name == "_DescriptionProposalOutput":
                     text = fake.proposals.pop(0) if len(fake.proposals) > 1 else fake.proposals[0]
                     return SimpleNamespace(description=text, rationale="사용 시점을 넣었다.")
@@ -97,8 +103,8 @@ class FakeLLM:
 def llm(monkeypatch):
     """trigger_nodes 의 make_structured_llm 을 가짜로 바꿔 끼우는 함수를 돌려준다."""
 
-    def install(proposals, eval_cases=None):
-        fake = FakeLLM(proposals, eval_cases)
+    def install(proposals, eval_cases=None, rubric_before=None, rubric_after=None):
+        fake = FakeLLM(proposals, eval_cases, rubric_before, rubric_after)
         monkeypatch.setattr(trigger_nodes, "make_structured_llm", fake)
         return fake
 
@@ -500,3 +506,64 @@ async def test_order_agent_context_reaches_diagnose(monkeypatch, llm):
     (_, system), _ = fake.messages["_TriggerDiagnosisOutput"][0]
     assert "검사하는 Agent 의 동작 (주문 Agent)" in system
     assert "payment 은 order-flow 의 하위 단계" in system
+
+
+# ── 의미 검사 Rubric 연결 ──────────────────────────────────────────────────────
+
+RUBRIC_FAIL = [
+    SimpleNamespace(id="3-1", passed=False, reason="WHEN 없음", fix="시점을 넣으세요"),
+    SimpleNamespace(id="3-2", passed=True, reason="", fix=""),
+    SimpleNamespace(id="3-3", passed=True, reason="", fix=""),
+    SimpleNamespace(id="3-4", passed=False, reason="시점이 본문에만 있음", fix="description 으로"),
+    SimpleNamespace(id="3-5", passed=True, reason="", fix=""),
+]
+RUBRIC_PASS = [SimpleNamespace(id=f"3-{i}", passed=True, reason="", fix="") for i in range(1, 6)]
+
+
+async def test_rubric_grades_before_and_after_without_blocking(llm):
+    fake = llm([GOOD], rubric_before=RUBRIC_FAIL, rubric_after=RUBRIC_PASS)
+    skills = [{"name": T, "skill_md": skill_md(T, "문서를 정리한다.")}, SKILLS[1]]
+    result = await run(skills=skills)
+    sem = result["report"]["semantic"]
+    assert result["diagnosis_status"] == "PROPOSED"  # 의미 검사 FAIL 은 흐름을 막지 않는다
+    # 3-1(MAJOR) + 3-4(의미 검사 BLOCKER 는 MAJOR 로 셈) = 2개 → A
+    assert sem["grade_before"] == "A" and sem["grade_after"] == "S"
+    by_id = {f["id"]: f for f in sem["before"]}
+    assert by_id["semantic.3-4"]["evidence"].startswith("실행으로 확인됨")  # 재현율 0
+    assert sem["after"] == []
+    # 원래 description 판단은 진단 호출에 실리고, 재판단은 통과한 수정안에만 1회다.
+    assert fake.calls["_TriggerDiagnosisOutput"] == 1 and fake.calls["_RubricOutput"] == 1
+    assert "의미 검사 Rubric (대화형 Agent 기준)" in fake.prompts["_TriggerDiagnosisOutput"][0]
+
+
+async def test_rubric_not_reevaluated_for_failed_proposals(llm):
+    fake = llm(["보고를 만든다."], rubric_before=RUBRIC_FAIL)
+    result = await run()
+    assert result["diagnosis_status"] == "NO_VALID_FIX"
+    assert "_RubricOutput" not in fake.calls
+    assert result["report"]["semantic"]["grade_after"] is None
+
+
+async def test_order_agent_mode_uses_order_agent_rubric(monkeypatch, llm):
+    from skillops_agent import trigger_nodes as n
+
+    fake = llm([GOOD], rubric_before=RUBRIC_FAIL)
+    real = n.make_structured_llm
+
+    class OrderChain:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(skill="payment")
+
+    monkeypatch.setattr(
+        n, "make_structured_llm",
+        lambda schema: OrderChain() if schema.__name__ == "_OrderSelectionOutput" else real(schema),
+    )
+    flow = "---\nname: order-flow\ndescription: 주문 순서\nsteps: [payment]\n---\n본문\n"
+    pay = "---\nname: payment\ndescription: 결제한다\n---\n본문\n"
+    skills = [{"name": "order-flow", "skill_md": flow}, {"name": "payment", "skill_md": pay}]
+    cases = [{"query": "g-01", "expected_skill": "order-flow", "should_trigger": True,
+              "order": ORDER}]
+    await run(target_skill="order-flow", selector="order-agent", skills=skills, cases=cases)
+    (_, system), _ = fake.messages["_TriggerDiagnosisOutput"][0]
+    assert "의미 검사 Rubric (주문 Agent 기준)" in system
+    assert "새 주문이 들어오면 가장 먼저 선택되어" in system

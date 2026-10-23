@@ -13,8 +13,10 @@ from .rule_checker import (
     parse_skill_md,
 )
 from .schemas import Finding, blockers, failed, finding, grade, reasons
+from .semantic_checker import RUBRIC, rubric_findings
 
 __all__ = [
+    "RUBRIC",
     "Finding",
     "blockers",
     "check_eval_set",
@@ -27,4 +29,5 @@ __all__ = [
     "load_skill_dir",
     "parse_skill_md",
     "reasons",
+    "rubric_findings",
 ]

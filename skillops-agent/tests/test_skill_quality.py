@@ -265,3 +265,45 @@ def test_repository_skills_have_order_flow_as_only_entry():
 
     metas = {s["name"]: parse_skill_md(s["skill_md"])[0] for s in load_skill_dir(SKILLS_DIR)}
     assert entry_structure(metas)["entries"] == ["order-flow"]
+
+
+# ── 의미 검사 Rubric (LLM 판단 → 코드 규칙) ───────────────────────────────────
+
+
+def item(rid, passed, reason="", fix=""):
+    return {"id": rid, "passed": passed, "reason": reason, "fix": fix}
+
+
+def test_rubric_severity_and_unverified_are_decided_by_code():
+    from skillops_agent.skill_quality import RUBRIC, rubric_findings
+
+    items = [item("3-1", False, "WHEN 없음", "시점을 넣으세요"), item("3-2", True),
+             item("3-5", True), item("9-9", False)]  # 모르는 id 는 버린다
+    found = {f["id"]: f for f in rubric_findings(items, "t", has_body=False)}
+    assert list(found) == [f"semantic.{rid}" for rid in RUBRIC]
+    assert all(f["kind"] == "semantic" for f in found.values())
+    assert found["semantic.3-1"]["status"] == "FAIL"
+    assert found["semantic.3-1"]["severity"] == "MAJOR"  # LLM 이 아니라 표가 정한다
+    assert found["semantic.3-2"]["status"] == "PASS"
+    # 본문이 필요한 항목은 원문이 없으면 묻지 않고 UNVERIFIED
+    assert found["semantic.3-3"]["status"] == "UNVERIFIED"
+    assert found["semantic.3-4"]["status"] == "UNVERIFIED"
+
+
+def test_rubric_missing_answer_is_unverified():
+    from skillops_agent.skill_quality import rubric_findings
+
+    found = {f["id"]: f for f in rubric_findings([], "t", has_body=True)}
+    assert {f["status"] for f in found.values()} == {"UNVERIFIED"}
+
+
+def test_body_only_trigger_is_confirmed_by_execution_not_by_llm():
+    from skillops_agent.skill_quality import rubric_findings
+
+    fail = [item("3-4", False, "시점이 본문에만 있음")]
+    low = {f["id"]: f for f in rubric_findings(fail, "t", True, recall=0.2)}["semantic.3-4"]
+    high = {f["id"]: f for f in rubric_findings(fail, "t", True, recall=1.0)}["semantic.3-4"]
+    assert low["severity"] == "BLOCKER" and low["evidence"].startswith("실행으로 확인됨")
+    assert high["evidence"] == "실행으로 확인되지 않음"
+    # 의미 검사의 BLOCKER 는 흐름을 막지 않고 F 를 만들지 않는다.
+    assert blockers([low]) == [] and grade([low]) == "A"
