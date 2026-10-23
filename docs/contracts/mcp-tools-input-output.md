@@ -530,6 +530,14 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 | `skill_versions` | 시작한 버전 | 묶음 | 예 | 연습 공간 안의 skill 전부와 각각의 시작 버전입니다. `snapshot_id`로 만들었으면 각 SKILL.md 맨 위 칸의 `version` 값입니다. |
 | `created_at` | 만든 시각 | 시각 | 예 | 연습 공간을 만든 시각입니다(UTC). |
 
+### SKILL 목록 null 해석 (#72 · 5단계)
+
+`steps: null`, `steps: ~`, `steps:`는 빈 목록으로 읽습니다. 비어 있지 않은 steps를 가진 flow에서는 `inputs`·`outputs`의 같은 null 표현도 빈 목록으로 읽습니다. 일반 단계의 명시적 null 입출력과 잘못된 목록 타입·항목은 계속 INVALID_INPUT입니다. workspace 어댑터의 누락 목록 처리는 기존대로 유지하고 실제 단계의 필수 목록 검사는 분석기·실행기가 수행합니다.
+
+정상 null 표현 때문에 snapshot 복사나 운영 폴더 버전 조회가 실패하던 차이를 해결했습니다. 해석 결과만 바꾸며 저장 원문·줄바꿈·버전은 바꾸지 않습니다. **workspace 생성 성공은 실행 성공을 보장하지 않습니다.** root steps가 비어 있으면 run_scenarios 실행 및 entry 분석에서 계속 거부합니다.
+
+도구 요청·응답 필드는 그대로이며 apply_patch v1.3 계약 버전도 유지합니다. [SKILL 규칙](skill-frontmatter.md#목록-null-호환성-72--5단계) · [검증 결과](../changes/2026-10-23-skill-list-null-compatibility.md).
+
 ### 예시
 
 담당자가 고치기 전 버전으로 만드는 경우입니다.
@@ -796,6 +804,8 @@ Python은 `flow_errors == []`일 때만 `results.flow_valid=true`입니다. 네 
 | 실제 실행기 | `harness` | 연습 공간의 파일 전부를 후보 snapshot으로 주문 Agent에 올리고, 시험 주문마다 주문 Agent에서 모의 실행(`POST /api/dry-runs`)한 뒤 실행 기록(trace)을 읽어 채점합니다 | 후보가 실제 주문 Agent에서 고쳐지는지 판정 |
 
 **#72 1단계 간이 실행 검증 변경(2026-10-23):** `contract-only`도 공통 YAML 파서로 여러 줄 `steps`와 입출력 목록을 읽습니다. `order-flow.steps` 누락·빈 목록·null·잘못된 타입은 `INVALID_INPUT`으로 거부하고 아무 단계도 실행하지 않습니다. 빈 순서를 `SHIPPED`로 반환하지 않습니다. 이 검사는 간이 실행기의 입력 검증이며 실제 실행기의 추가 규칙과 같은 수준의 검증 완료를 뜻하지 않습니다.
+
+**#72 5단계 null 호환성(2026-10-23):** 일반 단계의 steps null과 비어 있지 않은 flow의 선택 입출력 null은 빈 목록으로 읽습니다. 일반 단계의 명시적 null 입출력은 계속 거부합니다. root steps 누락·null·[]는 실행 전에 거부하며, 이를 SHIPPED로 반환하지 않습니다. 기존 정상 다섯 단계에 허용된 null 표현을 넣어도 간이 실행 g-01의 기대 결과가 유지되는지 검증했습니다.
 
 실제 실행기에서 알아 둘 점은 아래와 같습니다.
 

@@ -11,6 +11,8 @@ import java.util.HashMap;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.capstone4.skillops.workspace.WorkspaceSkill;
 
@@ -148,7 +150,7 @@ class ContractOnlyFlowRunnerTest {
     /** 누락·null·빈 steps는 주문이나 업무 단계를 실행하기 전에 입력 오류로 거부한다. */
     @Test
     void emptyFlowNeverReturnsShipped() {
-        for (String declaration : List.of("", "steps: []\n", "steps: null\n")) {
+        for (String declaration : List.of("", "steps: []\n", "steps: null\n", "steps: ~\n", "steps:\n")) {
             var skills = new HashMap<>(liveSkills());
             skills.put("order-flow", new WorkspaceSkill(1,
                     "---\nname: order-flow\nversion: 1\n" + declaration + "---\nbody\n"));
@@ -157,5 +159,40 @@ class ContractOnlyFlowRunnerTest {
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("steps");
         }
+    }
+
+    /** 정상 다섯 단계의 null steps와 flow 선택 목록을 읽고 g-01 결과를 유지한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "~", ""})
+    void allowedNullListsKeepAllFiveStepsAndGoldenResult(String value) {
+        var skills = new HashMap<>(liveSkills());
+        skills.replaceAll((id, skill) -> {
+            String fields = id.equals("order-flow")
+                    ? "inputs: " + value + "\noutputs: " + value + "\ndepends_on: " + value
+                    : "steps: " + value;
+            return new WorkspaceSkill(skill.baseVersion(), skill.fullText().replace("\n---\n", "\n" + fields + "\n---\n"));
+        });
+
+        RunOutcome outcome = runner.runDryRun(new FlowRunner.DryRunRequest("g-01", g01Order(), "w_t", skills));
+
+        assertThat(outcome.finalStatus()).isEqualTo(RunOutcome.SHIPPED);
+        assertThat(outcome.steps()).extracting(RunOutcome.Step::skill)
+                .containsExactly("order-intake", "inventory-check", "payment", "shipping-reserve", "notify");
+        assertThat(outcome.steps()).extracting(RunOutcome.Step::status).containsOnly(RunOutcome.Step.OK);
+        assertThat(new ScenarioGrader().grade(Expectation.of(g01().expect()), List.of(), outcome).passed()).isTrue();
+    }
+
+    /** steps null을 허용하더라도 일반 단계의 명시적 null 입출력은 실행 오류로 남는다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"inputs", "outputs"})
+    void nullStepInputsAndOutputsRemainRejected(String field) {
+        var skills = new HashMap<>(liveSkills());
+        WorkspaceSkill payment = skills.get("payment");
+        String text = payment.fullText().replaceFirst(field + ":[^\n]*", field + ": null")
+                .replace("\n---\n", "\nsteps: null\n---\n");
+        skills.put("payment", new WorkspaceSkill(payment.baseVersion(), text));
+
+        assertThatThrownBy(() -> runner.runDryRun(new FlowRunner.DryRunRequest("g-01", g01Order(), "w_t", skills)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(field);
     }
 }

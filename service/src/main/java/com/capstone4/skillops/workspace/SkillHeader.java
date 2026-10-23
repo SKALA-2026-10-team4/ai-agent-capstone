@@ -10,7 +10,7 @@ import com.capstone4.skillops.skill.SkillFrontmatter;
 /**
  * 공통 SkillFrontmatter로 name, version, inputs, outputs, steps를 읽는 workspace 어댑터다.
  * C-1과 같은 YAML 파서를 사용하므로 여러 줄 목록과 따옴표도 같은 값으로 읽힌다.
- * 누락된 선택 목록은 비우되 명시적 null이나 잘못된 타입은 입력 오류로 거부한다.
+ * steps null과 flow의 선택 입출력 null은 비우며, 일반 단계 입출력 null과 잘못된 타입은 거부한다.
  *
  * 쓰는 곳은 버전 확인과 가짜 실행기다. service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 와
  * service/src/main/java/com/capstone4/skillops/workspace/LiveFolderSkillVersionStore.java 의 versionOf 가 version 을,
@@ -20,16 +20,23 @@ import com.capstone4.skillops.skill.SkillFrontmatter;
  * apply_patch 의 연결 검사는 C-1 의 DependencyAnalyzer 가 한다. record 의 accessor 는 읽은 값을 그대로 돌려준다.
  *
  * @param version 버전이 없으면 null이며, 있으면 1 이상의 Integer여야 한다
- * @param steps   order-flow 에만 있는 실행 순서다. 다른 skill 은 빈 목록이다
+ * @param steps   비어 있지 않으면 flow의 실행 순서이며 빈 목록의 entry 실행은 실행기가 거부한다
  */
 public record SkillHeader(String name, Integer version, List<String> inputs, List<String> outputs, List<String> steps) {
+
+    /** 명시적 null을 빈 목록으로 읽을지 입력 오류로 거부할지 정한다. */
+    private enum NullListPolicy { AS_EMPTY, REJECT }
 
     /** YAML을 읽고 workspace 필드 타입을 검사하며 파싱 실패를 INVALID_INPUT용 입력 예외로 바꾼다. */
     public static SkillHeader parse(String fullText) {
         try {
             Map<String, Object> fields = SkillFrontmatter.requireFields(fullText);
-            return new SkillHeader(nameOf(fields), versionOf(fields), strings(fields, "inputs"),
-                    strings(fields, "outputs"), strings(fields, "steps"));
+            String name = nameOf(fields);
+            Integer version = versionOf(fields);
+            List<String> steps = strings(fields, "steps", NullListPolicy.AS_EMPTY);
+            NullListPolicy policy = steps.isEmpty() ? NullListPolicy.REJECT : NullListPolicy.AS_EMPTY;
+            return new SkillHeader(name, version, strings(fields, "inputs", policy),
+                    strings(fields, "outputs", policy), steps);
         } catch (YAMLException error) {
             throw new IllegalArgumentException("SKILL.md YAML을 읽을 수 없습니다: " + error.getMessage(), error);
         }
@@ -57,9 +64,9 @@ public record SkillHeader(String name, Integer version, List<String> inputs, Lis
         return version;
     }
 
-    /** 선택 목록의 누락은 허용하고 null·잘못된 항목은 빈 목록 대신 입력 오류로 알린다. */
-    private static List<String> strings(Map<String, Object> fields, String key) {
-        if (!fields.containsKey(key)) {
+    /** 누락은 기존처럼 비우고 명시적 null만 역할별 정책을 적용하며 잘못된 타입·항목은 거부한다. */
+    private static List<String> strings(Map<String, Object> fields, String key, NullListPolicy nullPolicy) {
+        if (!fields.containsKey(key) || (fields.get(key) == null && nullPolicy == NullListPolicy.AS_EMPTY)) {
             return List.of();
         }
         if (!(fields.get(key) instanceof List<?> values)

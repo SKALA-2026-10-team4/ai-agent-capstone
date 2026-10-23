@@ -73,14 +73,59 @@ class SkillHeaderTest {
         assertThat(header.steps()).isEmpty();
     }
 
-    /** scalar, null, 숫자 항목과 빈 문자열을 정상 빈 목록으로 취급하지 않는다. */
+    /** scalar와 잘못된 항목을 정상 빈 목록으로 취급하지 않는다. */
     @ParameterizedTest
-    @ValueSource(strings = {"inventory.reserved", "null", "[1]", "['']", "['   ']"})
+    @ValueSource(strings = {"inventory.reserved", "\"null\"", "true", "{}", "[null]", "[[value]]", "[1]", "['']", "['   ']"})
     void rejectsInvalidListValues(String value) {
         for (String field : List.of("inputs", "outputs", "steps")) {
             assertThatThrownBy(() -> SkillHeader.parse(document(field + ": " + value + "\n")))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining(field);
+        }
+    }
+
+    /** 선택 사항인 flow 입출력도 실제 null 이외의 잘못된 타입은 거부한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"value", "\"null\"", "true", "{}", "[null]", "[[value]]", "[1]", "['']", "['   ']"})
+    void flowOptionalListsStillRejectInvalidValues(String value) {
+        for (String field : List.of("inputs", "outputs")) {
+            assertThatThrownBy(() -> SkillHeader.parse(document("steps: [child]\n" + field + ": " + value + "\n")))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(field);
+        }
+    }
+
+    /** YAML의 세 null 표현은 단계의 steps를 빈 목록으로 읽는다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "~", ""})
+    void nullStepsAreEmptyWithoutRewritingOtherLists(String value) {
+        SkillHeader header = SkillHeader.parse(document("inputs: []\noutputs: []\nsteps: " + value + "\n"));
+
+        assertThat(header.steps()).isEmpty();
+        assertThat(header.inputs()).isEmpty();
+        assertThat(header.outputs()).isEmpty();
+    }
+
+    /** 이름 대신 비어 있지 않은 steps를 기준으로 flow의 null 입출력을 허용한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "~", ""})
+    void nonEmptyStepsAllowNullOptionalInputsAndOutputs(String value) {
+        SkillHeader header = SkillHeader.parse(document("steps: [child]\ninputs: " + value + "\noutputs: " + value + "\n"));
+
+        assertThat(header.name()).isEqualTo("payment");
+        assertThat(header.steps()).containsExactly("child");
+        assertThat(header.inputs()).isEmpty();
+        assertThat(header.outputs()).isEmpty();
+    }
+
+    /** steps의 누락·빈 목록·null 모두 일반 단계의 입출력 null을 허용하지 않는다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "~", ""})
+    void stepInputAndOutputNullRemainInvalid(String value) {
+        for (String steps : List.of("", "steps: []\n", "steps: null\n")) {
+            for (String field : List.of("inputs", "outputs")) {
+                assertThatThrownBy(() -> SkillHeader.parse(document(steps + field + ": " + value + "\n")))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(field);
+            }
         }
     }
 
