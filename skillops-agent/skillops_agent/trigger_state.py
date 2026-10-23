@@ -5,7 +5,7 @@
 skillops-agent/skillops_agent/trigger_graph.py 에 있다.
 """
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from .state import DiagnosisStatus
 
@@ -30,6 +30,7 @@ class TriggerCase(TypedDict):
     query: str
     expected_skill: str
     should_trigger: bool
+    order: NotRequired[dict]  # 주문 Agent 모드의 주문 데이터. 이때 query 는 이름표다
 
 
 class TriggerState(TypedDict, total=False):
@@ -41,6 +42,8 @@ class TriggerState(TypedDict, total=False):
     cases: list[TriggerCase]
     seed_queries: list[str]  # cases 가 비었을 때 평가 질의 생성의 씨앗 문장
     repeat: int
+    # chat(자연어 요청) | order-agent(실제 주문 Agent 처럼 주문 데이터로 진입 skill 선택)
+    selector: str
     pipeline_thread_id: str  # 있으면 graph.guarded 가 RunStore 에 진행을 저장한다
 
     # 진행

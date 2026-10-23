@@ -5,6 +5,7 @@
 비워 두고 load_eval_set 이 frontmatter 에서 채운다.
 """
 
+import json
 from pathlib import Path
 
 
@@ -21,6 +22,26 @@ def load_skill_dir(skills_dir: str | Path) -> list[dict]:
     if not skills:
         raise FileNotFoundError(f"SKILL.md 가 하나도 없습니다: {root}")
     return skills
+
+
+def resolve_cases(data: dict, base_dir: str | Path) -> list:
+    """평가셋 JSON 의 질의 목록을 정한다. golden_dir 이 있으면 golden 주문을 질의로 더한다.
+
+    golden_dir(평가셋 파일 기준 상대 경로) 아래 *.json 은 scenarios/order-agent/golden 형식이다.
+    정상 주문이라 정답은 대상 skill(target_skill)이고, query 는 '<id> <name>' 이름표다.
+    """
+    cases = list(data.get("cases") or [])
+    if data.get("golden_dir"):
+        root = Path(base_dir) / data["golden_dir"]
+        for path in sorted(root.glob("*.json")):
+            scenario = json.loads(path.read_text(encoding="utf-8"))
+            cases.append({
+                "query": f"{scenario.get('id', path.stem)} {scenario.get('name', '')}".strip(),
+                "expected_skill": data.get("target_skill"),
+                "should_trigger": True,
+                "order": scenario.get("order"),
+            })
+    return cases
 
 
 def resolve_skills(data: dict, base_dir: str | Path, override: str | Path | None = None) -> list:

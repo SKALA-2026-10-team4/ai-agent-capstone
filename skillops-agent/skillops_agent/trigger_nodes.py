@@ -17,6 +17,7 @@ propose → reverify → (통과·시도 소진이면 report, 아니면 diagnose
 """
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -37,6 +38,9 @@ from .prompts import load as load_prompt
 from .skill_quality.rule_checker import check_case, has_positive
 from .trigger_state import NONE_SKILL, SkillCard, TriggerCase, TriggerState, TriggerStatus
 
+# 주문 Agent 모드에서 질의에 order_id 가 없을 때 쓰는 주문 번호다. 선택에는 영향이 없는 값이다.
+ORDER_ID_PLACEHOLDER = "00000000-0000-4000-8000-000000000001"
+
 # 평가셋이 없을 때 만드는 질의 수다. 불려야 하는 질의와 불리면 안 되는 질의로 나눈다.
 GENERATED_POSITIVE_COUNT = 8
 GENERATED_NEGATIVE_COUNT = 6
@@ -50,6 +54,11 @@ GENERATED_NEGATIVE_COUNT = 6
 class _SelectionOutput(_PydanticModel):
     skill: str
     reason: str
+
+
+# 주문 Agent 모드 선택 출력이다. 실제 주문 Agent 의 응답 {"skill":"name"} 과 같은 모양이다.
+class _OrderSelectionOutput(_PydanticModel):
+    skill: str
 
 
 # diagnose 노드의 출력이다. cause_type 값은 trigger_diagnose.md 에 설명이 있다.
@@ -174,8 +183,43 @@ def _attempt_lines(attempts: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _order_question(case: dict, skills: list[SkillCard]) -> str:
+    """실제 주문 Agent 가 진입 skill 을 고를 때 보내는 질문 JSON 을 만든다.
+
+    order-agent/backend/.../harness/DecisionProvider.java 의 Question.select 와
+    SkillLoader.candidates 모양을 따른다. inputs 는 OrderHarness.visibleContext 처럼 order.* 점 표기
+    키다(order.total 은 숨김).
+    """
+    order = case["order"]
+    inputs = {"order.id": case.get("order_id") or ORDER_ID_PLACEHOLDER}
+    inputs.update({f"order.{key}": order[key] for key in ("items", "customer", "payment_method",
+                                                         "shipping")})
+    candidates = [
+        {"skill_id": s["name"], "name": s["name"], "description": s["description"],
+         "version": s.get("version", 1)}
+        for s in skills
+    ]
+    # Java Json.write 는 record 필드를 snake_case 로 쓰고 null 도 남긴다.
+    question = {"purpose": "select", "candidates": candidates, "skill": None, "inputs": inputs,
+                "tool_definition": {}}
+    return json.dumps(question, ensure_ascii=False)
+
+
+async def _select_one(selector: str, case: dict, skills: list[SkillCard], skill_list: str) -> str:
+    """선택 Agent 에 한 번 묻는다. 테스트가 make_structured_llm 을 바꿔 끼우므로 호출 때 찾는다."""
+    if selector == "order-agent":
+        # 실제 주문 Agent 와 같은 시스템 지시와 JSON 질문을 보낸다(prompts/select_order_agent.md).
+        messages = [("system", load_prompt("select_order_agent")),
+                    ("human", _order_question(case, skills))]
+        out = await make_structured_llm(_OrderSelectionOutput).ainvoke(messages)
+    else:
+        out = await _ask_llm("select_skill", _SelectionOutput, skill_list=skill_list,
+                             query=case["query"])
+    return (out.skill or NONE_SKILL).strip()
+
+
 async def _select_all(
-    cases: list[TriggerCase], skills: list[SkillCard], repeat: int
+    cases: list[TriggerCase], skills: list[SkillCard], repeat: int, selector: str = "chat"
 ) -> list[list[str]]:
     """질의마다 선택 Agent 를 repeat 번 불러 고른 skill 이름을 모은다.
 
@@ -184,20 +228,19 @@ async def _select_all(
     sem = asyncio.Semaphore(TRIGGER_CONCURRENCY)
     skill_list = _skill_list(skills)
 
-    async def one(query: str) -> str:
+    async def one(case: dict) -> str:
         async with sem:
-            out = await _ask_llm(
-                "select_skill", _SelectionOutput, skill_list=skill_list, query=query
-            )
-        return (out.skill or NONE_SKILL).strip()
+            return await _select_one(selector, case, skills, skill_list)
 
-    picks = await asyncio.gather(*(one(c["query"]) for c in cases for _ in range(repeat)))
+    picks = await asyncio.gather(*(one(c) for c in cases for _ in range(repeat)))
     return [list(picks[i * repeat : (i + 1) * repeat]) for i in range(len(cases))]
 
 
 async def _measure(state: TriggerState, skills: list[SkillCard]) -> dict:
     """주어진 skill 목록으로 평가셋을 돌려 지표를 낸다."""
-    selections = await _select_all(state["cases"], skills, state["repeat"])
+    selections = await _select_all(
+        state["cases"], skills, state["repeat"], state.get("selector") or "chat"
+    )
     return metrics.measure(state["cases"], selections, state["target_skill"])
 
 
@@ -233,6 +276,8 @@ def _check_skill_files(skills: list[dict]) -> tuple[list[dict], list[dict], dict
             if meta:
                 card["body"] = quality.parse_skill_md(text)[1].strip()
                 metas[skill["name"]] = meta
+                if isinstance(meta.get("version"), int):
+                    card["version"] = meta["version"]  # 주문 Agent 모드 후보 목록에 넣는다
         cards.append(card)
     return cards, findings, quality.entry_structure(metas)
 
@@ -263,7 +308,7 @@ def load_eval_set(state: TriggerState) -> dict:
     target = state.get("target_skill")
     problems, clean = quality.check_eval_set(
         target, state.get("skills"), state.get("cases"), state.get("seed_queries"),
-        state.get("repeat"),
+        state.get("repeat"), state.get("selector") or "chat",
     )
     if problems:
         return {

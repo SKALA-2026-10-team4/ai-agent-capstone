@@ -1,0 +1,8 @@
+{
+  "_comment": "실제 주문 Agent 와 같은 방식(주문 데이터 + 진입 skill 선택, prompts/select_order_agent.md)으로 order-flow 호출을 잰다. skill 은 주문 Agent 가 실제로 읽는 order-agent/skills 번들, 질의는 scenarios/order-agent/golden 의 정상 주문이다.",
+  "target_skill": "order-flow",
+  "selector": "order-agent",
+  "skills_dir": "../../order-agent/skills",
+  "golden_dir": "../../scenarios/order-agent/golden",
+  "cases": []
+}

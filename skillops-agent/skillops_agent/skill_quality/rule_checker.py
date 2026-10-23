@@ -19,6 +19,10 @@ from .schemas import Finding, finding
 
 # 어떤 skill 도 고르지 않은 선택 이름이다. trigger_state.NONE_SKILL 과 같다.
 NONE_SKILL = "none"
+# 선택 Agent 모드다. chat 은 자연어 요청, order-agent 는 실제 주문 Agent 처럼 주문 데이터를 받는다.
+SELECTORS = ("chat", "order-agent")
+# 주문 Agent 모드 질의의 order 에 있어야 하는 키다(scenarios/order-agent/golden 의 order).
+ORDER_KEYS = ("customer", "items", "payment_method", "shipping")
 # 토스 Rubric 과 Agent Skills 규칙의 형식 한도다.
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
@@ -44,9 +48,22 @@ _SECRET_RE = re.compile(
 # ── 평가셋 ─────────────────────────────────────────────────────────────────────
 
 
-def check_case(case, names: set[str]) -> tuple[dict | None, list[Finding]]:
-    """평가 질의 하나를 검사한다. 맞으면 정리한 질의를, 틀리면 None 과 FAIL 목록을 돌려준다."""
+def check_case(
+    case, names: set[str], require_order: bool = False
+) -> tuple[dict | None, list[Finding]]:
+    """평가 질의 하나를 검사한다. 맞으면 정리한 질의를, 틀리면 None 과 FAIL 목록을 돌려준다.
+
+    require_order 면(주문 Agent 선택 모드) 질의마다 주문 데이터 order 가 있어야 한다. 이때 query 는
+    결과에서 질의를 가리키는 이름표로만 쓴다.
+    """
     problems = []
+    order = case.get("order") if isinstance(case, dict) else None
+    if require_order and not _valid_order(order):
+        problems.append(
+            finding("rule.case_order", "FAIL", "BLOCKER",
+                    "주문 Agent 모드 질의에 주문 데이터(order)가 없거나 형식이 틀립니다.",
+                    f"order 에 {', '.join(ORDER_KEYS)} 를 넣으세요.")
+        )
     query = case.get("query") if isinstance(case, dict) else None
     expected = case.get("expected_skill") if isinstance(case, dict) else None
     should = case.get("should_trigger") if isinstance(case, dict) else None
@@ -74,11 +91,24 @@ def check_case(case, names: set[str]) -> tuple[dict | None, list[Finding]]:
         )
     if problems:
         return None, problems
-    return {"query": query.strip(), "expected_skill": expected, "should_trigger": should}, []
+    clean = {"query": query.strip(), "expected_skill": expected, "should_trigger": should}
+    if order is not None:
+        clean["order"] = order
+    return clean, []
+
+
+def _valid_order(order) -> bool:
+    """주문 데이터가 scenarios/order-agent/golden 의 order 모양인지 본다."""
+    return (
+        isinstance(order, dict)
+        and all(k in order for k in ORDER_KEYS)
+        and isinstance(order["items"], list)
+        and isinstance(order["shipping"], dict)
+    )
 
 
 def check_eval_set(
-    target, skills, cases, seed_queries=None, repeat=None
+    target, skills, cases, seed_queries=None, repeat=None, selector="chat"
 ) -> tuple[list[Finding], dict]:
     """평가셋 전체를 검사한다. (FAIL 목록, 정리한 값 {skills, cases}) 를 돌려준다.
 
@@ -113,10 +143,20 @@ def check_eval_set(
         problems.append(finding("rule.repeat_positive", "FAIL", "BLOCKER",
                                 "repeat 는 1 이상이어야 합니다.", "repeat 를 1 이상으로 쓰세요."))
 
+    if selector not in SELECTORS:
+        problems.append(finding("rule.selector", "FAIL", "BLOCKER",
+                                f"selector '{selector}' 는 지원하지 않습니다.",
+                                f"{' 또는 '.join(SELECTORS)} 를 쓰세요."))
+    if selector == "order-agent" and not cases:
+        # 주문 Agent 모드는 자연어 요청 문장으로 질의를 만들 수 없다.
+        problems.append(finding("rule.order_agent_needs_cases", "FAIL", "BLOCKER",
+                                "주문 Agent 모드에는 주문 데이터가 든 질의(cases)가 필요합니다.",
+                                "golden_dir 이나 cases 에 주문을 넣으세요."))
+
     name_set = {n for n in names if isinstance(n, str)}
     clean_cases = []
     for case in cases or []:
-        clean, case_problems = check_case(case, name_set)
+        clean, case_problems = check_case(case, name_set, require_order=selector == "order-agent")
         problems.extend(case_problems)
         if clean:
             clean_cases.append(clean)

@@ -5,8 +5,11 @@
 그래서 개선안 description 만 바꿔 재현율 변화와 회귀를 만들 수 있다.
 """
 
+import json
 import re
+import textwrap
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -376,3 +379,76 @@ def test_remap_sub_step_by_structure():
     plain = {"intent": "should_call", "query": "주문", "expected_skill": "order-flow",
              "should_trigger": True}
     assert _remap_sub_step(plain, one_entry, "order-flow") is plain
+
+
+# ── 주문 Agent 선택 모드 ───────────────────────────────────────────────────────
+
+REPO = Path(__file__).resolve().parents[2]
+ORDER = {"customer": "c_1", "items": [{"sku": "S", "qty": 1}], "payment_method": "card",
+         "shipping": {"country": "KR", "express": False}}
+
+
+def test_order_agent_prompt_matches_real_system_prompt():
+    # 실제 주문 Agent 의 시스템 지시가 바뀌면 이 테스트가 깨져 복사본을 맞추게 한다.
+    java = (REPO / "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/"
+            "OpenAiDecisionProvider.java").read_text("utf-8")
+    real = textwrap.dedent(re.search(r'SYSTEM_PROMPT="""\n(.*?)"""', java, re.S).group(1))
+    from skillops_agent.prompts import load
+
+    assert load("select_order_agent") == real
+
+
+async def test_order_agent_selector_sends_real_question_shape(monkeypatch):
+    from skillops_agent import trigger_nodes as n
+
+    sent = []
+
+    class Chain:
+        async def ainvoke(self, messages):
+            sent.append(messages)
+            return SimpleNamespace(skill="order-flow")
+
+    monkeypatch.setattr(n, "make_structured_llm", lambda schema: Chain())
+    skills = [{"name": "order-flow", "description": "주문", "version": 3},
+              {"name": "payment", "description": "결제"}]
+    case = {"query": "g-01", "expected_skill": "order-flow", "should_trigger": True,
+            "order": ORDER}
+    picks = await n._select_all([case], skills, 2, "order-agent")
+    assert picks == [["order-flow", "order-flow"]]
+    system, human = sent[0]
+    assert system[0] == "system" and "choose one offered entry skill" in system[1]
+    question = json.loads(human[1])
+    assert question["purpose"] == "select" and question["tool_definition"] == {}
+    assert question["candidates"][0] == {"skill_id": "order-flow", "name": "order-flow",
+                                         "description": "주문", "version": 3}
+    assert question["inputs"]["order.payment_method"] == "card"
+    assert set(question["inputs"]) == {"order.id", "order.items", "order.customer",
+                                       "order.payment_method", "order.shipping"}
+
+
+async def test_order_agent_mode_requires_order_and_cases(llm):
+    fake = llm([GOOD])
+    no_order = await run(selector="order-agent")
+    assert no_order["diagnosis_status"] == "ERROR"
+    assert "주문 데이터(order)" in no_order["error"]
+    no_cases = await run(selector="order-agent", cases=[], seed_queries=["주문"])
+    assert "주문 Agent 모드에는" in no_cases["error"]
+    bad = await run(selector="nope")
+    assert "selector 'nope'" in bad["error"]
+    assert fake.calls == {}
+
+
+def test_order_agent_eval_set_resolves_real_bundle_and_golden_orders():
+    from skillops_agent.skill_quality.loader import resolve_cases, resolve_skills
+
+    path = REPO / "skillops-agent/evalsets/order-flow.order-agent.json"
+    data = json.loads(path.read_text("utf-8"))
+    cases = resolve_cases(data, path.parent)
+    skills = resolve_skills(data, path.parent)
+    assert len(cases) == 3
+    assert all(c["order"] and c["expected_skill"] == "order-flow" for c in cases)
+    assert "order-flow" in [s["name"] for s in skills]
+    from skillops_agent.skill_quality import check_eval_set
+
+    problems, _ = check_eval_set("order-flow", skills, cases, selector="order-agent")
+    assert problems == []

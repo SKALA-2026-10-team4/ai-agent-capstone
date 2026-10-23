@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from skillops_agent.config import RECURSION_LIMIT  # noqa: E402
-from skillops_agent.skill_quality.loader import resolve_skills  # noqa: E402
+from skillops_agent.skill_quality.loader import resolve_cases, resolve_skills  # noqa: E402
 from skillops_agent.trigger_graph import trigger_graph  # noqa: E402
 from skillops_agent.trigger_nodes import generate_eval_set  # noqa: E402
 
@@ -94,8 +94,9 @@ async def main() -> int:
     state = {
         "target_skill": data["target_skill"],
         "skills": resolve_skills(data, args.eval_set.parent, args.skills_dir),
-        "cases": data.get("cases", []),
+        "cases": resolve_cases(data, args.eval_set.parent),
         "seed_queries": data.get("seed_queries", []),
+        "selector": data.get("selector", "chat"),
     }
     if args.repeat:
         state["repeat"] = args.repeat
