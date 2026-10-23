@@ -180,6 +180,29 @@ class WorkspaceFromSnapshotTest {
         verify(repository, never()).save(any());
     }
 
+    /** YAML 목록을 해석하더라도 snapshot에서 복사한 원문은 그대로 보존한다. */
+    @Test
+    void copiesBlockListsWithoutRewritingSource() {
+        String text = "---\r\nname: payment\r\nversion: 3\r\ninputs:\r\n  - 'inventory.reserved'\r\n"
+                + "outputs: [\"payment.status\"]\r\n---\r\nbody\r\n";
+        serve("skills/payment/SKILL.md", text);
+
+        assertThat(service.create(null, SNAPSHOT).skillVersions()).isEqualTo(Map.of("payment", 3));
+        assertThat(savedRecord().getSkills().get("payment").fullText()).isEqualTo(text);
+    }
+
+    /** 문자열 버전으로는 workspace를 생성하거나 일부 파일을 저장하지 않는다. */
+    @Test
+    void rejectsQuotedVersionBeforeSavingWorkspace() {
+        serve("skills/payment/SKILL.md", "---\nname: payment\nversion: '1'\n---\nbody\n");
+
+        assertThatThrownBy(() -> service.create(null, SNAPSHOT))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("skills/payment/SKILL.md")
+                .hasMessageContaining("version");
+        verify(repository, never()).save(any());
+    }
+
     @Test
     void filesOfMergesSkillsAndResources() {
         Map<String, WorkspaceSkill> skills = new HashMap<>();

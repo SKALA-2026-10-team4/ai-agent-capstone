@@ -122,4 +122,40 @@ class ContractOnlyFlowRunnerTest {
         assertThatThrownBy(() -> runner.runDryRun(new FlowRunner.DryRunRequest("g-01", null, "w_t", noFlow)))
                 .hasMessage("연습 공간에 order-flow 가 없습니다");
     }
+
+    /** 여러 줄 steps와 outputs를 사용해도 실제 다섯 단계를 실행하고 같은 결과를 낸다. */
+    @Test
+    void blockListsRunAllStepsAndPreserveOutputKeys() {
+        var skills = new HashMap<>(liveSkills());
+        WorkspaceSkill flow = skills.get("order-flow");
+        skills.put("order-flow", new WorkspaceSkill(flow.baseVersion(), flow.fullText().replace(
+                "steps: [order-intake, inventory-check, payment, shipping-reserve, notify]",
+                "steps:\n  - order-intake\n  - inventory-check\n  - payment\n  - shipping-reserve\n  - notify")));
+        WorkspaceSkill inventory = skills.get("inventory-check");
+        skills.put("inventory-check", new WorkspaceSkill(inventory.baseVersion(), inventory.fullText().replace(
+                "outputs:    [inventory.available, inventory.reserved]",
+                "outputs:\n  - inventory.available\n  - 'inventory.reserved'")));
+
+        RunOutcome result = runner.runDryRun(new FlowRunner.DryRunRequest("g-01", g01Order(), "w_t", skills));
+
+        assertThat(result.finalStatus()).isEqualTo("SHIPPED");
+        assertThat(result.steps()).extracting(RunOutcome.Step::skill)
+                .containsExactly("order-intake", "inventory-check", "payment", "shipping-reserve", "notify");
+        assertThat(result.steps().get(2).input()).containsEntry("inventory.reserved", true);
+        assertThat(new ScenarioGrader().grade(Expectation.of(g01().expect()), List.of(), result).passed()).isTrue();
+    }
+
+    /** 누락·null·빈 steps는 주문이나 업무 단계를 실행하기 전에 입력 오류로 거부한다. */
+    @Test
+    void emptyFlowNeverReturnsShipped() {
+        for (String declaration : List.of("", "steps: []\n", "steps: null\n")) {
+            var skills = new HashMap<>(liveSkills());
+            skills.put("order-flow", new WorkspaceSkill(1,
+                    "---\nname: order-flow\nversion: 1\n" + declaration + "---\nbody\n"));
+
+            assertThatThrownBy(() -> runner.runDryRun(new FlowRunner.DryRunRequest("g-01", null, "w_t", skills)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("steps");
+        }
+    }
 }

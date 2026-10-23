@@ -9,6 +9,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.error.YAMLException;
 
+import com.capstone4.skillops.workspace.SkillHeader;
+
 /**
  * service/src/main/java/com/capstone4/skillops/snapshot/Frontmatter.java 의 parse 가 SKILL.md 맨 위 '---' 블록을 읽는 규칙을
  * 보호한다. 구분 줄의 정확한 모양, CRLF 줄바꿈, 첫 닫는 줄에서 끝나는 블록, 빈 블록과 맵이 아닌 YAML 을 빈 맵으로 돌려주는
@@ -98,5 +100,17 @@ class FrontmatterTest {
     void unsafeTagIsRejected() {
         assertThatThrownBy(() -> Frontmatter.parse("---\nx: !!java.io.File [\"/tmp\"]\n---\n"))
                 .isInstanceOf(YAMLException.class);
+    }
+
+    /** snapshot과 workspace가 같은 CRLF·목록·따옴표 원문에서 같은 값을 읽는다. */
+    @Test
+    void workspaceAndSnapshotAgreeOnYamlValues() {
+        String text = "---\r\nname: 'payment'\r\nversion: 2\r\ninputs:\r\n  - inventory.reserved\r\n"
+                + "outputs: [\"payment.id\", 'payment.status']\r\n---\r\nbody\r\n";
+        var fields = Frontmatter.parse(text);
+        var header = SkillHeader.parse(text);
+
+        assertThat(fields).containsEntry("name", header.name()).containsEntry("version", header.version())
+                .containsEntry("inputs", header.inputs()).containsEntry("outputs", header.outputs());
     }
 }
