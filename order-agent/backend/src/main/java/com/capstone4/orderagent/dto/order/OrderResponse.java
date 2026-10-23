@@ -5,19 +5,40 @@ import java.util.*;
 import com.capstone4.orderagent.entity.Order;
 import com.capstone4.orderagent.entity.enums.*;
 
+/**
+ * 주문 API 의 응답 본문이다. POST /api/orders, GET /api/orders/{id}, GET /api/orders/by-request/{key} 가 같은 모양을 돌려주며 JSON 키는 snake_case 다.
+ * 저장된 주문의 항목과 금액, 상태와 결과 코드, 결제와 배송과 알림 결과, 처리 단계 목록, 실행 기록 연결(execution_id, trace_url)을 담는다.
+ * order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderLifecycleService.java 의 get 과 byRequest 가 from 으로 만든다.
+ * 모듈 밖에서는 frontend/src/api/orderAgent.js 와 order-agent/frontend/src/api/orders.js 가 받아 화면에 보여 주고,
+ * service/src/main/java/com/capstone4/skillops/scenario/OrderAgentRunClient.java 의 originalOrder 가 customer, items, payment_method, shipping 을 꺼내
+ * 실패했던 주문을 모의 실행으로 다시 돌린다. 키를 바꾸면 이 소비자들도 함께 고친다. 명세는 order-agent/docs/api.md 다.
+ */
 public record OrderResponse(UUID orderId, UUID requestId, String customer, List<Item> items,
     long totalAmount, String currency, String paymentMethod, Shipping shipping,
     OrderStatus status, String resultCode, String message, Payment payment, Shipment shipment,
     Notification notification, List<Step> steps, Instant createdAt, Instant updatedAt, UUID executionId, String traceUrl) {
 
+    /** 접수할 때 고정한 항목 한 줄이다. 상품명과 단가는 주문 뒤 상품 정보가 바뀌어도 그대로다. */
     public record Item(String sku, String name, int qty, long unitPrice, long lineTotal) {}
+    /** 배송 국가와 빠른 배송 여부다. */
     public record Shipping(String country, boolean express) {}
+    /** 결제 상태와 Mock 결제 참조다. 결제가 승인되기 전에는 reference 가 null 이다. */
     public record Payment(PaymentStatus status, String reference) {}
+    /** Mock 배송 참조와 배송 예정일이다. 배송을 예약하기 전에는 응답의 shipment 자체가 null 이다. */
     public record Shipment(String reference, LocalDate estimatedDeliveryDate) {}
+    /** 성공 알림 기록 상태다. */
     public record Notification(NotificationStatus status) {}
+    /** 주문 처리 단계 기록 한 줄이다. sequence 는 1 부터 늘어나는 기록 순서이며, 결제 거절 뒤 RELEASE 처럼 업무 순서에 없는 단계도 끼어든다. */
     public record Step(int sequence, ProcessingStepType step, ProcessingStepStatus status,
         String resultCode, String message, Instant startedAt, Instant completedAt) {}
 
+    /**
+     * 주문 엔티티를 응답으로 바꾼다. message 는 주문 상태마다 정한 한국어 안내 문구이고 currency 는 늘 KRW 다.
+     * REJECTED 문구는 재고 부족을 기준으로 적혀 있어, 엔트리 미선택(result_code NO_SELECTION)으로 거절된 주문에도 같은 문구가 나간다.
+     * 배송 참조가 없으면 shipment 를 null 로, 실행 기록이 없으면(과거 MVP 주문) trace_url 을 null 로 둔다.
+     * trace_url 은 order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
+     * GET /api/executions/{id}/trace 경로다. 지연 로딩하는 항목과 단계를 읽으므로 OrderLifecycleService 의 읽기 트랜잭션 안에서 불러야 한다.
+     */
     public static OrderResponse from(Order o) {
         String message = switch (o.getStatus()) {
             case CREATED -> "주문이 접수되었습니다.";

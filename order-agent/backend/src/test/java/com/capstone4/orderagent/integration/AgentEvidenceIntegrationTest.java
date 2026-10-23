@@ -23,6 +23,16 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * 주문 Agent 가 실행 증거를 모델의 말이 아니라 실제 관찰로 남기는지 보호하는 시나리오 테스트다. 보호 대상은 수정 저장 API
+ * (order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의 saveEdits 와 SnapshotService.saveEdits),
+ * snapshot 고정과 변조 거절, order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java 의 실행 루프와 trace 기록이다.
+ * 수정 저장이 고친 바이트로 새 snapshot 과 outbox 를 남기는지, 정상 실행이 Skill 여섯 개를 실제로 로드하는지, 시나리오 S1 부터 S6
+ * (order-agent/docs/scenarios 의 문서와 짝을 이룬다)에서 업무 결과와 실패 지점이 기대대로인지, 없는 Skill 선택, 명시적 미선택, 잘못된 도구 인자를
+ * 어떻게 기록하는지 본다. 실패 시나리오는 원래 파일로 수동 복원한 snapshot 이 다시 통과하는지도 확인하며, 이 복원은 SkillOps 가 만든 수정안이 아니다.
+ * FixedDecisionProvider 를 spy 로 바꿔 모델 응답을 주입하거나 받은 질문을 검사한다.
+ * ORDER_DEMO_INTEGRATION_TESTS=true 일 때만 돌고, 그때는 order-agent/compose.yml 의 db-test(호스트 포트 5434)가 떠 있어야 한다.
+ */
 @SpringBootTest(properties={"order-agent.skill-change-dispatch-enabled=false","spring.datasource.url=jdbc:postgresql://localhost:5434/order_agent_test",
     "spring.datasource.username=order_test","spring.datasource.password=order_test_local"})
 @AutoConfigureMockMvc
@@ -35,10 +45,15 @@ class AgentEvidenceIntegrationTest {
     @Autowired MockMvc mvc;
     @MockitoSpyBean FixedDecisionProvider decisions;
     static final String LANTERN="CAMP-LANTERN-LED";
+    /** 매 테스트마다 주문을 지우고 랜턴 재고를 10 으로 되돌린다. */
     @BeforeEach void reset(){jdbc.update("delete from orders");jdbc.update("update products set stock_quantity=10 where sku=?",LANTERN);}
+    /** 랜턴 1개를 c_1001 이 카드로 주문하는 국내 일반 배송 요청을 만든다. snapshot 이 null 이면 게시 번들로 실행한다. */
     CreateOrderRequest input(UUID snapshot){return new CreateOrderRequest("c_1001",List.of(new CreateOrderRequest.Item(LANTERN,1)),"card",new CreateOrderRequest.Shipping("KR",false),snapshot);}
+    /** 랜턴의 지금 재고를 DB 에서 읽는다. */
     int stock(){return jdbc.queryForObject("select stock_quantity from products where sku=?",Integer.class,LANTERN);}
+    /** 가장 최근에 시작한 실행 id 를 읽는다. 실패해 주문 응답을 받지 못한 실행을 찾을 때 쓴다. */
     UUID execution(){return jdbc.queryForObject("select id from agent_executions order by started_at desc limit 1",UUID.class);}
+    /** trace 의 events 를 꺼낸다. */
     @SuppressWarnings("unchecked") List<Map<String,Object>> events(Map<String,Object> trace){return (List<Map<String,Object>>)trace.get("events");}
 
     @Test void editorApiSavesActualEditsAndExecutesReturnedSnapshot() throws Exception {
@@ -114,6 +129,7 @@ class AgentEvidenceIntegrationTest {
         assertThat(snapshots.get(snapshot).files()).hasSize(7);
     }
 
+    /** S1(order-agent/docs/scenarios/S1-description-edit.md): description 만 고친 Skill 은 업무 결과를 바꾸지 않고, 실행은 고친 바이트를 실제로 로드한다. */
     @ParameterizedTest(name="S1: {0}, stock={1} → {2}")
     @CsvSource({"c_1001,10,SHIPPED,9", "c_1001,0,REJECTED,0", "c_declined,10,HOLD,10"})
     void descriptionOnlyEditPreservesBusinessResultsAndLoadsEditedBytes(
@@ -174,6 +190,7 @@ class AgentEvidenceIntegrationTest {
         verify(decisions).decide(argThat(q->q.skill()!=null&&q.skill().id().equals("inventory-check")
             &&q.skill().hash().equals(Json.hash(candidate.files().get(path)))));
     }
+    /** S2(order-agent/docs/scenarios/S2-inventory-output-deletion.md): 재고 출력 선언을 지우면 payment 단계의 정적 계약 위반으로 업무 도구 전에 멈춘다. */
     @Test void deletedInventoryOutputFailsAtPaymentBeforeBusinessToolsAndRestorationPasses() throws Exception {
         String path="skills/inventory-check/SKILL.md";
         var baseline=snapshots.capture();
@@ -230,6 +247,7 @@ class AgentEvidenceIntegrationTest {
         assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** S3(order-agent/docs/scenarios/S3-shipping-before-payment.md): 배송 예약을 결제 앞으로 옮긴 flow 는 FLOW_VALIDATED 전에 정적 계약 위반으로 멈춘다. */
     @Test void shippingBeforePaymentFailsStaticValidationAndRestoredFlowPasses() throws Exception {
         String path="skills/order-flow/SKILL.md";
         var baseline=snapshots.capture();
@@ -300,6 +318,10 @@ class AgentEvidenceIntegrationTest {
         assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * S5(order-agent/docs/scenarios/S5-prepaid-policy.md): 본문에만 적은 결제 정책은 결정 질문에 전달되지만 fixed 모드는 따르지 않는다.
+     * card 보류 정책의 성공 판정이 아니라 fixed 모드의 지금 능력을 기록하는 테스트다.
+     */
     @ParameterizedTest(name="S5 fixed capability: {0}")
     @CsvSource({"card", "prepaid"})
     void bodyOnlyPrepaidPolicyIsDeliveredButNotEnforcedByFixedMode(String method) throws Exception {
@@ -362,6 +384,7 @@ class AgentEvidenceIntegrationTest {
         assertThat(snapshots.get(baseline.id()).files().get(path)).isEqualTo(original.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** S6(order-agent/docs/scenarios/S6-unproduced-output.md): 도구가 만들지 않는 출력을 선언하면 실행 중 MISSING_SKILL_OUTPUT 으로 실패하고 예약을 되돌린다. */
     @Test void declaredButUnproducedInventoryOutputFailsAtRuntimeAndReleasesReservation() throws Exception {
         String path="skills/inventory-check/SKILL.md";
         String unsupported="inventory.reservation_reference";
@@ -493,6 +516,7 @@ class AgentEvidenceIntegrationTest {
         assertThat(jdbc.queryForObject("select payment_status from orders",String.class)).isEqualTo("NOT_ATTEMPTED");
         assertThat(jdbc.queryForObject("select count(*) from order_processing_steps where step='RELEASE'",Integer.class)).isEqualTo(1);
     }
+    /** S4(order-agent/docs/scenarios/S4-missing-notify.md): notify 를 뺀 flow 는 결제와 배송을 확정한 뒤에도 SHIPPED 가 되지 않고 INCOMPLETE_FLOW 로 실패한다. */
     @Test void incompleteFlowIsNeverMarkedShipped() throws Exception {
         String path="skills/order-flow/SKILL.md";
         var baseline=snapshots.capture();

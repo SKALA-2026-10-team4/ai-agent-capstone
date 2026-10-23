@@ -5,6 +5,12 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * order-agent/backend/src/main/java/com/capstone4/orderagent/harness/SkillLoader.java 와
+ * order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ExecutionControl.java 의 경계 규칙을 보호한다.
+ * 상위 폴더를 가리키는 이름, front matter 없는 파일, 중복 메타데이터 키를 거절하는지, 모든 API 시도가 한 예산을 나눠 쓰고
+ * 관측 토큰이 상한을 넘으면 멈추는지, 실행 중 계약 위반이 빠진 입력과 선행 단계를 details 에 담는지 확인한다.
+ */
 class SkillBoundaryTest {
     @Test void loaderRejectsTraversalInvalidYamlAndDuplicateMetadata(){
         var loader=new SkillLoader();
