@@ -234,6 +234,12 @@ class AgentState(TypedDict):
     candidate_retry: int
     recommended: int | None  # rank=1 후보의 candidates 인덱스다(candidate_no 가 아니다).
 
+    # ── RAG 참고 자료 ─────────────────────────────────────────────
+    # 노드 이름(hypothesize, extract_intent, generate_candidates)별로 프롬프트에 붙인 참고 자료
+    # id 다. skillops-agent/skillops_agent/nodes.py 의 _rag_progress 가 남긴다. init 의
+    # empty_run_fields 에는 넣지 않아, 자료를 붙이는 노드까지 가지 않은 진단 기록에는 이 키가 없다.
+    rag_references: dict[str, list[str]]
+
     # ── 저장 · 승인 (PB-005) ──────────────────────────────────────
     # save_proposal 노드가 남긴 제안서다. 보낸 payload 에 id, storage_status, valid_candidate_nos 를
     # 덧붙인 값이다.

@@ -1218,6 +1218,7 @@ async def test_run_store_keeps_progress_and_final_state(stub, llm):
         "approval_status",
         "approval_token",
         "smoke_passed",
+        "rag_references",
     ]
 
 
