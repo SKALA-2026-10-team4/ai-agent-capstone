@@ -1,48 +1,86 @@
 <script setup>
+// 제안서 한 건의 상세 화면이다. frontend/src/router/index.js 가 /proposals/:id 경로에 연결하고,
+// 받은 제안서 목록(frontend/src/views/ProposalListView.vue)과 검증·진단 기록 화면
+// (frontend/src/views/DiagnosisView.vue)의 '제안서 보기' 링크가 이 화면을 연다.
+// service 가 저장한 본문(document)을 frontend/src/components/ProposalDocument.vue 로 목차대로
+// 보여 주고, 후보를 골라 승인하거나 거절한다. 승인은 모든 확인을 통과한 후보(valid_candidate_nos)만
+// 할 수 있고, 결정(승인과 거절)은 OPERATOR 역할만 할 수 있다. 역할 규칙은
+// service/src/main/java/com/capstone4/skillops/auth/SecurityConfig.java 와, 후보 규칙은
+// service/src/main/java/com/capstone4/skillops/proposal/ProposalService.java 의 checkDecidable 과
+// 같아야 한다.
+// 상세는 frontend/src/api/proposals.js 의 getProposal 로 읽고 결정은 approveProposal 과
+// rejectProposal 로 보낸다. 상세 요청은
+// service/src/main/java/com/capstone4/skillops/api/ProposalController.java 의 detail() 이, 승인과
+// 거절은 service/src/main/java/com/capstone4/skillops/api/ApprovalController.java 의 approve() 와
+// reject() 가 받는다.
+// mock 모드에서는 frontend/src/mocks/index.js 가 같은 규칙으로 흉내 낸다.
+// 고른 후보의 patch 는 '초안으로 가져와 고치기' 로 frontend/src/stores/workspace.js 의 초안에
+// 적용해 Skill 편집 화면에서 이어서 다듬을 수 있다. 이때 서버에는 저장하지 않는다.
+// 결정 권한은 frontend/src/stores/auth.js 의 hasRole 로 보고, 결정과 초안 적용의 결과는
+// frontend/src/stores/toast.js 의 show 로 알린다.
+// 처음 고르는 후보 규칙은 load, 결정 권한은 canDecide, 승인 버튼 조건은 canApprove 에서 고친다.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, CircleAlert, CircleCheck, FilePen, ShieldCheck, Sparkles } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, FilePen, ShieldCheck, Sparkles } from 'lucide-vue-next'
 import { approveProposal, getProposal, rejectProposal } from '@/api/proposals'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { STATUS } from '@/utils/proposalView'
 import DiffView from '@/components/DiffView.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import ProposalDocument from '@/components/ProposalDocument.vue'
+import ProposalStatusBadge from '@/components/ProposalStatusBadge.vue'
 
-// 제안서 한 건: service 가 저장한 본문(document)을 목차대로 읽고, 후보를 골라 승인하거나 거절한다.
-// 승인은 모든 확인을 통과한 후보(valid_candidate_nos)만, 결정은 OPERATOR 만 할 수 있다.
 const route = useRoute()
 const router = useRouter()
 const ws = useWorkspaceStore()
 const auth = useAuthStore()
 const toast = useToastStore()
 
+// 상세 응답이다. proposal 칸에 Agent 가 보낸 원래 제안서가, document 칸에 화면용 본문이 있다.
 const detail = ref(null)
+// 지금 고른 후보 번호다.
 const selectedNo = ref(null)
+// '의도가 맞아요' 체크 여부다. 승인 요청의 intent_confirmed 로 보낸다.
 const intentOk = ref(false)
 const busy = ref(false)
 const error = ref(null)
 const applyError = ref(null)
 
+// candidates 는 제안서의 후보 목록이고, candidate 는 지금 고른 후보다.
 const candidates = computed(() => detail.value?.proposal.candidates ?? [])
 const candidate = computed(() => candidates.value.find((c) => c.candidate_no === selectedNo.value) ?? null)
+// 상태가 proposed 면 후보를 골라 승인하거나 거절한다. no_valid_fix 면 승인할 후보가 없으므로
+// 확인하고 닫기(거절)만 한다. decision 은 결정 기록이고 아직 결정하지 않았으면 null 이다.
 const status = computed(() => detail.value?.status)
 const proposed = computed(() => status.value === 'proposed')
 const noValidFix = computed(() => status.value === 'no_valid_fix')
 const decision = computed(() => detail.value?.decision ?? null)
+// 결정 권한이다. frontend/src/stores/auth.js 의 hasRole 로 OPERATOR 역할을 본다.
 const canDecide = computed(() => auth.hasRole('OPERATOR'))
+// 고른 후보가 모든 확인을 통과했는지 본다.
 const selectedValid = computed(() => !!detail.value?.valid_candidate_nos.includes(selectedNo.value))
+// 승인 버튼 조건이다. 권한, 의도 확인 체크, 통과한 후보, 요청 중이 아님을 모두 만족해야 한다.
+// service 도 권한, 의도 확인, 통과한 후보 번호를 다시 검사하므로
+// 화면 조건은 잘못된 요청을 미리 막는 역할이다.
 const canApprove = computed(() => canDecide.value && intentOk.value && selectedValid.value && !busy.value)
+// 고른 후보가 고치는 Skill 이름 목록이다. 초안에 적용한 뒤 첫 Skill 의 편집 화면으로 간다.
 const patched = computed(() => candidate.value?.patches.map((p) => p.skill) ?? [])
+// 초안을 적용할 Skill 세트(지금 고른 snapshot)의 이름이다.
 const setLabel = computed(() => ws.labelOf(ws.snapshotId))
 
+/**
+ * 제안서 상세를 읽고 처음 보여 줄 후보를 고른다. 추천 후보(recommended_candidate_no)가 있으면
+ * 그것을, 없으면 첫 후보를 고르고, 후보가 없으면 null 이다. 처음 고르는 후보 규칙은 여기서 고친다.
+ * 아래 watch 가 화면을 열 때와 제안서 번호가 바뀔 때 부르고,
+ * decide 가 결정한 뒤 상태와 결정 기록을 새로 읽으려고 다시 부른다.
+ */
 async function load(id) {
   detail.value = await getProposal(id)
   selectedNo.value = detail.value.recommended_candidate_no ?? candidates.value[0]?.candidate_no ?? null
 }
 
+// 제안서 번호가 바뀔 때마다(처음 포함) 화면 값을 비우고 다시 읽는다. 의도 확인 체크도 풀어 둔다.
 watch(
   () => route.params.id,
   async (id) => {
@@ -59,8 +97,18 @@ watch(
   { immediate: true },
 )
 
+// 초안 적용에 쓸 Skill 세트를 준비하려고 workspace store 의 init 으로
+// 저장해 둔 snapshot 을 다시 읽는다.
 onMounted(() => ws.init())
 
+/**
+ * 고른 후보를 승인하거나 제안서를 거절한다. 결정 칸의 승인, 거절, '확인하고 닫기' 버튼이 부른다.
+ * 승인은 후보 번호와 의도 확인 여부를 함께 보낸다.
+ * no_valid_fix 제안서의 '확인하고 닫기' 도 거절(reject)로 보낸다.
+ * 성공하면 상세를 다시 읽어 상태와 결정 기록을 보여 주고 토스트를 띄우며,
+ * 실패하면 오류 문구와 오류 토스트를 띄운다. 다시 읽으면 selectedNo 가 바뀔 수 있으므로
+ * 보낸 후보 번호를 no 에 담아 두고 토스트 문구에 쓴다.
+ */
 async function decide(action) {
   busy.value = true
   error.value = null
@@ -78,7 +126,15 @@ async function decide(action) {
   }
 }
 
-// 선택한 후보의 patch 를 지금 고른 Skill 세트의 초안에 적용하고 편집 화면으로 간다(서버 저장 없음).
+/**
+ * 고른 후보의 patch 를 지금 고른 Skill 세트의 초안에 적용하고 그 Skill 의 편집 화면으로 간다.
+ * '초안으로 가져와 고치기' 버튼이 부른다.
+ * 서버에는 저장하지 않는다. 세트를 아직 고르지 않았으면 적용하지 않고 안내 문구를 보여 준다.
+ * 적용은 frontend/src/stores/workspace.js 의 applyPatchesToDraft 가 한다.
+ * patch 하나라도 기준 내용과 맞지 않으면 아무것도 바꾸지 않고 실패한 Skill 목록을 돌려주므로,
+ * 그때는 제안서를 만든 세트를 골랐는지 확인하라는 문구를 보여 준다.
+ * 기준 줄 어긋남 허용치는 frontend/src/config.js 의 PATCH_FUZZ_FACTOR 다.
+ */
 function applyToDraft() {
   applyError.value = null
   if (!ws.current) {
@@ -103,12 +159,10 @@ function applyToDraft() {
     :title="detail.document.title"
     description="SkillOps가 실제 주문 흐름에서 시험한 결과예요. 개요부터 차례로 읽고 결정해 주세요."
     :icon="Sparkles"
+    :back="{ to: '/proposals', label: '받은 제안서' }"
   >
-    <template #crumbs>
-      <RouterLink to="/proposals" class="crumb"><ArrowLeft :size="14" /> 받은 제안서</RouterLink>
-    </template>
     <template #badges>
-      <span class="status" :class="STATUS[status]?.tone">{{ STATUS[status]?.label ?? status }}</span>
+      <ProposalStatusBadge :status="status" />
     </template>
   </PageHeader>
 
@@ -188,38 +242,6 @@ function applyToDraft() {
 </template>
 
 <style scoped>
-.crumb {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-}
-
-.status {
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-2);
-}
-
-.status.info {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.status.ok {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.status.err {
-  background: var(--err-soft);
-  color: var(--err);
-}
-
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

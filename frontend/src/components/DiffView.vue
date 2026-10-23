@@ -1,10 +1,18 @@
 <script setup>
+// 두 글의 차이를 줄 단위로 보여 주는 비교 상자다. 입력은 두 가지다.
+// before 와 after 텍스트를 주면 두 글을 직접 비교하고, patch 에 unified diff 문자열을 주면
+// 그 diff 를 그대로 펼친다. patch 가 null 이 아니면 patch 를 쓴다.
+// frontend/src/views/SkillDraftView.vue 의 '원본과 비교' 탭과
+// frontend/src/views/SnapshotCompareView.vue 의 파일별 비교는 텍스트를 넘기고,
+// frontend/src/views/ProposalView.vue 는 고른 후보의 patch 를 넘긴다.
+// 줄 계산은 frontend/src/utils/diffLines.js 의 toDiffLines, pairRows, countChanges 가 하고,
+// 이 컴포넌트는 보기 방식만 고른다. 넓은 화면은 "나란히"(왼쪽이 변경 전, 오른쪽이 변경 후),
+// 좁은 화면은 "한 줄로" 를 기본으로 보여 준다.
 import { computed, ref } from 'vue'
-import { diffLines } from 'diff'
 import { Columns2, Rows2 } from 'lucide-vue-next'
+import { countChanges, pairRows, toDiffLines } from '@/utils/diffLines'
 
-// 두 가지 입력을 받는다: before/after 텍스트(편집기·버전 비교) 또는 unified diff 문자열(개선안 patch).
-// 넓은 화면은 "나란히"(왼쪽 = 전, 오른쪽 = 후), 좁은 화면은 "한 줄로" 를 기본으로 보여 준다.
+// beforeLabel 과 afterLabel 은 두 칸의 머리글이다(예: 원본과 내 초안, 지금과 후보 적용 후).
 const props = defineProps({
   before: { type: String, default: null },
   after: { type: String, default: null },
@@ -13,65 +21,19 @@ const props = defineProps({
   afterLabel: { type: String, default: '변경 후' },
 })
 
+// 기본 보기를 정하는 폭 기준 900px 는 frontend/src/App.vue 와
+// frontend/src/components/AppSidebar.vue 의 media query 와 같은 값이다.
+// 처음 그릴 때 한 번만 보므로 창 크기를 바꿔도 보기 방식은 그대로다.
+// window 가 없는 환경에서는 넓은 화면으로 본다.
 const wide = typeof window === 'undefined' || window.innerWidth > 900
+// 'split' 은 나란히 보기, 'unified' 는 한 줄로 보기다. 위쪽 버튼으로 바꾼다.
 const mode = ref(wide ? 'split' : 'unified')
 
-// → [{ kind: 'same'|'del'|'add'|'hunk', oldNo, newNo, text }]
-const lines = computed(() => {
-  const out = []
-  if (props.patch != null) {
-    let o = 0
-    let n = 0
-    for (const l of props.patch.split('\n')) {
-      if (!l || l.startsWith('---') || l.startsWith('+++')) continue
-      const h = l.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
-      if (h) {
-        o = Number(h[1])
-        n = Number(h[2])
-        out.push({ kind: 'hunk', text: `${o}번째 줄 근처` })
-      } else if (l[0] === '-') out.push({ kind: 'del', oldNo: o++, text: l.slice(1) })
-      else if (l[0] === '+') out.push({ kind: 'add', newNo: n++, text: l.slice(1) })
-      else out.push({ kind: 'same', oldNo: o++, newNo: n++, text: l.slice(1) })
-    }
-    return out
-  }
-  let o = 1
-  let n = 1
-  for (const part of diffLines(props.before ?? '', props.after ?? '')) {
-    const kind = part.added ? 'add' : part.removed ? 'del' : 'same'
-    for (const text of part.value.replace(/\n$/, '').split('\n')) {
-      if (kind === 'del') out.push({ kind, oldNo: o++, text })
-      else if (kind === 'add') out.push({ kind, newNo: n++, text })
-      else out.push({ kind, oldNo: o++, newNo: n++, text })
-    }
-  }
-  return out
-})
-
-// 나란히 보기: 연속된 삭제·추가 묶음을 한 줄씩 짝지운다.
-const rows = computed(() => {
-  const out = []
-  const src = lines.value
-  for (let i = 0; i < src.length; ) {
-    const l = src[i]
-    if (l.kind === 'hunk' || l.kind === 'same') {
-      out.push(l.kind === 'hunk' ? { hunk: l.text } : { left: l, right: l })
-      i++
-      continue
-    }
-    const dels = []
-    const adds = []
-    while (src[i]?.kind === 'del') dels.push(src[i++])
-    while (src[i]?.kind === 'add') adds.push(src[i++])
-    for (let k = 0; k < Math.max(dels.length, adds.length); k++) out.push({ left: dels[k] ?? null, right: adds[k] ?? null })
-  }
-  return out
-})
-
-const stats = computed(() => ({
-  add: lines.value.filter((l) => l.kind === 'add').length,
-  del: lines.value.filter((l) => l.kind === 'del').length,
-}))
+// lines 는 한 줄로 보기에, rows 는 삭제와 추가를 한 줄씩 짝지은 나란히 보기에,
+// stats 는 위쪽의 추가·삭제 줄 수에 쓴다.
+const lines = computed(() => toDiffLines(props))
+const rows = computed(() => pairRows(lines.value))
+const stats = computed(() => countChanges(lines.value))
 </script>
 
 <template>

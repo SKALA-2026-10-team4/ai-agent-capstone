@@ -1,5 +1,9 @@
 <script setup>
-// 이름-값 목록. utils/eventView 의 fieldsOf()·describe().fields 결과를 그린다.
+// 이름과 값의 목록(dl)을 그린다. fields 는 [{ label, value }] 모양이고,
+// 값은 텍스트 보간으로만 넣는다.
+// frontend/src/components/EventTimeline.vue 가 이벤트마다 frontend/src/utils/eventView.js 의
+// describe 가 만든 fields 를 넘긴다. 그 항목은 대부분 같은 파일의 fieldsOf 가
+// 컨텍스트 키를 화면 이름으로, 값을 짧은 글로 바꿔 만든 것이다.
 defineProps({ fields: { type: Array, required: true } })
 </script>
 

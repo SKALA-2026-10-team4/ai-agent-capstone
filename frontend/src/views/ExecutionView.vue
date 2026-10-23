@@ -1,13 +1,28 @@
 <script setup>
+// 주문 Agent 실행 한 건의 증거 화면이다.
+// frontend/src/router/index.js 가 /executions/:id 경로에 연결한다.
+// 식별자, 오류 상세, 실행 당시 snapshot 으로 그린 단계 흐름, 시간 순서의 이벤트를 보여 준다.
+// order-agent/docs/team-scenarios.md 의 "담당자 간 전달할 증거"(execution_id, order_id, snapshot,
+// 오류 상세, 최종 상태)를 모두 보여 주는 것이 목적이다.
+// 이 화면을 여는 곳은 frontend/src/views/OrderView.vue 의 결과와 실행 기록 링크, 그리고
+// frontend/src/views/DiagnosisView.vue 와 frontend/src/components/ProposalFacts.vue 의 실행 번호
+// 링크다. 실행 번호 링크의 주소는 frontend/src/utils/traceRun.js 의 executionPath 가 만든다.
+// trace 는 frontend/src/api/orderAgent.js 의 getTrace 로 읽는다. GET /api/executions/{id}/trace 는
+// order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
+// trace() 가 받는다. 실행에 쓴 Skill 세트는 frontend/src/stores/workspace.js 의 ensureSet 으로
+// 읽는다.
+// 단계 상태 계산은 frontend/src/utils/traceRun.js 의 traceRun, 상태 이름은 같은 파일의 RUN_LABEL,
+// 상태 아이콘은 이 파일의 STEP_ICON 에서 고친다. 이벤트 목록은
+// frontend/src/components/EventTimeline.vue 가 그린다.
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getTrace } from '@/api/orderAgent'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { shortId } from '@/utils/format'
 import { flowSteps } from '@/utils/skillSet'
 import { RUN_LABEL, traceRun } from '@/utils/traceRun'
 import EventTimeline from '@/components/EventTimeline.vue'
 import {
-  ArrowLeft,
   ChevronRight,
   CircleCheck,
   CircleDashed,
@@ -19,24 +34,30 @@ import {
 import PageHeader from '@/components/PageHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 
-// 실행 한 건의 증거: 식별자, 오류 상세, 실행 당시 snapshot 으로 그린 흐름, 시간 순서 이벤트.
-// 팀 시나리오가 담당자 간 전달하라고 정한 증거(execution_id·order_id·snapshot·오류 상세·최종 상태)를 모두 보여 준다.
 const route = useRoute()
 const ws = useWorkspaceStore()
 
 const trace = ref(null)
+// 실행에 쓴 snapshot 의 Skill 세트다. 파일 고정 전에 실패한 실행이면 null 이다.
 const set = ref(null)
+// 단계 버튼으로 고른 skill_id 다. EventTimeline 에 넘겨 그 단계의 이벤트만 보게 한다.
 const selected = ref(null)
 const error = ref(null)
 
-// 정적 검사에서 막히면 FLOW_VALIDATED 이벤트가 없으므로 snapshot 의 order-flow 에서 순서를 읽는다.
+// 단계 순서다. 흐름 계약 검사를 통과하면 FLOW_VALIDATED 이벤트의 steps 가 실제 실행 순서다.
+// 정적 검사에서 막히면 그 이벤트가 없으므로 실행에 쓴 snapshot 의 order-flow 에서 순서를 읽는다
+// (frontend/src/utils/skillSet.js 의 flowSteps). 세트도 읽지 못했으면 빈 목록이다.
 const steps = computed(() => {
   const validated = trace.value?.events.find((e) => e.kind === 'FLOW_VALIDATED')
   return validated?.data.steps ?? (set.value ? flowSteps(set.value.skills) : [])
 })
+// run 은 trace 를 단계별 상태(bySkill)와 실행 오류(error)로 계산한 결과다.
+// failure 는 실행 오류 상자에 보일 EXECUTION_ERROR 이벤트의 data 다.
 const run = computed(() => (trace.value ? traceRun(trace.value, steps.value) : null))
 const failure = computed(() => run.value?.error ?? null)
 
+// 실행 번호가 바뀔 때마다(처음 포함) 화면 값을 비우고 trace 를 새로 읽는다. trace 에 snapshot_id 가
+// 있으면 그 세트도 읽어 단계 순서와 세트 이름(workspace store 의 kindLabelOf)에 쓴다.
 watch(
   () => route.params.id,
   async (id) => {
@@ -53,6 +74,8 @@ watch(
   { immediate: true },
 )
 
+// 단계 상태별 아이콘이다.
+// 상태 값은 traceRun 이 정하는 ok, stopped, error, running, blocked, skipped 다.
 const STEP_ICON = {
   ok: CircleCheck,
   stopped: CirclePause,
@@ -61,19 +84,20 @@ const STEP_ICON = {
   blocked: CircleDashed,
   skipped: CircleDashed,
 }
+/**
+ * 단계 하나의 상태를 돌려준다. 계산 결과에 없는 단계는 skipped 로 본다.
+ * template 의 단계 버튼이 색, 아이콘(STEP_ICON), 상태 이름(RUN_LABEL)을 고를 때 쓴다.
+ */
 const statusOf = (id) => run.value?.bySkill[id]?.status ?? 'skipped'
 </script>
 
 <template>
   <PageHeader
-    :title="trace ? `실행 ${trace.execution_id.slice(0, 8)}` : '실행 기록'"
+    :title="trace ? `실행 ${shortId(trace.execution_id)}` : '실행 기록'"
     description="주문 Agent 가 어떤 Skill 파일로 무엇을 했는지, 어디서 왜 멈췄는지 남긴 기록이에요."
     :icon="ScrollText"
-  >
-    <template #crumbs>
-      <RouterLink to="/orders" class="crumb"><ArrowLeft :size="14" /> 주문 실행 · 기록</RouterLink>
-    </template>
-  </PageHeader>
+    :back="{ to: '/orders', label: '주문 실행 · 기록' }"
+  />
   <p v-if="error" class="error-text">{{ error }}</p>
 
   <template v-if="trace">
@@ -95,7 +119,7 @@ const statusOf = (id) => run.value?.bySkill[id]?.status ?? 'skipped'
         <dd>
           <template v-if="trace.snapshot_id">
             <code>{{ trace.snapshot_id }}</code>
-            <span class="muted"> · {{ ws.labelOf(trace.snapshot_id).split(' · ')[0] }}</span>
+            <span class="muted"> · {{ ws.kindLabelOf(trace.snapshot_id) }}</span>
             <br />
             <code class="muted">SHA-256 {{ trace.snapshot_hash }}</code>
           </template>
@@ -179,14 +203,6 @@ const statusOf = (id) => run.value?.bySkill[id]?.status ?? 'skipped'
 </template>
 
 <style scoped>
-.crumb {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-}
-
 .card + .card {
   margin-top: 16px;
 }

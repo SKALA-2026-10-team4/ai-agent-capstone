@@ -1,20 +1,35 @@
 <script setup>
+// 받은 제안서 목록 화면이며, 로그인 뒤 첫 화면이다(frontend/src/router/paths.js 의 HOME_PATH).
+// frontend/src/router/index.js 가 /proposals 경로에 연결한다.
+// 제안서는 skillops-agent 가 service 의 save_proposal MCP 도구
+// (service/src/main/java/com/capstone4/skillops/mcp/ProposalTools.java)로 저장한 것이다.
+// service 가 저장한 제안서의 제목과 개요를 보여 주고, 처음에는 아직 결정하지 않은 제안서만 고른
+// '검토 대기' 탭을 연다. 목록은 frontend/src/api/proposals.js 의 listProposals 로 읽는다.
+// GET /service/api/proposals 는
+// service/src/main/java/com/capstone4/skillops/api/ProposalController.java 의 list() 가 받는다.
+// 검토 대기 판정은 frontend/src/utils/proposalView.js 의 awaitsDecision 이며,
+// 사이드바(frontend/src/components/AppSidebar.vue)의 숫자도 같은 규칙으로 센다.
+// 항목을 누르면 제안서 상세 화면(/proposals/:id, frontend/src/views/ProposalView.vue)으로 간다.
 import { computed, onMounted, ref } from 'vue'
 import { ChevronRight, Inbox, Star } from 'lucide-vue-next'
 import { listProposals } from '@/api/proposals'
-import { awaitsDecision, STATUS } from '@/utils/proposalView'
+import { awaitsDecision } from '@/utils/proposalView'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ProposalStatusBadge from '@/components/ProposalStatusBadge.vue'
 
-// 받은 제안서 목록. service 가 저장한 제안서의 제목과 개요를 보여 주고, 아직 결정하지 않은 제안서를 먼저 고른다.
 const proposals = ref([])
 const error = ref(null)
+// 고른 탭이다. 'pending' 은 검토 대기, 'all' 은 전체다.
 const filter = ref('pending')
 
+/** 검토 대기 제안서만 남긴다. */
 const pendingOnly = (items) => items.filter(awaitsDecision)
+// shown 은 고른 탭에 맞는 목록이고, pendingCount 는 검토 대기 탭 옆 숫자다.
 const shown = computed(() => (filter.value === 'pending' ? pendingOnly(proposals.value) : proposals.value))
 const pendingCount = computed(() => pendingOnly(proposals.value).length)
 
+// 화면을 열 때 한 번만 목록을 읽는다. 읽지 못하면 오류 문구를 보여 준다.
 onMounted(async () => {
   try {
     proposals.value = (await listProposals()).items
@@ -50,7 +65,7 @@ onMounted(async () => {
   <div class="list">
     <RouterLink v-for="p in shown" :key="p.proposal_id" :to="`/proposals/${p.proposal_id}`" class="item card">
       <div class="head">
-        <span class="status" :class="STATUS[p.status]?.tone">{{ STATUS[p.status]?.label ?? p.status }}</span>
+        <ProposalStatusBadge :status="p.status" />
         <strong class="title">{{ p.title }}</strong>
       </div>
       <p class="summary">{{ p.summary }}</p>
@@ -119,30 +134,6 @@ onMounted(async () => {
 
 .title {
   font-size: var(--fs-lg);
-}
-
-.status {
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-2);
-}
-
-.status.info {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.status.ok {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.status.err {
-  background: var(--err-soft);
-  color: var(--err);
 }
 
 .summary {

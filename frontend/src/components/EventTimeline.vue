@@ -1,42 +1,46 @@
 <script setup>
+// order-agent trace 의 events 를 받은 순서(시간 순서) 그대로 두고, 연속된 같은 단계(skill)끼리 묶어
+// 문장으로 보여 준다. 원본 data 는 각 이벤트의 "원본" 을 눌러야 보인다.
+// frontend/src/views/ExecutionView.vue 의 이벤트 칸이 쓰고,
+// skill 을 주면 그 단계의 이벤트만 보여 준다.
+// 이벤트를 문장으로 바꾸는 규칙은 frontend/src/utils/eventView.js 에 있다. groupBySkill 이 묶으면서
+// 이벤트마다 describe 로 제목·설명·항목을 만들고, eventLabel 이 종류 이름을 정한다.
+// isNoisy 는 모델 입력과 응답처럼 길어서 기본으로 숨길 종류를 정한다.
+// 이벤트 종류의 라벨, 문장, 숨김 여부는 그 파일의 EVENT_KINDS 한 곳에서 고친다.
+// 항목 목록은 frontend/src/components/FieldList.vue 가 그린다.
 import { computed, ref } from 'vue'
-import { EVENT_LABELS, isErrorEvent } from '@/utils/traceRun'
-import { describe } from '@/utils/eventView'
+import { eventLabel, groupBySkill, isNoisy } from '@/utils/eventView'
 import FieldList from './FieldList.vue'
 
-// order-agent trace events 를 시간 순서로, 단계(skill)별로 묶어 문장으로 보여 준다.
-// 원본 data 는 각 이벤트의 "원본" 을 눌러야 보인다.
 const props = defineProps({
   events: { type: Array, required: true },
   skill: { type: String, default: null },
 })
 
-// 모델 입력·원래 응답은 길어서 기본으로 숨긴다.
-const NOISY = new Set(['DECISION_INPUT', 'MODEL_RESPONSE', 'MODEL_REQUEST', 'CANDIDATES_OFFERED'])
+// 숨기는 종류까지 모두 보일지 정하는 체크박스 값이다.
 const showAll = ref(false)
+// 원본 data 를 펼친 이벤트의 sequence 모음이다.
 const raw = ref(new Set())
 
+// skill 이 있으면 그 단계 이벤트만 남기고, 모두 보기를 켜지 않았으면 숨기는 종류를 뺀다.
+// hidden 은 숨긴 수로 체크박스 옆에 보여 주고, groups 는 화면에 그릴 묶음 목록이다.
+// 묶음의 이벤트마다 view(문장)와 error(오류 이벤트 표시)가 붙는다.
 const matching = computed(() => props.events.filter((e) => !props.skill || e.skill_id === props.skill))
-const shown = computed(() => matching.value.filter((e) => showAll.value || !NOISY.has(e.kind)))
+const shown = computed(() => matching.value.filter((e) => showAll.value || !isNoisy(e.kind)))
 const hidden = computed(() => matching.value.length - shown.value.length)
+const groups = computed(() => groupBySkill(shown.value))
 
-// 연속된 같은 skill 의 이벤트를 한 묶음으로. skill 이 없는 이벤트는 "실행 준비·마무리".
-const groups = computed(() => {
-  const out = []
-  for (const e of shown.value) {
-    const key = e.skill_id ?? null
-    if (!out.length || out.at(-1).skill !== key) out.push({ skill: key, events: [] })
-    out.at(-1).events.push({ ...e, view: describe(e), error: isErrorEvent(e) })
-  }
-  return out
-})
-
+/**
+ * 이벤트 하나의 원본 data 펼침을 켜고 끈다. 이벤트마다 있는 '원본' 버튼(펼친 뒤에는 '닫기')이
+ * 부른다. 이벤트는 sequence 로 구분하고, 복사한 Set 을 고친 뒤 raw 에 통째로 넣는다.
+ */
 function toggleRaw(seq) {
   const next = new Set(raw.value)
   if (next.has(seq)) next.delete(seq)
   else next.add(seq)
   raw.value = next
 }
+/** 원본 data 를 두 칸 들여쓴 JSON 글로 바꾼다. */
 const pretty = (v) => JSON.stringify(v, null, 2)
 </script>
 
@@ -52,7 +56,7 @@ const pretty = (v) => JSON.stringify(v, null, 2)
       <div v-for="e in g.events" :key="e.sequence" class="event" :class="{ err: e.error }">
         <div class="line">
           <span class="seq">{{ e.sequence }}</span>
-          <span class="kind">{{ EVENT_LABELS[e.kind] ?? e.kind }}</span>
+          <span class="kind">{{ eventLabel(e.kind) }}</span>
           <span class="title">{{ e.view.title }}</span>
           <small class="muted time">{{ e.at.slice(11, 19) }}</small>
           <button class="raw-btn" @click="toggleRaw(e.sequence)">{{ raw.has(e.sequence) ? '닫기' : '원본' }}</button>

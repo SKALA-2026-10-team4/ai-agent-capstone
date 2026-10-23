@@ -1,55 +1,71 @@
 <script setup>
+// 버전 비교 화면이다. frontend/src/router/index.js 가 /compare 경로에 연결하고,
+// 실행 상세 화면(frontend/src/views/ExecutionView.vue)의 실행 오류 상자도
+// 'snapshot 비교' 링크로 이 화면을 연다.
+// 두 snapshot(기준, 비교)의 파일 차이와 양쪽의 계약 위반을 나란히 보여 준다.
+// order-agent/docs/team-scenarios.md 의 추천 팀 시연 순서 가운데
+// "snapshot 파일 차이 확인" 단계에 쓴다.
+// service 의 diff_skill(service/src/main/java/com/capstone4/skillops/mcp/SkillDiffTools.java)은
+// MCP 전용 도구라서 화면에서는 manifest 의 파일 hash 와 파일 본문으로 직접 비교한다.
+// 세트는 frontend/src/stores/workspace.js 의 ensureSet 으로 읽고, Skill 이 아닌 파일 본문은
+// frontend/src/api/orderAgent.js 의 getSnapshotFile(GET /api/snapshots/{id}/files)로 읽는다.
+// 파일 상태와 frontmatter 필드 변경 규칙은 frontend/src/utils/snapshotDiff.js 의 pairFiles,
+// fieldChanges, 비교 필드 목록 FRONTMATTER_FIELDS 에 있고, 계약 위반 계산은
+// frontend/src/utils/flowGraph.js 의 flowGraphOf 가 한다. 줄 단위 비교는
+// frontend/src/components/DiffView.vue 가 그린다.
 import { computed, onMounted, ref, watch } from 'vue'
 import { getSnapshotFile } from '@/api/orderAgent'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { buildGraph } from '@/utils/flowGraph'
-import { ENTRY_SKILL, flowSteps } from '@/utils/skillSet'
+import { flowGraphOf } from '@/utils/flowGraph'
+import { shortId } from '@/utils/format'
+import { fieldChanges, pairFiles } from '@/utils/snapshotDiff'
 import { GitCompareArrows } from 'lucide-vue-next'
 import DiffView from '@/components/DiffView.vue'
 import PageHeader from '@/components/PageHeader.vue'
 
-// 두 snapshot 의 파일 차이. 팀 시연 순서의 "snapshot 파일 차이 확인" 단계.
-// service 의 diff_skill 은 MCP 전용이라 화면에서는 manifest hash 와 파일 본문으로 직접 비교한다.
 const ws = useWorkspaceStore()
+// 기준과 비교로 고른 snapshot id 다. 둘 다 있어야 비교한다.
 const before = ref('')
 const after = ref('')
-const files = ref([]) // [{ path, status, before, after }]
+// 비교한 파일 목록이다. [{ path, status, before, after, changes }] 모양이며,
+// unchanged 파일은 본문을 읽지 않아 path 와 status 만 있다.
+const files = ref([])
 const busy = ref(false)
 const error = ref(null)
 
-const FIELDS = ['inputs', 'outputs', 'depends_on', 'steps', 'description', 'owner', 'version']
-
-function summary(set) {
-  if (!set) return null
-  const steps = flowSteps(set.skills)
-  return buildGraph(set.skills.filter((s) => s.skill_id !== ENTRY_SKILL), steps)
-}
-
+// 기준과 비교 세트의 계약 그래프다. 세트를 읽지 못한 쪽은 null 이다.
 const graphs = ref([null, null])
 
+/**
+ * 바뀐 파일 하나의 원문을 돌려준다. compare 가 바뀐 파일마다 그 파일이 있는 쪽에서 부른다.
+ * Skill 파일이면 이미 불러온 세트의 글을 쓰고, 아니면(resources 같은 관련 파일) 파일 API 로 읽는다.
+ */
+async function loadFileText(id, set, path) {
+  return set.skills.find((s) => s.path === path)?.text ?? (await getSnapshotFile(id, path)).content
+}
+
+/**
+ * 두 snapshot 을 비교한다. 두 세트를 함께 불러 계약 그래프를 계산하고, manifest 의 파일 목록을
+ * 경로별로 짝지어 상태(added, removed, modified, unchanged)를 정한다. 바뀐 파일만 양쪽 원문을 읽고,
+ * 양쪽 세트에 모두 있는 Skill 파일이면 frontmatter 필드별 변경(changes)도 붙인다.
+ * 한쪽에만 있는 파일은 없는 쪽을 빈 글로 둔다.
+ * 아래 watch 가 before 나 after 가 바뀔 때마다 부른다.
+ */
 async function compare() {
   if (!before.value || !after.value) return
   busy.value = true
   error.value = null
   try {
     const [a, b] = await Promise.all([ws.ensureSet(before.value), ws.ensureSet(after.value)])
-    graphs.value = [summary(a), summary(b)]
-    const left = Object.fromEntries(a.snapshot.files.map((f) => [f.path, f]))
-    const right = Object.fromEntries(b.snapshot.files.map((f) => [f.path, f]))
-    const paths = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()
-    const text = async (id, set, path) =>
-      set.skills.find((s) => s.path === path)?.text ?? (await getSnapshotFile(id, path)).content
+    graphs.value = [a ? flowGraphOf(a.skills) : null, b ? flowGraphOf(b.skills) : null]
     files.value = await Promise.all(
-      paths.map(async (path) => {
-        const l = left[path]
-        const r = right[path]
-        const status = !l ? 'added' : !r ? 'removed' : l.hash === r.hash ? 'unchanged' : 'modified'
+      pairFiles(a.snapshot.files, b.snapshot.files).map(async ({ path, left, right, status }) => {
         if (status === 'unchanged') return { path, status }
         return {
           path,
           status,
-          before: l ? await text(before.value, a, path) : '',
-          after: r ? await text(after.value, b, path) : '',
+          before: left ? await loadFileText(before.value, a, path) : '',
+          after: right ? await loadFileText(after.value, b, path) : '',
           changes: fieldChanges(
             a.skills.find((s) => s.path === path),
             b.skills.find((s) => s.path === path),
@@ -64,20 +80,11 @@ async function compare() {
   }
 }
 
-// frontmatter 필드별 변경. 목록 필드는 추가·삭제 키로 나눈다(service SkillFileDiff.FrontmatterChange 와 같은 뜻).
-function fieldChanges(l, r) {
-  if (!l || !r) return []
-  return FIELDS.flatMap((field) => {
-    const x = l[field]
-    const y = r[field]
-    if (JSON.stringify(x) === JSON.stringify(y)) return []
-    if (Array.isArray(x) && Array.isArray(y)) {
-      return [{ field, added: y.filter((k) => !x.includes(k)), removed: x.filter((k) => !y.includes(k)) }]
-    }
-    return [{ field, before: x, after: y }]
-  })
-}
-
+/**
+ * 시연용 비교 쌍을 준비한다. 위쪽 도구 막대의 준비 버튼이 부른다. 정상본(baseline)과
+ * 결함본(broken-contract) fixture 를 차례로 새 snapshot 으로 고정해(workspace store 의 pin)
+ * 기준과 비교에 넣으면 watch 가 비교를 시작한다. 데모 쌍을 바꾸려면 여기의 fixture 이름을 고친다.
+ */
 async function prepareDemo() {
   busy.value = true
   try {
@@ -90,11 +97,19 @@ async function prepareDemo() {
   }
 }
 
+// 기준이나 비교가 바뀌면 다시 비교한다.
 watch([before, after], compare)
+// 선택지(workspace store 의 knownSnapshots)에 최근 실행이 쓴 snapshot 도 보이도록
+// 실행 목록을 읽는다.
 onMounted(() => ws.refreshExecutions())
 
+// 본문 비교를 보여 줄 바뀐 파일들이다.
 const changed = computed(() => files.value.filter((f) => f.status !== 'unchanged'))
-const label = (id) => ws.knownSnapshots.find((s) => s.id === id)?.label ?? id.slice(0, 8)
+/**
+ * 선택지에 있는 snapshot 이면 그 이름을, 없으면 id 앞 8자를 돌려준다.
+ * 기준과 비교의 계약 위반 칸 제목이 쓴다.
+ */
+const label = (id) => ws.knownSnapshots.find((s) => s.id === id)?.label ?? shortId(id)
 </script>
 
 <template>
