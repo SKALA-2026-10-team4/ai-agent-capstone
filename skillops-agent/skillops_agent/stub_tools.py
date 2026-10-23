@@ -315,7 +315,7 @@ class StubMCPTools:
         """patches 가 있고 아는 workspace 면 그 workspace 를 통과 상태로 바꾼다.
 
         패치한 skill 마다 base_version + 1 을 changed_skills 로 돌려준다. 패치 내용은 보지 않으므로
-        어떤 수정이든 고친 것으로 보고, broken_links 는 늘 비어 있다. 패치가 없거나 모르는
+        어떤 수정이든 고친 것으로 보고 입력·선행 단계 오류 목록은 늘 비어 있다. 패치가 없거나 모르는
         workspace 면 ContractError 다.
         """
         if not patches or workspace_id not in self._workspaces:
@@ -327,6 +327,7 @@ class StubMCPTools:
                 {"skill": p["skill"], "version": p["base_version"] + 1} for p in patches
             ],
             "broken_links": [],
+            "dependency_violations": [],
         }
 
     async def run_scenarios(

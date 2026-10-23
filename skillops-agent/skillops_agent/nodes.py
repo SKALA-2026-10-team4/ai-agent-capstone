@@ -67,6 +67,7 @@ from .contracts import (
     execution_uuid,
     failures_of,
     file_hashes,
+    patch_contract_ok,
     replay_scenario_id,
     reverse_hunk,
     run_ids_of,
@@ -984,14 +985,13 @@ async def generate_candidates(state: AgentState) -> dict:
 def _check_applied(applied: dict, workspace_id: str, patches: list[Patch]) -> set[str]:
     """apply_patch 응답이 이 workspace 에 후보 patch 를 모두 적용했는지 보고 대상 skill 을 준다.
 
-    응답이 이 workspace 의 것이고 broken_links 목록이 있어야 하며, changed_skills 가 후보가 고친
+    응답이 이 workspace의 것이고 입력·선행 단계 오류 목록이 있어야 하며 changed_skills가 후보가 고친
     skill 과 정확히 같아야 한다. 어긋나면 ContractError 로 진단을 멈춘다. 돌려주는 skill 이름 집합의
     크기가 changed_skill_count 가 된다. _verify_candidate 가 부른다.
     """
-    if applied.get("workspace_id") != workspace_id or not isinstance(
-        applied.get("broken_links"), list
-    ):
+    if applied.get("workspace_id") != workspace_id:
         raise ContractError("invalid apply_patch response")
+    patch_contract_ok(applied)
     expected_skills = {p["skill"] for p in patches}
     if (
         not expected_skills
@@ -1013,8 +1013,9 @@ def _judge(
 
     fixes_failure 는 재현 시나리오가 모두 통과했는지, keeps_old_orders 는 회귀 세트의 통과 수와 전체
     수({passed, total}), keeps_intent 는 의도 조건 실행이 모두 통과했는지, no_broken_links 는
-    apply_patch 응답의 broken_links 가 비었는지다. valid 는 재현, 회귀, 의도가 모두 통과하고 끊긴
-    연결이 없을 때만 참이다. 의도 조건이 없으면 intent_results 가 빈 목록이라 keeps_intent 가 참이
+    apply_patch의 broken_links와 dependency_violations가 모두 비었는지다.
+    valid는 재현·회귀·의도가 통과하고 연결 오류가 없을 때만 참이다.
+    의도 조건이 없으면 intent_results 가 빈 목록이라 keeps_intent 가 참이
     된다. service 는 저장할 때
     service/src/main/java/com/capstone4/skillops/proposal/ProposalRules.java 의 passes 로 valid 를
     다시 계산하고, 값이 다르면 INVALID_INPUT 으로 거부한다. 합격 기준을 바꾸려면 두 곳을 함께
@@ -1023,7 +1024,7 @@ def _judge(
     functional = all_passed(repro)
     regression_ok = all_passed(regression)
     intent_ok = all_passed(intent_results)
-    contract_ok = not applied["broken_links"]
+    contract_ok = patch_contract_ok(applied)
     results = CandidateResults(
         fixes_failure=functional,
         keeps_old_orders={

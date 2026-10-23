@@ -1,0 +1,6 @@
+{
+  "workspace_id": "w_abc",
+  "changed_skills": [{"skill": "payment", "version": 2}],
+  "broken_links": [],
+  "dependency_violations": [{"skill": "payment", "missing_dependency": "notify"}]
+}

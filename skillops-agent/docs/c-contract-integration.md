@@ -1,5 +1,7 @@
 # B의 현재 C 계약 적용 (#60)
 
+> **2026-10-23 · #72 apply_patch v1.1:** 기존 `broken_links`와 필수 `dependency_violations:[{skill,missing_dependency}]`가 모두 비어야 후보의 `no_broken_links`가 참이다. 새 필드 누락·null·잘못된 타입은 ContractError로 중단한다. service와 Python을 함께 배포해야 하며 stub과 `c2_real_judge.py`도 같은 계약을 사용한다. [최신 명세](../../docs/contracts/mcp-tools-input-output.md#8-수정-적용하기--apply_patch)
+
 > 후속 구현: 저장 이벤트 자동 전달·중복 방지·진행 조회·화면 연결은 `docs/skill-save-auto-diagnosis.md`에 정리했다. 아래의 자동 연동 미구현·메모리 상태 관련 설명은 해당 후속 구현으로 대체된다.
 
 2026-10-21. 변경 범위는 skillops-agent/이며 C 서비스·주문 Agent 소스는 변경하지 않는다.

@@ -12,4 +12,6 @@
 
 변경 이력은 각 파일 상단의 `버전` 줄에 적는다.
 
+2026-10-23 · #72: `apply_patch` 응답 v1.1의 [JSON Schema](apply-patch-result.schema.json)와 [Java/Python 공통 예제](examples/apply-patch-dependency-violation.json)를 추가했다. 필수 `dependency_violations`와 기존 `broken_links`를 함께 검사한다. 자세한 호환 규칙은 [도구 입출력 명세](mcp-tools-input-output.md#8-수정-적용하기--apply_patch)를 따른다.
+
 계약 5의 v1 제안(도구별 입출력 JSON, 필드 설명, 읽고 쓰는 저장 공간)은 `mcp-tools-input-output.md`에 있다. 동결 회의에서 확정되면 `mcp-tools-and-rest.md`와 스키마 파일에 반영한다.

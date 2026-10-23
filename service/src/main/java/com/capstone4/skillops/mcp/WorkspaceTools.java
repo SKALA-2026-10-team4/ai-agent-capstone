@@ -88,8 +88,11 @@ public class WorkspaceTools {
             patch 는 diff_skill 이 돌려준 덩어리별 diff 를 그대로 넣거나 같은 형식으로 만든다. '---', '+++' 머리줄은 없어도 된다.
             base_version 은 연습 공간 안 그 skill 의 시작 버전(create_workspace 의 skill_versions)과 같아야 한다.
             끊긴 연결이 있어도 수정은 들어간다. 판단은 부른 쪽이 한다. 고치면 SKILL.md 맨 위 칸을 읽을 수 없게 되는 수정은 거부한다.
-            돌려주는 값: {workspace_id, changed_skills:[{skill, version}], broken_links:[{skill, missing_input}]}.
-            version 은 시작 버전 + 그 skill 에 수정이 들어간 횟수다. broken_links 가 비어 있으면 연결이 모두 이어져 있다.
+            돌려주는 값: {workspace_id, changed_skills:[{skill, version}], broken_links:[{skill, missing_input}],
+            dependency_violations:[{skill, missing_dependency}]}.
+            version 은 시작 버전 + 그 skill 에 수정이 들어간 횟수다.
+            입력 공급·선행 순서 검사를 통과하려면 broken_links 와 dependency_violations 가 모두 비어 있어야 한다.
+            두 목록은 전체 메타데이터 유효성이나 실제 실행 성공을 보장하지 않는다.
             실패하면 isError=true 와 {code, message, retryable, upstream_status, snapshot_id} 를 돌려준다.""")
     public CallToolResult applyPatch(
             @McpToolParam(description = "create_workspace 가 돌려준 연습 공간 번호") String workspace_id,

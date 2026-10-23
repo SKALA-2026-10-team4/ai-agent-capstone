@@ -2,6 +2,8 @@
 
 버전: v0 (초안) · 동결 예정: 1일차 09시
 
+변경 기록: 2026-10-23 · #72 apply_patch v1.1 — 최신 요청·응답은 아래 apply_patch 행과 [상세 명세 8절](mcp-tools-input-output.md#8-수정-적용하기--apply_patch)을 따른다. 다른 행의 v0 설계와 구분한다. [성공 응답 Schema](apply-patch-result.schema.json)
+
 ## MCP (service → SkillOps Agent)
 
 전송: Streamable HTTP, `POST http://localhost:8080/mcp` (Spring AI MCP Server, `protocol: STREAMABLE`).
@@ -18,7 +20,7 @@
 | `get_trace` | `run_id` | Trace | 1 |
 | `create_workspace` | `base?: {skill: version}` (없으면 live 전체) | `{ws_id}` | 1 |
 | `run_scenarios` | `ws_id`, `scenario_ids[]`, `k?` | `[{scenario_id, passed, runs: [run_id], failures: [{run_id, step, error}]}]` | 1 |
-| `apply_patch` | `ws_id`, `patches[]` (proposal.candidate.patches) | `{ws_id, applied: [{skill, version}], contract_violations: [...]}` | 2 |
+| `apply_patch` | `workspace_id`, `patches[{skill,base_version,patch}]` | `{workspace_id, changed_skills:[{skill,version}], broken_links:[{skill,missing_input}], dependency_violations:[{skill,missing_dependency}]}` — 두 오류 목록이 모두 비어야 입력·선행 단계 검사 통과 | 2 |
 | `save_proposal` | `proposal` (Proposal) | `{id}` — `evidence` 비면 400 | 2 |
 | `promote_workspace` | `ws_id`, `approval_token` | `{promoted: [{skill, version}]}` — 토큰은 REST approve 가 발급 | 2 |
 | `rollback` | `skill`, `version` | `{skill, version}` | 2 |

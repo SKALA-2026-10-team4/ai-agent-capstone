@@ -43,7 +43,7 @@ import tools.jackson.databind.annotation.JsonNaming;
  *
  * 흐름을 바꿀 때 고칠 곳은 다음과 같다. 연습 공간 번호 모양은 newId, created_at 정밀도는 saveNew, snapshot 안에서
  * skill 로 볼 파일 규칙은 SKILL_MD_PATH, 끊긴 연결을 셀 flow 는 ENTRY_SKILL, 수정 거부 정책은 rejectUnreadableHeaders,
- * 돌려주는 버전 번호 규칙은 applyOne 과 changedSkillsOf, broken_links 에 넣을 범위는 brokenLinksOf 가 정한다.
+ * 버전 번호는 changedSkillsOf, 입력 누락은 brokenLinksOf, 선행 단계 누락은 dependencyViolationsOf가 정한다.
  * diff 를 읽는 규칙은 PatchApplier 에 있다.
  */
 @Service
@@ -98,9 +98,15 @@ public class WorkspaceService {
     public record BrokenLink(String skill, String missingInput) {
     }
 
-    /** apply_patch 도구의 결과다. 계약 5 v1 의 {workspace_id, changed_skills, broken_links} 모양이다. */
+    /** apply_patch 결과에서 앞서 완료되지 않은 depends_on 단계를 나타낸다. */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    public record PatchResult(String workspaceId, List<ChangedSkill> changedSkills, List<BrokenLink> brokenLinks) {
+    public record DependencyViolation(String skill, String missingDependency) {
+    }
+
+    /** patch 적용 결과에 입력 누락과 선행 단계 누락을 구분해 담는다. */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record PatchResult(String workspaceId, List<ChangedSkill> changedSkills, List<BrokenLink> brokenLinks,
+            List<DependencyViolation> dependencyViolations) {
     }
 
     /** workspaces 표의 JPA 저장소다. 이 서비스는 findById 와 save 만 쓴다. */
@@ -305,8 +311,8 @@ public class WorkspaceService {
      * apply_patch 의 본체다. 연습 공간의 skill 에 수정(unified diff)을 차례로 적용하고, 고친 뒤에 끊긴 연결이 남았는지
      * 검사한다. service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 의 applyPatch 가 부른다.
      * 전부 적용하거나 하나도 적용하지 않는다. 하나라도 실패하면 IllegalArgumentException 을 던지고 아무것도 저장하지 않는다.
-     * 끊긴 연결이 있어도 수정은 저장하고 broken_links 로 알려 주기만 한다. 받아들일지는 부른 쪽이 정한다. Agent 에서는
-     * skillops-agent/skillops_agent/nodes.py 의 _judge 가 broken_links 가 비어 있어야 후보를 유효로 본다.
+     * 입력·선행 단계 연결이 끊겨도 수정은 저장하고 두 오류 목록을 돌려준다.
+     * Agent의 _judge는 broken_links와 dependency_violations가 모두 비어 있어야 연결 검사를 통과시킨다.
      * 같은 skill 을 여러 번 고치면 앞의 수정이 들어간 글 위에 다음 수정을 적용한다.
      *
      * 단계는 입력 검사, 연습 공간 조회와 OPEN 확인, 복사본에 수정 적용(applyOne), 연결 분석(analyze), 맨 위 칸을 깨는 수정
@@ -335,7 +341,8 @@ public class WorkspaceService {
 
         record.replaceSkills(skills);
         repository.save(record);
-        return new PatchResult(workspaceId, changedSkillsOf(skills, changed), brokenLinksOf(graph));
+        return new PatchResult(workspaceId, changedSkillsOf(skills, changed), brokenLinksOf(graph),
+                dependencyViolationsOf(graph));
     }
 
     /**
@@ -409,12 +416,19 @@ public class WorkspaceService {
     /**
      * 분석 결과의 끊긴 연결을 broken_links 항목으로 펼친다. 고친 skill 만이 아니라 entry flow 의 steps 전체에서 찾은
      * 끊긴 연결을 담는다.
-     * 빠진 입력(missingInputs)만 넣고, 먼저 끝나야 할 skill(missingDependencies)은 넣지 않는다.
-     * broken_links 범위를 바꾸려면 이 메서드를 고친다.
+     * 빠진 입력만 기존 broken_links에 넣고 선행 단계 누락은 dependencyViolationsOf가 따로 보존한다.
      */
     private static List<BrokenLink> brokenLinksOf(DependencyGraph graph) {
         return graph.missing().stream()
                 .flatMap(m -> m.missingInputs().stream().map(input -> new BrokenLink(m.skillId(), input)))
+                .toList();
+    }
+
+    /** 전체 flow에서 발견한 선행 단계 누락을 선언 순서대로 별도 목록에 보존한다. */
+    private static List<DependencyViolation> dependencyViolationsOf(DependencyGraph graph) {
+        return graph.missing().stream()
+                .flatMap(missing -> missing.missingDependencies().stream()
+                        .map(dependency -> new DependencyViolation(missing.skillId(), dependency)))
                 .toList();
     }
 

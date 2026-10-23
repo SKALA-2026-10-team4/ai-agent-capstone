@@ -366,6 +366,7 @@ async def test_apply_patch_makes_the_workspace_pass(stub):
                 {"skill": "inventory-check", "version": 2},
             ],
             "broken_links": [],
+            "dependency_violations": [],
         },
     )
     assert StubMCPTools._workspaces[workspace_id] is True

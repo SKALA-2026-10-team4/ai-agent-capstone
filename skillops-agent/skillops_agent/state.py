@@ -123,8 +123,7 @@ class CandidateResults(TypedDict):
     # 의도 조건을 붙인 재현 실행이 모두 통과했는지다. 조건이 없으면 True 다.
     # v1 계약에서 intent 가 keeps_intent 로 바뀌었다.
     keeps_intent: bool
-    # apply_patch 응답의 broken_links 가 비었는지다. v1 계약에서 contract 가 no_broken_links 로
-    # 바뀌었다.
+    # apply_patch의 broken_links와 dependency_violations가 모두 비었는지다.
     no_broken_links: bool
     # 후보가 고친 skill 수다. v1 계약에서 footprint 가 changed_skill_count 로 바뀌었다.
     changed_skill_count: int

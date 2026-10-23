@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "apply_patch result v1.1 (#72)",
+  "description": "입력 공급과 선행 단계 누락을 구분하는 apply_patch 성공 payload. MCP text content 내부 JSON에 적용한다.",
+  "type": "object",
+  "required": ["workspace_id", "changed_skills", "broken_links", "dependency_violations"],
+  "properties": {
+    "workspace_id": {"type": "string", "minLength": 1},
+    "changed_skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill", "version"],
+        "properties": {
+          "skill": {"type": "string", "pattern": "\\S"},
+          "version": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "broken_links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill", "missing_input"],
+        "properties": {
+          "skill": {"type": "string", "pattern": "\\S"},
+          "missing_input": {"type": "string", "pattern": "\\S"}
+        }
+      }
+    },
+    "dependency_violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill", "missing_dependency"],
+        "properties": {
+          "skill": {"type": "string", "pattern": "\\S"},
+          "missing_dependency": {"type": "string", "pattern": "\\S"}
+        }
+      }
+    }
+  }
+}

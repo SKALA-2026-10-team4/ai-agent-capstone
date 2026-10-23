@@ -185,18 +185,28 @@ async def test_checks_are_scoped_to_replay_and_all_trials_have_evidence(tools, m
 
 
 @pytest.mark.asyncio
-async def test_broken_contract_cannot_be_valid(tools, monkeypatch):
+@pytest.mark.parametrize(
+    ("field", "violation"),
+    [
+        ("broken_links", {"skill": "payment", "missing_input": "inventory.reserved"}),
+        ("dependency_violations", {"skill": "payment", "missing_dependency": "notify"}),
+    ],
+)
+async def test_broken_contract_cannot_be_valid(tools, monkeypatch, field, violation):
+    """입력 공급 또는 선행 단계만 어겨도 합격 후보와 추천 제안서를 만들지 않는다."""
     original = tools.apply_patch
 
     async def broken(*args):
+        """실행은 통과하는 stub 응답에 지정한 연결 오류만 추가한다."""
         result = await original(*args)
-        result["broken_links"] = [{"skill": "payment", "missing_input": "inventory.reserved"}]
+        result[field] = [violation]
         return result
 
     monkeypatch.setattr(tools, "apply_patch", broken)
     result = await run(initial())
     assert result["error"] is None
     assert not any(c["valid"] for c in result["candidates"])
+    assert all(c["results"]["no_broken_links"] is False for c in result["candidates"])
     assert result["proposal"]["status"] == "no_valid_fix"
 
 

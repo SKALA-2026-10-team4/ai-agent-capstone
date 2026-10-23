@@ -4,6 +4,8 @@
 
 변경 기록: 2026-10-23 · #72 1단계 — service의 workspace/snapshot YAML 해석 공통화, 목록·버전 타입 검사, 간이 실행의 빈 steps 거부.
 
+추가 기록: 2026-10-23 · #72 2단계 — patch 결과에 `depends_on` 선행 단계 누락을 `dependency_violations`로 보존하고 Python 후보 판정에 연결했다. [apply_patch 명세](mcp-tools-input-output.md#8-수정-적용하기--apply_patch)를 참고한다.
+
 ## service YAML 해석 규칙 (#72 · 1단계)
 
 service의 `SkillHeader`와 snapshot 분석용 `Frontmatter`는 `skill/SkillFrontmatter`를 공유한다. 이 절은 service 내부의 변경이며 주문 Agent의 `SkillLoader`와 Python 진단 로직까지 통합한 상태는 아니다.
@@ -21,7 +23,7 @@ service의 `SkillHeader`와 snapshot 분석용 `Frontmatter`는 `skill/SkillFron
 
 snapshot diff의 빈 맵 반환, 깨진 YAML의 hunk 보존, hunk ID·위치 계산 규칙은 유지한다. `closingLine`은 원문 줄 위치 계산이므로 빈 frontmatter에서도 닫는 구분선 위치를 반환할 수 있다.
 
-이번 단계는 owner/description/depends_on 검증, patch 응답의 의존성 누락, 주문 Agent와 공통 라이브러리 연결을 완료하지 않는다. 구현·검증 요약: [#72 1단계 변경 내역](../changes/2026-10-23-skill-parser-phase1.md).
+1단계는 owner/description/depends_on 검증과 주문 Agent와의 라이브러리 연결을 완료하지 않았다. 이후 2단계에서 기존 graph의 선행 단계 검증 결과를 patch와 Python에 전달했다. owner/description 등 전체 실행 계약과 파서의 서버 간 통합은 후속 범위다. [1단계 변경 내역](../changes/2026-10-23-skill-parser-phase1.md).
 
 ## 단계 skill
 

@@ -75,7 +75,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from skillops_agent.config import MCP_URL, ORDER_AGENT_URL  # noqa: E402
-from skillops_agent.contracts import execution_uuid  # noqa: E402
+from skillops_agent.contracts import execution_uuid, patch_contract_ok  # noqa: E402
 from skillops_agent.mcp_client import first_text, mcp_client  # noqa: E402
 
 # 실험 값은 여기에 모여 있다.
@@ -130,13 +130,14 @@ class Candidate:
 class Verdict:
     """후보 하나의 판정 결과다. judge 가 채우고 table 과 evidence 가 읽는다.
 
-    error 가 있으면 판정하지 못한 것이고 다른 칸은 의미가 없다. broken_links 는 apply_patch 가
-    알려 준 끊긴 연결이고, all_passed 는 run_scenarios 결과의 all_passed 다.
+    error가 있으면 판정하지 못한 것이다. 두 연결 오류 목록은 apply_patch 결과이며
+    all_passed는 run_scenarios 결과다.
     """
 
     label: str
     error: str | None = None
     broken_links: list[dict] = field(default_factory=list)
+    dependency_violations: list[dict] = field(default_factory=list)
     all_passed: bool = False
     # scenario_id 별 run_scenarios 결과 항목이다.
     results: dict[str, dict] = field(default_factory=dict)
@@ -387,7 +388,7 @@ def is_valid(v: Verdict, replay_id: str) -> bool:
     """
     needed = [*GOLDEN_IDS, replay_id]
     full_set = all(sid in v.results and v.results[sid]["passed"] for sid in needed)
-    return bool(v.all_passed and full_set and not v.broken_links)
+    return bool(v.all_passed and full_set and not v.broken_links and not v.dependency_violations)
 
 
 def mark(ok: bool) -> str:
@@ -407,7 +408,7 @@ def table(verdicts: list[Verdict], replay_id: str) -> str:
         if v.error:
             rows.append([v.label, "-", "-", "-", "-", "-", "-", f"판정 못 함 ({v.error})"])
             continue
-        cells = [v.label, str(len(v.broken_links))]
+        cells = [v.label, str(len(v.broken_links) + len(v.dependency_violations))]
         for sid in [*GOLDEN_IDS, replay_id]:
             r = v.results.get(sid)
             cells.append(mark(base_passed(r)) if r else "-")
@@ -491,10 +492,13 @@ async def judge(client, candidate: Candidate, broken: str, replay_id: str) -> Ve
         applied = await call(
             client, "apply_patch", {"workspace_id": ws["workspace_id"], "patches": patches}
         )
+        patch_contract_ok(applied)
         verdict.broken_links = applied["broken_links"]
+        verdict.dependency_violations = applied["dependency_violations"]
         print(
             f"  {candidate.label}: apply_patch changed_skills={applied['changed_skills']} "
-            f"broken_links={applied['broken_links']}"
+            f"broken_links={applied['broken_links']} "
+            f"dependency_violations={applied['dependency_violations']}"
         )
         report = await call(
             client,
@@ -527,6 +531,7 @@ async def evidence(agent: OrderAgent, verdicts: list[Verdict], replay_id: str) -
             continue
         print(
             f"  끊긴 연결: {json.dumps(v.broken_links, ensure_ascii=False)}  "
+            f"선행 단계 위반: {json.dumps(v.dependency_violations, ensure_ascii=False)}  "
             f"run_scenarios.all_passed={v.all_passed}"
         )
         for sid in [*GOLDEN_IDS, replay_id]:

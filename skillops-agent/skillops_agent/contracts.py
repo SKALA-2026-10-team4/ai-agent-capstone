@@ -13,6 +13,7 @@ LLM 은 제안만 하고 판정은 C 실행 결과로만 하므로, B 가 받은
 - run_scenarios 결과를 다루는 함수는 validate_report, replay_scenario_id, run_ids_of,
   failures_of, all_passed 다.
 - patch 를 만드는 함수는 reverse_hunk(원인 실험)와 unified_patch(수정 후보)다.
+- patch_contract_ok는 patch 응답의 입력·선행 단계 오류 목록을 검사한다.
 
 skillops-agent/skillops_agent/nodes.py 가 대부분을 쓴다. skillops-agent/skillops_agent/tools.py 와
 skillops-agent/skillops_agent/stub_tools.py 는 ContractError 와 execution_uuid 를,
@@ -240,6 +241,24 @@ def check_skill_listing(listing: dict, snapshot_id: str, snapshot_hash: str) -> 
     if listing.get("partial") or listing.get("parse_errors"):
         raise ContractError("candidate skill metadata is incomplete")
     return {item["skill_id"]: item["version"] for item in listing["items"]}
+
+
+def patch_contract_ok(applied: dict) -> bool:
+    """필수 오류 목록을 검증하고 입력 공급과 선행 단계 위반이 모두 없을 때만 True다."""
+    for field, missing_key in (
+        ("broken_links", "missing_input"),
+        ("dependency_violations", "missing_dependency"),
+    ):
+        values = applied.get(field)
+        if not isinstance(values, list):
+            raise ContractError("invalid apply_patch response")
+        for item in values:
+            if not isinstance(item, dict) or any(
+                not isinstance(item.get(key), str) or not item[key].strip()
+                for key in ("skill", missing_key)
+            ):
+                raise ContractError("invalid apply_patch response")
+    return not applied["broken_links"] and not applied["dependency_violations"]
 
 
 def check_diff_evidence(diff: dict, before: dict, after: dict) -> list[dict]:

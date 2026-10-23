@@ -2,6 +2,8 @@
 
 계약 5 · **v1 제안** (v0 초안을 고친 것) · 2026-10-20 · 작성 C-2 · 동결 회의 안건
 
+> **2026-10-23 갱신 (#72 2단계, apply_patch v1.1).** `apply_patch` 응답에 필수 목록 `dependency_violations:[{skill,missing_dependency}]`를 추가했습니다. 기존 `broken_links`의 필드·의미는 유지하며 Python은 두 오류 목록이 모두 비어야 `no_broken_links=true`로 판정합니다. 새 필드가 누락·null·잘못된 타입이면 계약 오류로 중단합니다. service와 Python을 함께 갱신해야 합니다. 이 버전은 도구의 애플리케이션 계약이며 MCP protocolVersion과 별개입니다. [응답 JSON Schema](apply-patch-result.schema.json) · [공통 예제](examples/apply-patch-dependency-violation.json)
+
 > **2026-10-21 갱신 (#38).** B의 Agent(`skillops-agent/skillops_agent/tools.py`)가 계약 5 v0 이름으로 이미 만들어져 있어서, C-2 도구는 v0 이름을 따르기로 했습니다. 7번 `create_workspace`와 9번 `run_scenarios`는 실제 구현에 맞게 고쳤습니다. 8·10·11·12번은 구현할 때 v0 이름(`ws_id`, `approval_token` 등)으로 고칩니다. 오류는 C-1 도구와 같은 `{code, message, retryable, upstream_status, snapshot_id}` 모양입니다.
 
 > **2026-10-21 갱신 (#52).** B가 Agent를 v1 이름으로 옮겼습니다(PR #52, `tools.py`의 `MCPTools`). 그래서 C-2 도구를 다시 v1 이름으로 맞췄습니다. 7번 `create_workspace`는 입력 `start_versions`, 결과 `workspace_id`를 쓰고, 9번 `run_scenarios`는 입력 `workspace_id`·`scenario_ids`·`extra_checks`·`repeat`, 결과 `{workspace_id, all_passed, results}`를 씁니다. 위 #38 메모의 "v0 이름을 따른다"는 이 갱신으로 대체됩니다. 8·10·11·12번도 구현할 때 v1 이름으로 합니다. 오류 모양(`INVALID_INPUT`, `INTERNAL_ERROR`)은 그대로이고, 오류 문구만 v1 입력 이름(`workspace_id`, `repeat`, `start_versions`)으로 바꿨습니다. 재현 주문(`replay_run_ids`)은 아직 받지 않아서 결과의 `replay_of_run_id`는 항상 `null`입니다. (이 부분은 바로 아래 #55 갱신에서 바뀌었습니다.)
@@ -584,7 +586,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 연습 공간 안의 SKILL.md를 고칩니다. 고친 뒤에는 skill 사이의 연결이 끊기지 않았는지 검사해서, 끊긴 곳이 있으면 목록으로 알려 줍니다. 운영 중인 skill에는 아무 영향이 없습니다. 원인을 확인할 때는 변경 하나만 넣고, 후보를 시험할 때는 후보 수정안을 넣습니다. 고치는 대상은 SKILL.md뿐이고, `snapshot_id`로 만든 연습 공간의 `resources/` 같은 다른 파일은 그대로 둡니다.
 
-부르는 쪽: Agent · 담당: C-2 · 구현됨(#55)
+부르는 쪽: Agent · 담당: C-2 · 구현됨(#55), 응답 v1.1 확장(#72, 2026-10-23)
 
 ### 보내는 값
 
@@ -604,7 +606,14 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 | `changed_skills` | 고친 skill | 목록 | 예 | 실제로 고쳐진 skill입니다. 항목마다 `{skill, version}`입니다. |
 | `changed_skills[].skill` | skill 이름 | 글자 | 예 | 고쳐진 skill의 이름입니다. |
 | `changed_skills[].version` | 고친 뒤 버전 | 정수 | 예 | 시작 버전에 그 skill에 수정이 들어간 횟수를 더한 값입니다. 처음 한 번 고치면 시작 버전 + 1입니다. |
-| `broken_links` | 끊긴 연결 | 목록 | 예 | 고친 뒤 연습 공간 안에서 끊긴 연결입니다. 모양과 뜻은 `get_dependency_graph`의 `broken_links`와 같습니다. 비어 있으면 연결이 모두 이어져 있습니다. |
+| `broken_links` | 입력 공급 누락 | 목록 | 예 | 전체 flow에서 주문 입력·앞선 outputs가 공급하지 않는 키입니다. 기존 `{skill, missing_input}` 형식을 유지합니다. 이 목록만 비었다고 선행 단계도 정상인 것은 아닙니다. |
+| `dependency_violations` | 선행 단계 누락 | 목록 | 예 | 전체 flow에서 depends_on에 선언했지만 앞서 완료되지 않은 단계입니다. 오류가 없어도 `[]`를 반드시 반환합니다. |
+| `dependency_violations[].skill` | 위반한 skill | 글자 | 예 | 선행 단계를 필요로 하는 skill입니다. |
+| `dependency_violations[].missing_dependency` | 빠진 선행 단계 | 글자 | 예 | steps에 없거나 뒤에 있거나 자기 자신이어서 앞서 완료되지 않은 skill입니다. |
+
+두 목록은 변경한 skill만이 아니라 entry `order-flow.steps` 전체의 분석 결과를 사용하고, 분석 결과와 선언 순서를 보존합니다. 입력·선행 단계 위반이 있어도 patch는 workspace에 저장되므로 원인 재현 실험에 사용할 수 있습니다. **저장 성공과 후보 합격은 별개**입니다.
+
+Python의 `no_broken_links`는 `broken_links == []`와 `dependency_violations == []`를 모두 만족해야 참입니다. 두 필드는 필수이며 누락·null·목록이 아닌 값·잘못된 오류 항목은 `ContractError("invalid apply_patch response")`입니다. 구버전 서버 응답의 새 필드 누락을 빈 목록으로 보충하지 않습니다. 이 계약은 입력 공급·선행 순서에 관한 것이며 owner/description, 분석 완전성 또는 실제 실행 성공 전체를 보장하지 않습니다.
 
 수정 내용 가운데 하나라도 적용하지 못하면 전부 취소하고 오류를 돌려줍니다. 연습 공간은 보내기 전 상태 그대로 남습니다. 같은 skill에 수정을 여러 번 넣으면 앞의 수정이 들어간 글 위에 차례로 적용합니다. 끊긴 연결이 있어도 수정은 들어갑니다. 그 수정을 쓸지는 부른 쪽이 정합니다. 다만 고치고 나면 SKILL.md 맨 위 칸을 읽을 수 없게 되는 수정은 거부합니다.
 
@@ -633,7 +642,19 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
   "changed_skills": [{ "skill": "inventory-check", "version": 2 }],
   "broken_links": [
     { "skill": "payment", "missing_input": "inventory.reserved" }
-  ]
+  ],
+  "dependency_violations": []
+}
+```
+
+입력 공급은 정상이어도 `payment.depends_on: [notify]`인데 notify가 뒤에 있으면 다음처럼 반환합니다. patch 저장은 성공하고 Python 후보 판정의 `no_broken_links`는 거짓이 됩니다.
+
+```json
+{
+  "workspace_id": "w_abc",
+  "changed_skills": [{"skill":"payment","version":2}],
+  "broken_links": [],
+  "dependency_violations": [{"skill":"payment","missing_dependency":"notify"}]
 }
 ```
 
@@ -648,6 +669,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 - `ws_id`를 `workspace_id`로, `patches[].diff`를 `patches[].patch`로 바꿨습니다.
 - 결과의 `applied`를 `changed_skills`로, `contract_violations`를 `broken_links`로 바꿨습니다.
 - (#55) `changed_skills`는 이름만이 아니라 `{skill, version}` 목록입니다. 구현을 마쳤습니다.
+- (#72) `dependency_violations`를 추가했습니다. `broken_links`는 입력 누락만 유지하며 새 Python은 두 목록을 함께 검사합니다.
 
 ---
 
