@@ -1,0 +1,72 @@
+# Skill 사이 약속이 깨졌지만 Skill 수정으로 고칠 수 있는 경우다.
+id: C-01
+group: C
+title: 재고 확인 outputs 를 예약 가능 수량 하나로 바꿈
+set: dev
+run: auto
+
+change:
+  - file: skills/inventory-check/SKILL.md
+    from: "outputs: [inventory.available, inventory.reserved]"
+    to: "outputs: [inventory.reservable_quantity]"
+
+intent:
+  text: 재고는 예약 가능 수량으로 판단하고 싶다
+  checks: ["inventory.reservable_quantity != null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: payment, missing: [inventory.reserved]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [inventory-check]
+  fixable: true
+
+fixes:
+  - name: reserved 도 함께 넘김
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.reservable_quantity]"
+        to: "outputs: [inventory.reservable_quantity, inventory.reserved]"
+    tests_pass: true
+    valid: true
+  - name: 결제와 배송이 reservable_quantity 를 받게 함
+    change:
+      - file: skills/payment/SKILL.md
+        from: "inputs: [order.id, order.total, order.payment_method, inventory.reserved]"
+        to: "inputs: [order.id, order.total, order.payment_method, inventory.reservable_quantity]"
+      - file: skills/shipping-reserve/SKILL.md
+        from: "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]"
+        to: "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reservable_quantity]"
+    tests_pass: true
+    valid: true
+  - name: 되돌리기
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.reservable_quantity]"
+        to: "outputs: [inventory.available, inventory.reserved]"
+    tests_pass: false
+    failure: "확인 조건 실패: inventory.reservable_quantity != null"
+    valid: false
+
+evidence:
+  - claim: 결제 단계가 실행 전 검사에서 inventory.reserved 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록, order-agent/backend/src/main/java/com/capstone4/orderagent/harness/SkillLoader.java 의 validateFlow
+  - claim: 원인은 재고 확인 outputs 변경이다
+    kind: 구성, 되돌려 보기
+    where: 넣은 수정이 하나이고 check 에서 그것을 되돌리면 재현 주문이 통과한다
+  - claim: 고칠 수 있다
+    kind: 존재 증명
+    where: fixes 의 앞 두 안이 check 에서 시험을 통과한다
+  - claim: 되돌리기는 불합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1
+
+current:
+  checked: 2026-10-23
+  result: EVALUATED/proposed. 의도 조건이 버려져 되돌리기도 합격으로 판정된다
+  defects: [D1]

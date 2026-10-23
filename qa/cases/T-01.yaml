@@ -1,0 +1,44 @@
+# 설명이 실행에 영향을 주는 경우다. 주문 Agent 를 AI 모드(openai)로 띄웠을 때만 의미가 있고, 결과가 매번 다를 수 있다.
+id: T-01
+group: T
+title: 시작 Skill(order-flow)의 설명을 '환불 요청을 처리하는 절차'로 바꿈
+set: dev
+run: openai
+
+change:
+  - file: skills/order-flow/SKILL.md
+    from: "description: 캠핑용품 주문의 처리 순서"
+    to: "description: 환불 요청을 처리하는 절차"
+
+intent:
+  text: 의도한 변경이 아닌 실수다(설명을 다듬다가 뜻이 바뀜)
+  checks: []
+
+answer:
+  # AI 모드에서 모델이 시작 Skill 을 고르지 않으면 주문이 거절되어 검증 실패가 되고, 다른 Skill 을 고르면 오류가 나 진단으로 간다.
+  status: [VALIDATION_FAILED, EVALUATED]
+  proposal: [proposed]
+  root_cause: [order-flow]
+  fixable: true
+  revert_allowed: true
+
+fixes:
+  - name: 설명 되돌리기
+    change:
+      - file: skills/order-flow/SKILL.md
+        from: "description: 환불 요청을 처리하는 절차"
+        to: "description: 캠핑용품 주문의 처리 순서"
+    tests_pass: true
+    valid: true
+
+evidence:
+  - claim: AI 모드는 엔트리 후보의 이름과 설명을 보고 시작 Skill 을 고른다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OpenAiDecisionProvider.java, order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java 의 selectEntry
+  - claim: 설명 되돌리기는 되돌리기지만 합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1 의 예외
+
+current:
+  checked: 2026-10-23
+  result: 규칙 모드에서는 설명을 쓰지 않아 VALIDATED. AI 모드는 아직 돌리지 않았다

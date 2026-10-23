@@ -1,0 +1,62 @@
+# 어디에도 없는 값을 받으려는 경우다. 주문 정보와 도구를 바꾸는 개발 없이는 고칠 수 없다.
+id: U-03
+group: U
+title: 알림 inputs 에 전화번호(order.phone)를 더함
+set: dev
+run: auto
+
+change:
+  - file: skills/notify/SKILL.md
+    from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+    to: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta, order.phone]"
+
+intent:
+  text: 문자로도 알리고 싶다
+  checks: ["order.phone != null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: notify, missing: [order.phone]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [no_valid_fix]
+  root_cause: [notify]
+  fixable: false
+
+fixes:
+  - name: 주문 접수가 order.phone 을 넘기게 함
+    change:
+      - file: skills/order-intake/SKILL.md
+        from: "outputs: [order.id, order.total]"
+        to: "outputs: [order.id, order.total, order.phone]"
+    tests_pass: false
+    failure: MISSING_SKILL_OUTPUT
+    valid: false
+  - name: 되돌리기
+    change:
+      - file: skills/notify/SKILL.md
+        from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta, order.phone]"
+        to: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+    tests_pass: false
+    failure: "확인 조건 실패: order.phone != null"
+    valid: false
+
+evidence:
+  - claim: 알림 단계가 실행 전 검사에서 order.phone 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 알림 inputs 변경이다
+    kind: 구성, 되돌려 보기
+    where: check 에서 그 수정을 되돌리면 재현 주문이 통과한다
+  - claim: 고칠 수 없다
+    kind: 불가능 증명
+    where: >-
+      주문 정보(order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java 의 context)와 모든 도구
+      출력에 전화번호가 없다. 주문 정보에 전화번호를 더하는 개발이 필요하다
+
+current:
+  checked: 2026-10-23
+  result: 의도 조건이 버려져 되돌리기가 합격으로 판정돼 proposed 로 끝난다
+  defects: [D1]

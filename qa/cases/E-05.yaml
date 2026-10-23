@@ -1,0 +1,21 @@
+# 짧은 시간에 여러 수정본을 저장한 경우다. 진단이 서로 섞이지 않아야 한다.
+id: E-05
+group: E
+title: 1분 안에 서로 다른 수정본 5건을 저장
+set: dev
+run: manual
+
+steps:
+  - "운영 화면에서 N-01, N-02, N-03, N-04, N-05 수정을 1분 안에 차례로 저장한다."
+  - "GET /api/skill-changes/{change_id} 로 다섯 건의 thread_id 를 모은다."
+  - "다섯 진단이 끝날 때까지 기다린 뒤 결과를 본다."
+expected: 다섯 건 모두 접수되어 서로 다른 thread_id 를 받고, 결론이 모두 VALIDATED 다. 한 진단의 결과가 다른 진단에 섞이지 않는다.
+
+evidence:
+  - claim: 저장 이벤트는 하나씩 전달되고, 진단마다 다른 thread_id 와 후보 snapshot 을 쓴다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/workspace/SkillChangeDispatcher.java, skillops-agent/skillops_agent/run_store.py
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)

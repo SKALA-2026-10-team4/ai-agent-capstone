@@ -1,0 +1,68 @@
+# 담당자 의도가 표준 주문의 기대값과 부딪히는 경우다. QA 문서 v0.1 은 고칠 수 있다고 봤지만 고칠 수 없다.
+id: C-03
+group: C
+title: 결제 outputs 에서 결제 결과(payment.status)를 지움
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "outputs: [payment.id, payment.status]"
+    to: "outputs: [payment.id]"
+
+intent:
+  text: 결제 번호만 넘기고 결제 결과는 넘기지 않는다
+  checks: ["payment.status == null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: shipping-reserve, missing: [payment.status]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [no_valid_fix]
+  root_cause: [payment]
+  fixable: false
+
+fixes:
+  - name: 배송과 알림이 payment.status 를 받지 않게 함
+    change:
+      - file: skills/shipping-reserve/SKILL.md
+        from: "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]"
+        to: "inputs: [order.id, order.shipping, payment.id, inventory.reserved]"
+      - file: skills/notify/SKILL.md
+        from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+        to: "inputs: [order.id, order.customer, shipping.id, shipping.eta]"
+    tests_pass: false
+    failure: "확인 조건 실패: payment.status == 'PAID'"
+    valid: false
+  - name: 되돌리기
+    change:
+      - file: skills/payment/SKILL.md
+        from: "outputs: [payment.id]"
+        to: "outputs: [payment.id, payment.status]"
+    tests_pass: false
+    failure: "확인 조건 실패: payment.status == null"
+    valid: false
+
+evidence:
+  - claim: 배송 단계가 실행 전 검사에서 payment.status 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 결제 outputs 변경이다
+    kind: 구성, 되돌려 보기
+    where: check 에서 그 수정을 되돌리면 재현 주문이 통과한다
+  - claim: 고칠 수 없다
+    kind: 불가능 증명
+    where: >-
+      의도는 payment.status 가 실행 문맥에 없기를 요구하고, 표준 주문 g-01 은 payment.status == 'PAID' 를
+      요구한다(scenarios/order-agent/golden/g-01.json, service/src/main/java/com/capstone4/skillops/scenario/ScenarioGrader.java
+      의 contextOf). 두 조건은 함께 참일 수 없다. 표준 주문의 기대값을 바꿀지는 사람이 정한다
+
+note: 같은 수정을 담당자가 처음부터 함께 저장하면 V-02 가 된다(오류 없이 g-01 확인 조건만 떨어짐).
+
+current:
+  checked: 2026-10-23
+  result: 조건이 만들어지면 no_valid_fix 로 정답과 같다. 조건이 빠지면 되돌리기가 합격으로 판정될 위험이 있다
+  defects: [D1]

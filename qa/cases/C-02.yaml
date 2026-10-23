@@ -1,0 +1,64 @@
+# Skill 사이 약속이 깨졌지만 받는 쪽 Skill 을 고쳐 의도를 살릴 수 있는 경우다.
+id: C-02
+group: C
+title: 배송 예약 outputs 에서 도착 예정일(shipping.eta)을 지움
+set: dev
+run: auto
+
+change:
+  - file: skills/shipping-reserve/SKILL.md
+    from: "outputs: [shipping.id, shipping.eta]"
+    to: "outputs: [shipping.id]"
+
+intent:
+  text: 도착 예정일은 확정이 아니므로 고객에게 안내하지 않는다
+  checks: ["shipping.eta == null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: notify, missing: [shipping.eta]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [shipping-reserve]
+  fixable: true
+
+fixes:
+  - name: 알림이 shipping.eta 를 받지 않게 함
+    change:
+      - file: skills/notify/SKILL.md
+        from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+        to: "inputs: [order.id, order.customer, payment.status, shipping.id]"
+    tests_pass: true
+    valid: true
+  - name: 되돌리기
+    change:
+      - file: skills/shipping-reserve/SKILL.md
+        from: "outputs: [shipping.id]"
+        to: "outputs: [shipping.id, shipping.eta]"
+    tests_pass: false
+    failure: "확인 조건 실패: shipping.eta == null"
+    valid: false
+
+evidence:
+  - claim: 알림 단계가 실행 전 검사에서 shipping.eta 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 배송 예약 outputs 변경이다
+    kind: 구성, 되돌려 보기
+    where: check 에서 그 수정을 되돌리면 재현 주문이 통과한다
+  - claim: 고칠 수 있다
+    kind: 존재 증명
+    where: fixes 의 첫 안이 check 에서 시험을 통과한다
+  - claim: 되돌리기는 불합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1
+
+current:
+  checked: 2026-10-23
+  result: >-
+    조건 shipping.eta == null 이 만들어지면 정답과 같다. 다만 의도 추출 프롬프트가 값을 지우기만 한 변경은
+    조건을 비우라고 지시하므로, 실제로는 조건이 빠져 되돌리기가 합격으로 판정될 위험이 있다
+  defects: [D1]

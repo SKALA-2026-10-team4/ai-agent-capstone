@@ -1,0 +1,21 @@
+# 승인 권한을 확인한다. 업무 담당자(owner)는 승인할 수 없다.
+id: S-01
+group: S
+title: 업무 담당자(owner) 계정으로 승인을 누름
+set: dev
+run: manual
+
+steps:
+  - "합격 후보가 있는 제안서를 준비한다. 예를 들어 `uv run run_qa.py eval --only C-01` 보고서의 제안서 번호를 쓴다."
+  - "owner 계정으로 로그인한다. POST /api/auth/login 에 {\"username\": \"owner\", \"password\": \"owner1234\"} 를 보낸다."
+  - "그 토큰으로 POST /api/proposals/{제안서 번호}/approve 에 {\"candidate_no\": 1, \"intent_confirmed\": true} 를 보낸다."
+expected: 403 FORBIDDEN 으로 거부되고 승인 기록이 남지 않는다. 승인과 거절은 운영자(OPERATOR)만 할 수 있다.
+
+evidence:
+  - claim: 결정 경로는 OPERATOR 역할만 통과한다
+    kind: 코드 근거
+    where: service/src/main/java/com/capstone4/skillops/auth/SecurityConfig.java 의 securityFilterChain
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)
