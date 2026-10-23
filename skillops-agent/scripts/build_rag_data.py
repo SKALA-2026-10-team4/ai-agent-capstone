@@ -9,8 +9,9 @@ ORDER_AGENT_BASE_URL 이다. skillops-agent 폴더에서 다음처럼 실행한�
 도구 계약은 게시본(snapshot metadata.source=published-bundle, 또는 정상본 fixture=baseline)으로
 끝까지 성공한(completion=COMPLETED) 실행 하나에서 읽는다. 최근 실행 20건에 그런 실행이 없으면
 종료 코드 1 로 끝난다. 그때는 주문 화면(:5174)에서 기본 세트로 정상 주문을 한 번 실행한 뒤 다시
-돌린다. 계약 지도와 처리 순서 규칙은 그 실행이 쓴 snapshot 의 skill 목록에서, 처음 주문 입력과 필수
-마지막 단계는 OrderFlowPolicy.java 에서 읽는다. 데이터 만드는 규칙은
+돌린다. 허용 도구·인자·보상 도구는 ToolCatalog.java 에서, 계약 지도와 처리 순서 규칙은 그 실행이 쓴
+snapshot 의 skill 목록에서, 처음 주문 입력과 필수 마지막 단계는 OrderFlowPolicy.java 에서 읽는다.
+ToolCatalog 와 실행 기록이 어긋나면 WARN 을 찍는다. 데이터 만드는 규칙은
 skillops-agent/skillops_agent/rag_data.py 에 있다.
 """
 
@@ -81,8 +82,16 @@ async def main() -> int:
         return 1
     policy_source = rag_data.FLOW_POLICY_PATH.read_text(encoding="utf-8")
     constants = rag_data.read_flow_policy_constants(policy_source)
-    data = rag_data.build(trace, snapshot, listing["items"], constants, rag_data.load_guides())
+    catalog = rag_data.read_tool_catalog(rag_data.TOOL_CATALOG_PATH.read_text(encoding="utf-8"))
+    data, warnings = rag_data.build(
+        trace, snapshot, listing["items"], constants, catalog,
+        rag_data.load_guides(), rag_data.load_policies(), rag_data.load_cases(),
+    )
     path = rag_data.write(data)
+    # ToolCatalog 와 실행 기록이 어긋나면 데이터는 저장하되 알린다. 반환 값이 빈 도구 계약이 생길 수
+    # 있다.
+    for warning in warnings:
+        print(f"WARN: {warning}")
 
     kinds = {}
     for item in data["items"]:
