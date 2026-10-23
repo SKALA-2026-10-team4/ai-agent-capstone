@@ -64,6 +64,27 @@ class ProposalDocumentWriterTest {
         }
     }
 
+    /** flow 구조 검사 결과를 받은 후보는 운영자에게 통과·실패 이유를 보여 준다. */
+    @Test
+    void explainsFlowStructureResultSeparately() {
+        for (boolean flowValid : List.of(true, false)) {
+            Map<String, Object> proposal = fixture("f1-proposed.json");
+            Map<String, Object> candidate = ProposalRules.maps(proposal.get("candidates")).getFirst();
+            ProposalRules.map(candidate.get("results")).put("flow_valid", flowValid);
+            candidate.put("valid", flowValid);
+            if (!flowValid) {
+                proposal.put("recommended_candidate_no", null);
+                proposal.put("status", "no_valid_fix");
+            }
+
+            ProposalDocument document = ProposalDocumentWriter.write("p_1", proposal, CREATED);
+
+            assertThat(candidates(document).parts().getFirst().paragraphs()).contains(flowValid
+                    ? "실행 순서의 구조와 단계 선언을 모두 확인했습니다."
+                    : "실행 순서의 구조 또는 단계 선언에 오류가 있어 이 후보를 사용할 수 없습니다.");
+        }
+    }
+
     /** 본문에서 key 가 같은 절을 찾는다. 없으면 테스트가 실패한다. */
     static Section section(ProposalDocument doc, String key) {
         return doc.sections().stream().filter(s -> s.key().equals(key)).findFirst().orElseThrow();

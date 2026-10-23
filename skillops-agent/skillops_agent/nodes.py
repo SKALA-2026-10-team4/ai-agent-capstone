@@ -68,6 +68,7 @@ from .contracts import (
     failures_of,
     file_hashes,
     patch_contract_ok,
+    patch_flow_ok,
     patch_metadata_ok,
     replay_scenario_id,
     reverse_hunk,
@@ -678,6 +679,7 @@ async def _ablate_change(
     # 실험용 오류 목록의 내용은 허용하되 서버가 검사를 생략한 응답은 거부한다.
     patch_contract_ok(applied)
     patch_metadata_ok(applied)
+    patch_flow_ok(applied)
     results = await _run_scenarios(t, ws["workspace_id"], [repro_id], ABLATION_REPEAT)
     return AblationRun(
         change_no=change["change_no"],
@@ -989,14 +991,15 @@ async def generate_candidates(state: AgentState) -> dict:
 def _check_applied(applied: dict, workspace_id: str, patches: list[Patch]) -> set[str]:
     """apply_patch 응답이 이 workspace 에 후보 patch 를 모두 적용했는지 보고 대상 skill 을 준다.
 
-    응답이 이 workspace의 것이고 연결·필수 정보 오류 목록이 있어야 하며 changed_skills가 후보가 고친
-    skill 과 정확히 같아야 한다. 어긋나면 ContractError 로 진단을 멈춘다. 돌려주는 skill 이름 집합의
-    크기가 changed_skill_count 가 된다. _verify_candidate 가 부른다.
+    응답이 이 workspace의 것이고 연결·필수 정보·구조 오류 목록이 있어야 한다.
+    changed_skills는 후보가 고친 skill과 정확히 같아야 한다. 어긋나면 ContractError로 진단을 멈춘다.
+    반환한 이름 집합의 크기가 changed_skill_count가 된다. _verify_candidate가 부른다.
     """
     if applied.get("workspace_id") != workspace_id:
         raise ContractError("invalid apply_patch response")
     patch_contract_ok(applied)
     patch_metadata_ok(applied)
+    patch_flow_ok(applied)
     expected_skills = {p["skill"] for p in patches}
     if (
         not expected_skills
@@ -1019,8 +1022,8 @@ def _judge(
     fixes_failure 는 재현 시나리오가 모두 통과했는지, keeps_old_orders 는 회귀 세트의 통과 수와 전체
     수({passed, total}), keeps_intent 는 의도 조건 실행이 모두 통과했는지, no_broken_links 는
     apply_patch의 broken_links와 dependency_violations가 모두 비었는지다.
-    metadata_valid는 metadata_errors가 비었는지이며 연결 검사와 독립적이다.
-    valid는 재현·회귀·의도가 통과하고 연결·필수 정보 오류가 없을 때만 참이다.
+    metadata_valid와 flow_valid는 해당 오류 목록이 비었는지이며 연결 검사와 독립적이다.
+    valid는 재현·회귀·의도가 통과하고 연결·필수 정보·구조 오류가 없을 때만 참이다.
     의도 조건이 없으면 intent_results 가 빈 목록이라 keeps_intent 가 참이
     된다. service 는 저장할 때
     service/src/main/java/com/capstone4/skillops/proposal/ProposalRules.java 의 passes 로 valid 를
@@ -1032,6 +1035,7 @@ def _judge(
     intent_ok = all_passed(intent_results)
     contract_ok = patch_contract_ok(applied)
     metadata_ok = patch_metadata_ok(applied)
+    flow_ok = patch_flow_ok(applied)
     results = CandidateResults(
         fixes_failure=functional,
         keeps_old_orders={
@@ -1041,10 +1045,14 @@ def _judge(
         keeps_intent=intent_ok,
         no_broken_links=contract_ok,
         metadata_valid=metadata_ok,
+        flow_valid=flow_ok,
         changed_skill_count=len(expected_skills),
         tools_called=called,
     )
-    return results, functional and regression_ok and intent_ok and contract_ok and metadata_ok
+    return (
+        results,
+        functional and regression_ok and intent_ok and contract_ok and metadata_ok and flow_ok,
+    )
 
 
 async def _verify_candidate(
@@ -1098,6 +1106,7 @@ async def _verify_candidate(
         "workspace": ws["workspace_id"],
         "results": results,
         "metadata_errors": applied["metadata_errors"],
+        "flow_errors": applied["flow_errors"],
         "valid": valid,
         "evidence_run_ids": evidence,
     }

@@ -77,6 +77,7 @@
               "keeps_intent": { "type": "boolean" },
               "no_broken_links": { "type": "boolean" },
               "metadata_valid": { "type": "boolean", "description": "최신 Agent는 반드시 보낸다. false면 후보 무효. 과거 제안서의 누락만 기존 판정으로 호환한다" },
+              "flow_valid": { "type": "boolean", "description": "최신 Agent는 반드시 보낸다. 구조 오류가 있으면 false. 과거 제안서의 누락은 기존 판정으로 호환한다" },
               "changed_skill_count": { "type": "integer" },
               "tools_called": { "type": "array", "items": { "type": "string" } }
             }
@@ -84,6 +85,7 @@
           "valid": { "type": ["boolean", "null"] },
           "validation_error": { "type": ["string", "null"] },
           "metadata_errors": { "$ref": "apply-patch-result.schema.json#/properties/metadata_errors", "description": "patch 저장 이후의 필수 정보 오류. 적용 실패인 validation_error와 구분한다" },
+          "flow_errors": { "$ref": "apply-patch-result.schema.json#/properties/flow_errors", "description": "적용된 후보의 구조 오류를 보존한다" },
           "evidence_run_ids": { "type": "array", "items": { "type": "string" } },
           "rank": { "type": ["integer", "null"] },
           "explanation": { "type": ["string", "null"] }

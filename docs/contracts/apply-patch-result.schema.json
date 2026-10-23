@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "apply_patch result v1.2 (#72)",
-  "description": "입력 공급, 선행 단계 누락, 필수 정보 오류를 구분하는 apply_patch 성공 payload. MCP text content 내부 JSON에 적용한다.",
+  "title": "apply_patch result v1.3 (#72)",
+  "description": "입력 공급, 선행 단계 누락, 필수 정보와 flow 구조 오류를 구분하는 apply_patch 성공 payload. MCP text content 내부 JSON에 적용한다.",
   "type": "object",
-  "required": ["workspace_id", "changed_skills", "broken_links", "dependency_violations", "metadata_errors"],
+  "required": ["workspace_id", "changed_skills", "broken_links", "dependency_violations", "metadata_errors", "flow_errors"],
   "properties": {
     "workspace_id": {"type": "string", "minLength": 1},
     "changed_skills": {
@@ -50,6 +50,26 @@
           "code": {"enum": ["INVALID_SKILL_NAME", "INVALID_SKILL_FORMAT"]},
           "message": {"type": "string", "pattern": "\\S"}
         }
+      }
+    },
+    "flow_errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill", "code", "reason", "message"],
+        "properties": {
+          "skill": {"type": "string", "pattern": "\\S"},
+          "code": {"type": "string"},
+          "reason": {"type": "string"},
+          "message": {"type": "string", "pattern": "\\S"}
+        },
+        "oneOf": [
+          {"properties": {"code": {"const": "INVALID_FLOW"}, "reason": {"enum": ["EMPTY_STEPS", "TOO_MANY_STEPS", "DUPLICATE_STEP", "INCOMPLETE_ANALYSIS"]}}},
+          {"properties": {"code": {"const": "UNKNOWN_SKILL"}, "reason": {"const": "UNKNOWN_SKILL"}}},
+          {"properties": {"code": {"const": "INVALID_SKILL_NAME"}, "reason": {"const": "INVALID_SKILL_NAME"}}},
+          {"properties": {"code": {"const": "INVALID_SKILL_FORMAT"}, "reason": {"const": "UNREADABLE_SKILL"}}},
+          {"properties": {"code": {"const": "CONTRACT_VIOLATION"}, "reason": {"const": "NESTED_FLOW_NOT_SUPPORTED"}}}
+        ]
       }
     }
   }

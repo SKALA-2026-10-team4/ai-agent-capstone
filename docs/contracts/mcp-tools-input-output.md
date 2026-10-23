@@ -2,7 +2,7 @@
 
 계약 5 · **v1 제안** (v0 초안을 고친 것) · 2026-10-20 · 작성 C-2 · 동결 회의 안건
 
-> **2026-10-23 갱신 (#72 3단계, apply_patch v1.2).** 필수 `metadata_errors:[{skill,field,code,message}]`를 추가했습니다. Python은 연결 판정 `no_broken_links`와 별도로 `metadata_valid`를 계산하며 두 검사가 모두 통과해야 후보가 합격합니다. 세 오류 목록은 누락·null·잘못된 타입이면 계약 오류입니다. service와 Python을 함께 갱신해야 합니다. 이 버전은 도구의 애플리케이션 계약이며 MCP protocolVersion과 별개입니다. [응답 JSON Schema](apply-patch-result.schema.json) · [필수 정보 오류 예제](examples/apply-patch-metadata-error.json)
+> **2026-10-23 갱신 (#72 4단계, apply_patch v1.3).** 필수 `flow_errors:[{skill,code,reason,message}]`를 추가했습니다. 연결 검사 `no_broken_links`, 필수 정보 검사 `metadata_valid`, 실행 구조 검사 `flow_valid`가 모두 통과해야 후보가 합격합니다. 네 오류 목록은 누락·null·잘못된 타입이면 계약 오류입니다. service와 Python을 함께 갱신해야 합니다. 도구 애플리케이션 계약 버전이며 MCP protocolVersion과 별개입니다. [응답 JSON Schema](apply-patch-result.schema.json) · [flow 오류 예제](examples/apply-patch-flow-error.json)
 
 > **2026-10-21 갱신 (#38).** B의 Agent(`skillops-agent/skillops_agent/tools.py`)가 계약 5 v0 이름으로 이미 만들어져 있어서, C-2 도구는 v0 이름을 따르기로 했습니다. 7번 `create_workspace`와 9번 `run_scenarios`는 실제 구현에 맞게 고쳤습니다. 8·10·11·12번은 구현할 때 v0 이름(`ws_id`, `approval_token` 등)으로 고칩니다. 오류는 C-1 도구와 같은 `{code, message, retryable, upstream_status, snapshot_id}` 모양입니다.
 
@@ -586,7 +586,7 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 
 연습 공간 안의 SKILL.md를 고칩니다. 고친 뒤에는 skill 사이의 연결이 끊기지 않았는지 검사해서, 끊긴 곳이 있으면 목록으로 알려 줍니다. 운영 중인 skill에는 아무 영향이 없습니다. 원인을 확인할 때는 변경 하나만 넣고, 후보를 시험할 때는 후보 수정안을 넣습니다. 고치는 대상은 SKILL.md뿐이고, `snapshot_id`로 만든 연습 공간의 `resources/` 같은 다른 파일은 그대로 둡니다.
 
-부르는 쪽: Agent · 담당: C-2 · 구현됨(#55), 응답 v1.2 확장(#72, 2026-10-23)
+부르는 쪽: Agent · 담당: C-2 · 구현됨(#55), 응답 v1.3 확장(#72, 2026-10-23)
 
 ### 보내는 값
 
@@ -615,6 +615,11 @@ skill 하나의 SKILL.md 원문 전체를 가져옵니다. 버전 번호를 주�
 | `metadata_errors[].field` | 오류 필드 | 열거 | 예 | `name`, `version`, `owner`, `description`, `body`, `frontmatter`입니다. |
 | `metadata_errors[].code` | 실행기 오류 코드 | 열거 | 예 | `INVALID_SKILL_FORMAT` 또는 폴더 이름 규칙 오류인 `INVALID_SKILL_NAME`입니다. |
 | `metadata_errors[].message` | 오류 설명 | 글자 | 예 | 비어 있지 않은 설명입니다. |
+| `flow_errors` | 실행 구조 오류 | 목록 | 예 | `{skill, code, reason, message}` 목록이며 정상일 때도 `[]`를 반드시 반환합니다. |
+| `flow_errors[].skill` | 대상 Skill | 글자 | 예 | 중복·읽기 실패 단계의 이름입니다. 단계 수·분석 전체 오류는 entry 이름입니다. |
+| `flow_errors[].code` | 실행기 오류 종류 | 글자 | 예 | 아래 사유별 코드 조합을 따릅니다. |
+| `flow_errors[].reason` | 구조 오류 사유 | 글자 | 예 | 아래 표의 사유를 따릅니다. |
+| `flow_errors[].message` | 오류 설명 | 글자 | 예 | 비어 있지 않은 설명입니다. |
 
 두 목록은 변경한 skill만이 아니라 entry `order-flow.steps` 전체의 분석 결과를 사용하고, 분석 결과와 선언 순서를 보존합니다. 입력·선행 단계 위반이 있어도 patch는 workspace에 저장되므로 원인 재현 실험에 사용할 수 있습니다. **저장 성공과 후보 합격은 별개**입니다.
 
@@ -624,7 +629,24 @@ Python의 `no_broken_links`는 `broken_links == []`와 `dependency_violations ==
 
 Python은 `metadata_errors == []`일 때만 `results.metadata_valid=true`로 기록합니다. 오류 목록 자체가 없거나 잘못되면 평가 전에 `ContractError`로 중단합니다. 필수 정보 오류가 있어도 기존 patch 거부 조건에 걸리지 않으면 실험용 수정은 저장되고 시나리오는 실행합니다. 실행이 전부 통과해도 `metadata_valid=false`면 후보는 무효이며 추천하지 않습니다. 오류 상세는 후보의 `metadata_errors`에 보존합니다.
 
-기존 거부 정책도 유지합니다. entry steps를 읽을 수 없거나 변경한 단계의 name·목록이 기존 분석기에서 parse error가 되면 `INVALID_INPUT`으로 전체 patch를 거부하며 성공 payload의 `metadata_errors`를 반환하지 않습니다. 필수 정보 오류를 모두 저장하도록 기존 거부 정책까지 완화한 것은 아닙니다.
+실행 구조는 `FlowStructureValidator`가 진단용 그래프에서 별도로 검사합니다. 그래프의 단계·노드·edge를 수정하지 않습니다. `complete=true`는 선언을 읽었다는 뜻이며 중복 단계나 단계 수 제한까지 통과했다는 뜻은 아닙니다.
+
+| `reason` | `code` | 조건 |
+|---|---|---|
+| `DUPLICATE_STEP` | `INVALID_FLOW` | 같은 Skill이 steps에 두 번 이상 등장. Skill별 한 번만 보고합니다. |
+| `TOO_MANY_STEPS` | `INVALID_FLOW` | steps가 12개를 초과. entry 이름을 대상으로 보고합니다. |
+| `EMPTY_STEPS` | `INVALID_FLOW` | 빈 그래프를 직접 검사할 때의 방어 조건. 현재 apply_patch는 빈 entry를 기존 INVALID_INPUT 경로로 먼저 거부합니다. |
+| `INVALID_SKILL_NAME` | `INVALID_SKILL_NAME` | 단계 이름이 주문 Agent 이름 규칙에 어긋납니다. |
+| `UNKNOWN_SKILL` | `UNKNOWN_SKILL` | 실행 단계의 파일이 없습니다. |
+| `UNREADABLE_SKILL` | `INVALID_SKILL_FORMAT` | 단계의 선언을 읽을 수 없거나 필수 목록 형식 등이 잘못됐습니다. |
+| `NESTED_FLOW_NOT_SUPPORTED` | `CONTRACT_VIOLATION` | 단계에 또 다른 flow가 들어 있습니다. |
+| `INCOMPLETE_ANALYSIS` | `INVALID_FLOW` | 분석이 불완전한데 구체적 오류가 없거나, steps와 노드의 순서·수가 맞지 않습니다. service가 합격을 막는 방어 조건입니다. |
+
+오류 순서는 단계 수, 중복 단계의 발견 순서, 읽기 실패 노드의 실행 순서, 방어 조건 순입니다. 같은 단계의 읽기 실패는 한 번만 보고합니다. 읽지 못한 노드가 있으면 `complete=false`의 원인이 `flow_errors`에 보존되므로, 입력·선행 단계 누락이 없어도 정상 후보로 보지 않습니다.
+
+Python은 `flow_errors == []`일 때만 `results.flow_valid=true`입니다. 네 오류 목록의 형식은 후보 검증과 원인 실험(ablation) 모두에서 검사하지만, 원인 실험에서는 비어 있지 않은 오류 목록 자체를 적용 실패로 바꾸지 않습니다. 후보는 실제 시나리오 실행 후에도 flow_valid가 거짓이면 무효이고 추천되지 않습니다. 상세 오류는 제안서 후보의 `flow_errors`로 보존합니다.
+
+기존 거부 정책도 유지합니다. entry steps를 읽을 수 없거나 변경한 단계의 name·목록이 기존 분석기에서 parse error가 되면 `INVALID_INPUT`으로 전체 patch를 거부하며 성공 payload의 `metadata_errors`나 `flow_errors`를 반환하지 않습니다. 필수 정보 오류를 모두 저장하도록 기존 거부 정책까지 완화한 것은 아닙니다.
 
 수정 내용 가운데 하나라도 적용하지 못하면 전부 취소하고 오류를 돌려줍니다. 연습 공간은 보내기 전 상태 그대로 남습니다. 같은 skill에 수정을 여러 번 넣으면 앞의 수정이 들어간 글 위에 차례로 적용합니다. 끊긴 연결이 있어도 수정은 들어갑니다. 그 수정을 쓸지는 부른 쪽이 정합니다. 다만 고치고 나면 SKILL.md 맨 위 칸을 읽을 수 없게 되는 수정은 거부합니다.
 
@@ -650,12 +672,21 @@ Python은 `metadata_errors == []`일 때만 `results.metadata_valid=true`로 기
 ```json
 {
   "workspace_id": "w_A17",
-  "changed_skills": [{ "skill": "inventory-check", "version": 2 }],
+  "changed_skills": [
+    {
+      "skill": "inventory-check",
+      "version": 2
+    }
+  ],
   "broken_links": [
-    { "skill": "payment", "missing_input": "inventory.reserved" }
+    {
+      "skill": "payment",
+      "missing_input": "inventory.reserved"
+    }
   ],
   "dependency_violations": [],
-  "metadata_errors": []
+  "metadata_errors": [],
+  "flow_errors": []
 }
 ```
 
@@ -664,10 +695,21 @@ Python은 `metadata_errors == []`일 때만 `results.metadata_valid=true`로 기
 ```json
 {
   "workspace_id": "w_abc",
-  "changed_skills": [{"skill":"payment","version":2}],
+  "changed_skills": [
+    {
+      "skill": "payment",
+      "version": 2
+    }
+  ],
   "broken_links": [],
-  "dependency_violations": [{"skill":"payment","missing_dependency":"notify"}],
-  "metadata_errors": []
+  "dependency_violations": [
+    {
+      "skill": "payment",
+      "missing_dependency": "notify"
+    }
+  ],
+  "metadata_errors": [],
+  "flow_errors": []
 }
 ```
 
@@ -691,6 +733,32 @@ Python은 `metadata_errors == []`일 때만 `results.metadata_valid=true`로 기
       "code": "INVALID_SKILL_FORMAT",
       "message": "owner는 비어 있지 않은 문자열이어야 합니다"
     }
+  ],
+  "flow_errors": []
+}
+```
+
+중복 단계만 있는 경우의 응답입니다. 연결·필수 정보 오류는 없지만 `flow_valid=false`, `valid=false`입니다. patch는 실험용으로 저장됩니다.
+
+```json
+{
+  "workspace_id": "w_abc",
+  "changed_skills": [
+    {
+      "skill": "order-flow",
+      "version": 2
+    }
+  ],
+  "broken_links": [],
+  "dependency_violations": [],
+  "metadata_errors": [],
+  "flow_errors": [
+    {
+      "skill": "payment",
+      "code": "INVALID_FLOW",
+      "reason": "DUPLICATE_STEP",
+      "message": "같은 단계를 여러 번 실행할 수 없습니다"
+    }
   ]
 }
 ```
@@ -706,6 +774,7 @@ Python은 `metadata_errors == []`일 때만 `results.metadata_valid=true`로 기
 - `ws_id`를 `workspace_id`로, `patches[].diff`를 `patches[].patch`로 바꿨습니다.
 - 결과의 `applied`를 `changed_skills`로, `contract_violations`를 `broken_links`로 바꿨습니다.
 - (#55) `changed_skills`는 이름만이 아니라 `{skill, version}` 목록입니다. 구현을 마쳤습니다.
+- (#72 4단계) 필수 `flow_errors`와 후보의 `flow_valid`를 추가했습니다. 진단용 그래프 형식과 기존 거부 정책은 유지합니다.
 - (#72 3단계) 필수 `metadata_errors`를 추가하고 후보 결과 `metadata_valid`로 연결했습니다.
 - (#72) `dependency_violations`를 추가했습니다. `broken_links`는 입력 누락만 유지하며 새 Python은 두 목록을 함께 검사합니다.
 
@@ -903,7 +972,8 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `proposal.candidates[].workspace_id` | 시험한 연습 공간 | 글자 | 적용한 후보면 예 | 이 후보를 시험한 연습 공간입니다. |
 | `proposal.candidates[].patches` | 수정 내용 | 목록 | 예 | `apply_patch`의 `patches`와 같은 모양입니다. |
 | `proposal.candidates[].metadata_errors` | 필수 정보 오류 | 목록 | 최신 Agent의 적용된 후보 | `apply_patch.metadata_errors`를 그대로 보존합니다. 적용 실패 사유와 구분합니다. |
-| `proposal.candidates[].results` | 기준별 결과 | 묶음 | 적용한 후보면 예 | `{fixes_failure, keeps_old_orders{passed, total}, keeps_intent, no_broken_links, metadata_valid, changed_skill_count}`입니다. |
+| `proposal.candidates[].flow_errors` | 구조 오류 | 목록 | 최신 Agent의 적용된 후보 | `apply_patch.flow_errors`를 그대로 보존합니다. |
+| `proposal.candidates[].results` | 기준별 결과 | 묶음 | 적용한 후보면 예 | `{fixes_failure, keeps_old_orders{passed, total}, keeps_intent, no_broken_links, metadata_valid, flow_valid, changed_skill_count}`입니다. |
 | `proposal.candidates[].valid` | Agent가 본 합격 여부 | 참·거짓 | 아니오 | 서비스가 다시 계산한 값과 다르면 저장하지 않습니다. |
 | `proposal.candidates[].validation_error` | 적용하지 못한 이유 | 글자 | 아니오 | 원문에 적용하지 못해 시험하지 않은 후보입니다. 이 후보는 근거 실행이 없어도 됩니다. |
 | `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 적용한 후보면 예 | 이 후보를 시험한 모의 실행 번호입니다. 모두 그 후보의 연습 공간에서 돌린 실행이어야 합니다. |
@@ -911,7 +981,7 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `proposal.recommended_candidate_no` | 추천 후보 번호 | 정수 | `proposed`면 예 | 합격 후보 가운데 하나여야 합니다. |
 | `proposal.status` | 상태 | 글자 | 예 | 합격 후보가 있으면 `proposed`, 없으면 `no_valid_fix`입니다. |
 
-**합격 조건(서비스가 다시 계산):** 적용에 실패하지 않았고, `fixes_failure`가 참이고, `keeps_old_orders`의 `passed`와 `total`이 같고 `total`이 1 이상이고, `keeps_intent`가 참이고, `no_broken_links`가 참이며, 최신 Agent가 보낸 `metadata_valid`가 참입니다. 과거 제안서와 구버전 생산자 호환을 위해 `metadata_valid` 필드가 없으면 기존 기준으로 판정하고, 필드가 있으면 Boolean true만 통과합니다. 최신 Agent의 apply_patch 응답 검증은 별도로 엄격하므로 `metadata_errors` 누락을 허용하지 않습니다.
+**합격 조건(서비스가 다시 계산):** 적용에 실패하지 않았고, `fixes_failure`가 참이고, `keeps_old_orders`의 `passed`와 `total`이 같고 `total`이 1 이상이고, `keeps_intent`가 참이고, `no_broken_links`가 참이며, 최신 Agent가 보낸 `metadata_valid`와 `flow_valid`가 모두 참입니다. 과거 제안서와 구버전 생산자 호환을 위해 `metadata_valid` 또는 `flow_valid` 필드가 없으면 해당 항목은 기존 판정을 유지하고, 명시한 결과는 Boolean true만 통과합니다. 최신 Agent의 apply_patch 응답 검증은 별도로 엄격하므로 `metadata_errors`와 `flow_errors` 누락을 허용하지 않습니다.
 
 ### 돌려받는 값
 
@@ -937,8 +1007,8 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
   "root_cause": { "skill": "inventory-check", "change_no": 1, "before": "outputs: [inventory.available, inventory.reserved]", "after": "outputs: [inventory.available]", "proof_run_ids": ["r_a0…01", "r_a0…02"] },
   "intent": { "text": "예약 가능 수량을 계속 내놓고 싶다.", "checks": ["inventory.reservable_quantity != null"] },
   "candidates": [ { "candidate_no": 1, "kind": "same_skill", "workspace_id": "w_c1", "patches": [ … ],
-    "results": { "fixes_failure": true, "keeps_old_orders": { "passed": 3, "total": 3 }, "keeps_intent": true, "no_broken_links": true, "metadata_valid": true, "changed_skill_count": 1 },
-    "metadata_errors": [], "valid": true, "evidence_run_ids": ["r_c1…01", "r_c1…02"], "rank": 1, "explanation": "재고 확인 Skill이 예약 여부를 다시 내놓게 했습니다." } ],
+    "results": { "fixes_failure": true, "keeps_old_orders": { "passed": 3, "total": 3 }, "keeps_intent": true, "no_broken_links": true, "metadata_valid": true, "flow_valid": true, "changed_skill_count": 1 },
+    "metadata_errors": [], "flow_errors": [], "valid": true, "evidence_run_ids": ["r_c1…01", "r_c1…02"], "rank": 1, "explanation": "재고 확인 Skill이 예약 여부를 다시 내놓게 했습니다." } ],
   "recommended_candidate_no": 1, "status": "proposed" } }
 ```
 

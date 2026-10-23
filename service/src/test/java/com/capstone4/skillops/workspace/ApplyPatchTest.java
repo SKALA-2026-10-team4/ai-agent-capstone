@@ -55,6 +55,7 @@ class ApplyPatchTest {
         assertThat(result.brokenLinks()).isEmpty();
         assertThat(result.dependencyViolations()).isEmpty();
         assertThat(result.metadataErrors()).isEmpty();
+        assertThat(result.flowErrors()).isEmpty();
         WorkspaceSkill saved = savedRecord().getSkills().get("inventory-check");
         assertThat(saved).isEqualTo(new WorkspaceSkill(1, F1Texts.repaired(), 1));
     }
@@ -292,6 +293,50 @@ class ApplyPatchTest {
         assertThat(result.metadataErrors()).singleElement().satisfies(error -> {
             assertThat(error.skill()).isEqualTo("unused");
             assertThat(error.field()).isEqualTo("owner");
+        });
+        verify(repository).save(any());
+    }
+
+    /** 중복 단계가 있는 원문도 저장하되 실행 구조 오류를 반환한다. */
+    @Test
+    void duplicateStepsAreSavedForDiagnosisButCannotPassStructureCheck() {
+        var skills = new TreeMap<>(TestFixtures.liveSkills());
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), skills);
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+        String patch = "@@ -4,1 +4,1 @@\n"
+                + "-steps: [order-intake, inventory-check, payment, shipping-reserve, notify]\n"
+                + "+steps: [order-intake, inventory-check, payment, payment, shipping-reserve, notify]\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("order-flow", 1, patch)));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).isEmpty();
+        assertThat(result.flowErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("payment");
+            assertThat(error.reason()).isEqualTo("DUPLICATE_STEP");
+        });
+        assertThat(savedRecord().getSkills().get("order-flow").fullText()).contains("payment, payment");
+    }
+
+    /** 없는 단계가 입력 누락을 만들지 않아도 정상 후보로 오인하지 않게 오류를 보존한다. */
+    @Test
+    void unknownFinalStepIsReportedEvenWithoutBrokenLinks() {
+        var skills = new TreeMap<>(TestFixtures.liveSkills());
+        WorkspaceSkill flow = skills.get("order-flow");
+        skills.put("order-flow", new WorkspaceSkill(1, flow.fullText().replace("notify]", "notify, missing-step]")));
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), skills);
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+        String patch = "@@ -3,1 +3,1 @@\n-description: 주문 금액을 결제한다. 결제 정책은 여기서 바꾼다.\n+description: 결제 검사\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("payment", 1, patch)));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).isEmpty();
+        assertThat(result.flowErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("missing-step");
+            assertThat(error.code()).isEqualTo("UNKNOWN_SKILL");
         });
         verify(repository).save(any());
     }

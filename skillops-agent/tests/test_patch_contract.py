@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from skillops_agent.contracts import ContractError, patch_contract_ok, patch_metadata_ok
+from skillops_agent.contracts import (
+    ContractError,
+    patch_contract_ok,
+    patch_flow_ok,
+    patch_metadata_ok,
+)
 from skillops_agent.nodes import _check_applied, _judge
 
 
@@ -110,3 +115,78 @@ def test_old_server_without_metadata_field_is_rejected(metadata_response):
     del metadata_response["metadata_errors"]
     with pytest.raises(ContractError, match="^invalid apply_patch response$"):
         _check_applied(metadata_response, "w_abc", [{"skill": "payment"}])
+
+
+@pytest.fixture
+def flow_response():
+    """Java MCP 테스트와 공유하는 flow 중복 응답을 읽는다."""
+    path = (
+        Path(__file__).resolve().parents[2] / "docs/contracts/examples/apply-patch-flow-error.json"
+    )
+    return json.loads(path.read_text())
+
+
+@pytest.mark.parametrize(
+    ("code", "reason"),
+    [
+        ("INVALID_FLOW", "DUPLICATE_STEP"),
+        ("INVALID_FLOW", "TOO_MANY_STEPS"),
+        ("INVALID_FLOW", "INCOMPLETE_ANALYSIS"),
+        ("UNKNOWN_SKILL", "UNKNOWN_SKILL"),
+        ("INVALID_SKILL_FORMAT", "UNREADABLE_SKILL"),
+        ("CONTRACT_VIOLATION", "NESTED_FLOW_NOT_SUPPORTED"),
+    ],
+)
+def test_flow_error_invalidates_otherwise_passing_candidate(flow_response, code, reason):
+    """연결·필수 정보·실행이 통과해도 flow 구조 오류가 있으면 무효다."""
+    flow_response["flow_errors"][0].update(code=code, reason=reason)
+    skills = _check_applied(flow_response, "w_abc", [{"skill": "order-flow"}])
+    passed = [{"passed": True}]
+
+    results, valid = _judge(passed, passed, passed, flow_response, skills, [])
+
+    assert results["no_broken_links"] is True
+    assert results["metadata_valid"] is True
+    assert results["flow_valid"] is False
+    assert valid is False
+
+
+def test_explicit_empty_flow_errors_pass_structure_check(flow_response):
+    """구조 검사 결과가 명시적 빈 목록이면 다른 검사를 유지하며 통과한다."""
+    flow_response["flow_errors"] = []
+    assert patch_flow_ok(flow_response) is True
+    passed = [{"passed": True}]
+    results, valid = _judge(passed, passed, passed, flow_response, {"order-flow"}, [])
+    assert results["flow_valid"] is True
+    assert valid is True
+
+
+@pytest.mark.parametrize("value", [None, {}, "", [None], [{}]])
+def test_malformed_flow_list_is_contract_error(flow_response, value):
+    """생략되거나 잘못된 구조 검사 목록은 정상 결과로 대체하지 않는다."""
+    flow_response["flow_errors"] = value
+    with pytest.raises(ContractError, match="^invalid apply_patch response$"):
+        _check_applied(flow_response, "w_abc", [{"skill": "order-flow"}])
+
+
+@pytest.mark.parametrize("field", ["skill", "code", "reason", "message"])
+@pytest.mark.parametrize("value", [None, "", " ", 1])
+def test_malformed_flow_item_is_contract_error(flow_response, field, value):
+    """구조 오류 항목도 필수 문자열 타입을 검사한다."""
+    flow_response["flow_errors"][0][field] = value
+    with pytest.raises(ContractError, match="^invalid apply_patch response$"):
+        patch_flow_ok(flow_response)
+
+
+def test_inconsistent_flow_code_and_reason_are_rejected(flow_response):
+    """알려진 코드라도 사유와 맞지 않으면 계약 오류다."""
+    flow_response["flow_errors"][0]["code"] = "UNKNOWN_SKILL"
+    with pytest.raises(ContractError, match="^invalid apply_patch response$"):
+        patch_flow_ok(flow_response)
+
+
+def test_old_server_without_flow_field_is_rejected(flow_response):
+    """이전 서버의 구조 검사 누락을 합격으로 처리하지 않는다."""
+    del flow_response["flow_errors"]
+    with pytest.raises(ContractError, match="^invalid apply_patch response$"):
+        _check_applied(flow_response, "w_abc", [{"skill": "order-flow"}])

@@ -13,5 +13,6 @@
       "missing_dependency": "notify"
     }
   ],
-  "metadata_errors": []
+  "metadata_errors": [],
+  "flow_errors": []
 }

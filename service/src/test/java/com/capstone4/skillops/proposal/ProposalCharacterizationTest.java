@@ -464,4 +464,14 @@ class ProposalCharacterizationTest {
         assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("metadata_valid", null)))).isFalse();
         assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("metadata_valid", "true")))).isFalse();
     }
+
+    /** 새 flow 판정이 있으면 엄격한 Boolean true를 요구하고 과거 누락은 호환한다. */
+    @Test
+    void flowResultParticipatesInValidityWithoutReinterpretingLegacyProposals() {
+        assertThat(ProposalRules.passes(passing())).isTrue();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", true)))).isTrue();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", false)))).isFalse();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", null)))).isFalse();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", "true")))).isFalse();
+    }
 }

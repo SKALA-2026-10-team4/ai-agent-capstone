@@ -44,7 +44,27 @@ service의 `SkillMetadataValidator`는 실제 주문 Agent `SkillLoader.load`의
 
 **저장과 합격은 별개다.** 기존의 원문 불일치·기준 버전 불일치·변경한 단계 parse error·entry 분석 실패 거부 정책은 유지한다. 이를 통과한 patch는 필수 정보 오류가 있어도 실험용으로 저장한다. Python은 `metadata_valid=false`로 판정하고 오류 상세를 후보에 남겨 추천에서 제외한다. `no_broken_links`는 입력·선행 단계 연결 의미를 유지한다.
 
-검사 범위는 위 필수 정보와 문서 형식이다. 선택 목록의 null 처리, 모든 flow 구조, 단계 수·중첩 flow·실행 의미를 완전히 통일한 것은 아니다. 실제 주문 Agent의 운영 로더는 수정하지 않았다. [MCP v1.2 명세](mcp-tools-input-output.md#8-수정-적용하기--apply_patch).
+3단계의 검사 범위는 위 필수 정보와 문서 형식이다. 이후 4단계에서 아래 flow 구조 검사를 추가했다. 선택 목록의 null 처리와 실행 의미 전체를 완전히 통일한 것은 아니다. 실제 주문 Agent의 운영 로더는 수정하지 않았다. [최신 MCP 명세](mcp-tools-input-output.md#8-수정-적용하기--apply_patch).
+
+## flow 실행 구조 검사 (#72 · 4단계)
+
+service의 `FlowStructureValidator`는 진단용 `DependencyGraph`를 읽어 구조 오류를 모은다. 그래프 생성 규칙·응답 형식은 유지하므로 중복 단계도 그래프에 남고, 읽을 수 없는 단계도 parse_error와 complete=false로 확인할 수 있다. 그래프를 읽을 수 있다는 사실과 실행 구조 합격은 구분한다.
+
+| 조건 | 판정 |
+|---|---|
+| 중복 단계 | `INVALID_FLOW / DUPLICATE_STEP`, 같은 Skill은 한 번만 보고 |
+| 12단계 초과 | `INVALID_FLOW / TOO_MANY_STEPS` |
+| 없는 단계 | `UNKNOWN_SKILL / UNKNOWN_SKILL` |
+| 잘못된 단계 이름 | `INVALID_SKILL_NAME / INVALID_SKILL_NAME` |
+| 읽을 수 없는 단계 선언 | `INVALID_SKILL_FORMAT / UNREADABLE_SKILL` |
+| 단계 안에 또 다른 flow | `CONTRACT_VIOLATION / NESTED_FLOW_NOT_SUPPORTED` |
+| 원인이 설명되지 않은 불완전한 분석 또는 steps·노드 불일치 | `INVALID_FLOW / INCOMPLETE_ANALYSIS`, service의 방어 조건 |
+
+단계 수 제한은 `FlowStructureValidator.MAX_FLOW_STEPS=12`와 주문 Agent의 `OrderFlowPolicy.MAX_FLOW_STEPS`를 [공통 flow fixture](examples/flow-structure-cases.json)의 같은 값으로 검증한다. 두 서버가 하나의 라이브러리를 공유하지는 않는다. 이름 규칙은 service 안에서 `SkillNames`로 공통화했다.
+
+`apply_patch` v1.3은 필수 `flow_errors:[{skill,code,reason,message}]`를 반환한다. 새 Python은 `flow_valid`를 별도로 계산하고 false인 후보를 추천하지 않는다. 입력·선행 단계·필수 정보 검사도 각각 유지한다. 원인 실험용 patch는 기존 거부 조건에 걸리지 않으면 저장한다. 빈 entry나 깨진 entry steps, 변경한 단계의 parse error는 기존처럼 INVALID_INPUT으로 전체 patch를 거부한다. 빈 그래프를 검사기에 직접 넘길 경우에는 EMPTY_STEPS 오류를 반환한다.
+
+이 검사는 정적 구조와 그래프가 읽는 단계 선언 범위다. entry의 선택 목록 전체, flow 밖 문서의 목록 전체, 필수 마지막 업무 단계의 완료·도구 바인딩·실제 실행 성공을 보장하지 않는다. 선택 목록 null 처리 통일, 손상된 초기 snapshot으로 진단을 시작하는 경로도 별도 작업이다.
 
 ## 단계 skill
 

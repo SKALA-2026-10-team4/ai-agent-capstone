@@ -44,8 +44,9 @@ public class ProposalTools {
             후보마다 candidate_no(1부터 빠짐없이), kind, workspace_id, patches, results, valid, validation_error, evidence_run_ids,
             rank, explanation 을 넣는다.
             합격 조건: fixes_failure 가 참, keeps_old_orders 의 passed 와 total 이 같고 total 이 1 이상, keeps_intent 가 참,
-            no_broken_links 가 참이고 metadata_valid 가 참. 최신 Agent는 results.metadata_valid와 후보 metadata_errors를 보낸다.
-            과거 제안서 호환을 위해 metadata_valid가 없으면 기존 합격 기준을 쓰고, 있으면 Boolean true만 통과한다.
+            no_broken_links, metadata_valid, flow_valid 가 참. 최신 Agent는 results의 두 새 결과와 후보 metadata_errors/flow_errors를 보낸다.
+            과거 제안서 호환을 위해 metadata_valid 또는 flow_valid가 없으면 그 항목의 기존 판정을 유지하고,
+            명시한 새 결과는 Boolean true만 통과한다.
             서비스가 다시 계산하며 valid 와 다르면 저장하지 않는다.
             거부하는 경우: 적용에 실패하지 않은 후보의 evidence_run_ids 가 비었거나 그 후보의 연습 공간에서 run_scenarios 로 돌린 실행이
             아닐 때, proposed 인데 root_cause.proof_run_ids 가 비었거나 돌린 적 없는 실행일 때, recommended_candidate_no 가

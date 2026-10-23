@@ -281,6 +281,34 @@ def patch_metadata_ok(applied: dict) -> bool:
     return not errors
 
 
+def patch_flow_ok(applied: dict) -> bool:
+    """flow 구조 검사 목록과 코드·사유 조합을 검증하며 누락된 검사 결과를 거부한다."""
+    codes = {
+        "EMPTY_STEPS": "INVALID_FLOW",
+        "TOO_MANY_STEPS": "INVALID_FLOW",
+        "DUPLICATE_STEP": "INVALID_FLOW",
+        "INCOMPLETE_ANALYSIS": "INVALID_FLOW",
+        "UNKNOWN_SKILL": "UNKNOWN_SKILL",
+        "INVALID_SKILL_NAME": "INVALID_SKILL_NAME",
+        "UNREADABLE_SKILL": "INVALID_SKILL_FORMAT",
+        "NESTED_FLOW_NOT_SUPPORTED": "CONTRACT_VIOLATION",
+    }
+    errors = applied.get("flow_errors")
+    if not isinstance(errors, list):
+        raise ContractError("invalid apply_patch response")
+    for item in errors:
+        if (
+            not isinstance(item, dict)
+            or any(
+                not isinstance(item.get(key), str) or not item[key].strip()
+                for key in ("skill", "code", "reason", "message")
+            )
+            or codes.get(item["reason"]) != item["code"]
+        ):
+            raise ContractError("invalid apply_patch response")
+    return not errors
+
+
 def check_diff_evidence(diff: dict, before: dict, after: dict) -> list[dict]:
     """diff_skill 응답이 before·after 두 파일을 비교했고 hunk 가 온전한지 보고 hunk 를 준다.
 

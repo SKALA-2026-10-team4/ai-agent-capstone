@@ -239,6 +239,35 @@ async def test_metadata_error_cannot_be_recommended(tools, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_flow_error_is_preserved_and_cannot_be_recommended(tools, monkeypatch):
+    """실행은 통과해도 구조 오류 후보를 추천하지 않고 제안서에 이유를 남긴다."""
+    original = tools.apply_patch
+    error = {
+        "skill": "payment",
+        "code": "INVALID_FLOW",
+        "reason": "DUPLICATE_STEP",
+        "message": "같은 단계를 여러 번 실행할 수 없습니다",
+    }
+
+    async def duplicated_step(*args):
+        """적용 성공 응답에 중복 단계 오류를 추가한다."""
+        response = await original(*args)
+        response["flow_errors"] = [error]
+        return response
+
+    monkeypatch.setattr(tools, "apply_patch", duplicated_step)
+    result = await run(initial())
+
+    assert result["error"] is None
+    assert not any(c["valid"] for c in result["candidates"])
+    assert all(c["results"]["no_broken_links"] for c in result["candidates"])
+    assert all(c["results"]["metadata_valid"] for c in result["candidates"])
+    assert all(c["results"]["flow_valid"] is False for c in result["candidates"])
+    assert all(c["flow_errors"] == [error] for c in result["proposal"]["candidates"])
+    assert result["proposal"]["status"] == "no_valid_fix"
+
+
+@pytest.mark.asyncio
 async def test_normal_saved_change_ends_without_llm(tools, monkeypatch):
     original = tools.create_workspace
 

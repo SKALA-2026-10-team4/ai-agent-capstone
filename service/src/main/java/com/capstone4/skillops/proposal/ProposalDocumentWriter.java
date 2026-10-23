@@ -470,6 +470,9 @@ public final class ProposalDocumentWriter {
             if (results.containsKey("metadata_valid")) {
                 paragraphs.add(metadataSentence(results));
             }
+            if (results.containsKey("flow_valid")) {
+                paragraphs.add(flowSentence(results));
+            }
             return paragraphs;
         }
 
@@ -477,6 +480,12 @@ public final class ProposalDocumentWriter {
         private static String metadataSentence(Map<String, Object> results) {
             return bool(results.get("metadata_valid")) ? "Skill의 필수 정보와 본문이 검사 기준을 충족합니다."
                     : "Skill의 필수 정보 또는 본문에 오류가 있어 이 후보를 사용할 수 없습니다.";
+        }
+
+        /** 운영자가 이해할 수 있는 문장으로 flow 구조 검사 결과를 설명한다. */
+        private static String flowSentence(Map<String, Object> results) {
+            return bool(results.get("flow_valid")) ? "실행 순서의 구조와 단계 선언을 모두 확인했습니다."
+                    : "실행 순서의 구조 또는 단계 선언에 오류가 있어 이 후보를 사용할 수 없습니다.";
         }
 
         /** 실패했던 주문을 다시 돌렸을 때 끝까지 처리됐는지(results.fixes_failure) 쓴다. */

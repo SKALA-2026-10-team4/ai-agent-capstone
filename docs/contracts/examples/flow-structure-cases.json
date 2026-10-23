@@ -1,0 +1,188 @@
+{
+  "maxSteps": 12,
+  "cases": [
+    {
+      "id": "valid-one-step",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [],
+      "code": null
+    },
+    {
+      "id": "valid-twelve-steps",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [step-1, step-2, step-3, step-4, step-5, step-6, step-7, step-8, step-9, step-10, step-11, step-12]\n---\nBody\n",
+        "step-1": "---\nname: step-1\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-2": "---\nname: step-2\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-3": "---\nname: step-3\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-4": "---\nname: step-4\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-5": "---\nname: step-5\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-6": "---\nname: step-6\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-7": "---\nname: step-7\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-8": "---\nname: step-8\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-9": "---\nname: step-9\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-10": "---\nname: step-10\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-11": "---\nname: step-11\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-12": "---\nname: step-12\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [],
+      "code": null
+    },
+    {
+      "id": "too-many-steps",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [step-1, step-2, step-3, step-4, step-5, step-6, step-7, step-8, step-9, step-10, step-11, step-12, step-13]\n---\nBody\n",
+        "step-1": "---\nname: step-1\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-2": "---\nname: step-2\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-3": "---\nname: step-3\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-4": "---\nname: step-4\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-5": "---\nname: step-5\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-6": "---\nname: step-6\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-7": "---\nname: step-7\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-8": "---\nname: step-8\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-9": "---\nname: step-9\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-10": "---\nname: step-10\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-11": "---\nname: step-11\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-12": "---\nname: step-12\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n",
+        "step-13": "---\nname: step-13\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "TOO_MANY_STEPS"
+      ],
+      "code": "INVALID_FLOW"
+    },
+    {
+      "id": "duplicate-step",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment, payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "DUPLICATE_STEP"
+      ],
+      "code": "INVALID_FLOW"
+    },
+    {
+      "id": "duplicate-reported-once",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment, payment, payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "DUPLICATE_STEP"
+      ],
+      "code": "INVALID_FLOW"
+    },
+    {
+      "id": "empty-steps",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: []\n---\nBody\n"
+      },
+      "reasons": [
+        "EMPTY_STEPS"
+      ],
+      "code": "INVALID_FLOW"
+    },
+    {
+      "id": "unknown-step-with-no-missing-input",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n"
+      },
+      "reasons": [
+        "UNKNOWN_SKILL"
+      ],
+      "code": "UNKNOWN_SKILL"
+    },
+    {
+      "id": "invalid-step-name",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [Payment]\n---\nBody\n",
+        "Payment": "---\nname: Payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "INVALID_SKILL_NAME"
+      ],
+      "code": "INVALID_SKILL_NAME"
+    },
+    {
+      "id": "scalar-inputs",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: invalid\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "UNREADABLE_SKILL"
+      ],
+      "code": "INVALID_SKILL_FORMAT"
+    },
+    {
+      "id": "mixed-outputs",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: [true]\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "UNREADABLE_SKILL"
+      ],
+      "code": "INVALID_SKILL_FORMAT"
+    },
+    {
+      "id": "missing-dependencies-list",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\n---\nBody\n"
+      },
+      "reasons": [
+        "UNREADABLE_SKILL"
+      ],
+      "code": "INVALID_SKILL_FORMAT"
+    },
+    {
+      "id": "name-mismatch",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n",
+        "payment": "---\nname: notify\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "UNREADABLE_SKILL"
+      ],
+      "code": "INVALID_SKILL_FORMAT"
+    },
+    {
+      "id": "malformed-yaml",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: [broken\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "UNREADABLE_SKILL"
+      ],
+      "code": "INVALID_SKILL_FORMAT"
+    },
+    {
+      "id": "nested-flow",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [child]\n---\nBody\n"
+      },
+      "reasons": [
+        "NESTED_FLOW_NOT_SUPPORTED"
+      ],
+      "code": "CONTRACT_VIOLATION"
+    },
+    {
+      "id": "duplicate-and-missing",
+      "skills": {
+        "order-flow": "---\nname: order-flow\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [payment, missing, payment]\n---\nBody\n",
+        "payment": "---\nname: payment\nversion: 1\nowner: team\ndescription: Test skill\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"
+      },
+      "reasons": [
+        "DUPLICATE_STEP",
+        "UNKNOWN_SKILL"
+      ],
+      "code": "INVALID_FLOW"
+    }
+  ]
+}

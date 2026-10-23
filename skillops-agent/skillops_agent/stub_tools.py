@@ -329,6 +329,7 @@ class StubMCPTools:
             "broken_links": [],
             "dependency_violations": [],
             "metadata_errors": [],
+            "flow_errors": [],
         }
 
     async def run_scenarios(

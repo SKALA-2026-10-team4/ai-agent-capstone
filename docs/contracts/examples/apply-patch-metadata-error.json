@@ -15,5 +15,6 @@
       "code": "INVALID_SKILL_FORMAT",
       "message": "owner는 비어 있지 않은 문자열이어야 합니다"
     }
-  ]
+  ],
+  "flow_errors": []
 }

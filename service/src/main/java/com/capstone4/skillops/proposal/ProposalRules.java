@@ -25,7 +25,7 @@ final class ProposalRules {
      * 후보가 모든 확인을 통과했는지 다시 계산한다. 적용에 실패했거나 시험 결과가 없는 후보는 시험하지 않았으므로 떨어진다.
      * 합격하려면 실패했던 주문이 끝까지 처리되고(fixes_failure), 기준 주문이 하나 이상이면서 모두 이전과 같게 처리되고
      * (keeps_old_orders 의 passed 와 total 이 같고 total 이 1 이상), 의도 확인 조건이 지켜지고(keeps_intent), 끊긴 Skill 연결이
-     * 없어야 한다(no_broken_links). metadata_valid가 있으면 Boolean true여야 한다.
+     * 없어야 한다(no_broken_links). metadata_valid와 flow_valid가 있으면 각각 Boolean true여야 한다.
      * 과거 저장 제안서와 구버전 생산자 호환을 위해 해당 칸의 누락은 기존 판정을 유지한다.
      * 최신 Python은 검사 결과를 반드시 보낸다. 참·거짓 칸은 Boolean true만 참으로 본다.
      * ProposalValidator 의 checkCandidates 가 저장할 때, ProposalDocumentWriter 가 합격 수와 판정 글을 쓸 때 부른다.
@@ -39,7 +39,8 @@ final class ProposalRules {
         Integer total = oldOrders.total();
         return bool(results.get("fixes_failure")) && total != null && total > 0 && total.equals(oldOrders.passed())
                 && bool(results.get("keeps_intent")) && bool(results.get("no_broken_links"))
-                && (!results.containsKey("metadata_valid") || bool(results.get("metadata_valid")));
+                && (!results.containsKey("metadata_valid") || bool(results.get("metadata_valid")))
+                && (!results.containsKey("flow_valid") || bool(results.get("flow_valid")));
     }
 
     /**

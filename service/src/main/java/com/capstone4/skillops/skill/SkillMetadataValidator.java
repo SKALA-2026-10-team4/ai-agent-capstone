@@ -19,7 +19,7 @@ public final class SkillMetadataValidator {
 
     /** 필수 정보 오류를 모으며 문서를 읽을 수 없으면 frontmatter 오류 하나를 반환한다. */
     public static List<Violation> validate(String skill, String text) {
-        if (skill == null || skill.length() > 64 || !skill.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)*")) {
+        if (!SkillNames.isValid(skill)) {
             return List.of(new Violation(skill, "name", "INVALID_SKILL_NAME", "Skill 폴더 이름 규칙에 맞지 않습니다"));
         }
         SkillFrontmatter.ExecutionDocument document;
