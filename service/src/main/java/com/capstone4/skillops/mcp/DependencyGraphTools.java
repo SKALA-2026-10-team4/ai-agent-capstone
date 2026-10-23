@@ -29,11 +29,11 @@ public class DependencyGraphTools {
         this.graphService = graphService;
     }
 
-    // TODO(C-1/B, 계약 확정 후): 이 도구는 snapshot_id 와 entry_skill_id 를 필수로 받는다. 진단 Agent 는 이미 고정한 snapshot 과
-    // entry_skill_id(기본값 order-flow)를 넘긴다(skillops-agent/skillops_agent/nodes.py 의 _repair_inputs). 그러나 v1 계약 문서
-    // (docs/contracts/mcp-tools-input-output.md 6장)는 빈 입력 {} 을 보내 운영본으로 계산한다고 적고 있다.
-    // 문서를 이 서버 스키마에 맞출지, 운영본을 해석하는 계층을 둘지 합의해야 한다.
-    // 무인자 형태로 바꾸더라도 진단 도중 최신 운영본이 섞이지 않게 대상 snapshot 을 한 번 고정한다.
+    // 이 도구는 snapshot_id 와 entry_skill_id 를 필수로 받는다. 진단 Agent 는 이미 고정한 snapshot 과 entry_skill_id
+    // (기본값 order-flow)를 넘긴다(skillops-agent/skillops_agent/nodes.py 의 _repair_inputs). 입출력 표는
+    // docs/contracts/mcp-tools-input-output.md 의 get_dependency_graph 절에 있다.
+    // TODO(C-1/B): 운영본을 snapshot 없이 계산하는 형태가 필요한지는 아직 정하지 않았다. 더하더라도 진단 도중 최신
+    // 운영본이 섞이지 않게 대상 snapshot 을 한 번 고정한다.
     /**
      * snapshot_id 의 snapshot 에서 entry_skill_id flow 의 연결 관계를 계산해 JSON 결과로 돌려준다.
      * 계산은 DependencyGraphService.dependencyGraph 에 맡긴다. OrderAgentException 으로 올라온 실패(주문 Agent 조회 실패,

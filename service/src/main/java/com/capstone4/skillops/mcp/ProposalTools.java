@@ -11,7 +11,7 @@ import com.capstone4.skillops.proposal.ProposalService;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 
 /**
- * MCP 도구 save_proposal 을 둔 클래스다. 계약 5 §10(docs/contracts/mcp-tools-input-output.md)의 도구이고 담당은 C-2 다.
+ * MCP 도구 save_proposal 을 둔 클래스다. 입출력은 docs/contracts/mcp-tools-input-output.md 의 save_proposal 절에 있고 담당은 C-2 다.
  * Spring AI MCP Server 의 annotation scanner 가 이 빈의 @McpTool 메서드를 save_proposal 도구로 등록한다.
  * SkillOps Agent 는 진단을 마친 뒤 skillops-agent/skillops_agent/nodes.py 의 save_proposal 노드에서
  * skillops-agent/skillops_agent/tools.py 의 MCPTools.save_proposal 을 거쳐 이 도구를 부른다.

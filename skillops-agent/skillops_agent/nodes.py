@@ -1241,11 +1241,11 @@ def _failure_of(trace: dict | None) -> dict | None:
 
 
 def proposal_payload(state: AgentState) -> dict:
-    """save_proposal 로 보낼 제안서(계약 5 §10)를 상태에서 만든다.
+    """save_proposal 로 보낼 제안서를 상태에서 만든다.
 
     합격 판정은 service 가 다시 하고, 제안서 본문은 service 가 쓴다. 제안서 모양은
     docs/contracts/proposal.schema.json(계약 4)이고, 도구 입출력은
-    docs/contracts/mcp-tools-input-output.md 의 10절(계약 5 §10)이다. thread_id 는
+    docs/contracts/mcp-tools-input-output.md 의 save_proposal 절이다. thread_id 는
     pipeline_thread_id 이며 service 가 같은 진단의 중복 저장을 막는 데 쓴다. root_cause 에는 해당
     change 의 before 와 after 를 덧붙이고, 후보의 workspace 는 workspace_id 로 이름을 바꾼다(원래
     상태는 고치지 않는다). recommended 인덱스는 recommended_candidate_no 로 바꾸고, 유효 후보가

@@ -2,93 +2,365 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://capstone4.local/skillops/proposal.schema.json",
   "title": "Proposal",
-  "description": "계약 4 · SkillOps Agent 가 save_proposal 로 보내는 제안서(v1). 제안서 번호·저장 시각·본문은 service 가 붙인다. 합격 판정과 근거 실행 대조도 service 가 다시 한다(계약 5 §10).",
+  "description": "계약 4 · SkillOps Agent 가 save_proposal 로 보내는 제안서. 만드는 곳은 skillops-agent/skillops_agent/nodes.py 의 proposal_payload 이고, 받는 곳은 service 의 proposal/ProposalService.java save 다. 제안서 번호·저장 시각·본문은 service 가 붙이고, 합격 판정과 근거 실행 대조는 service 가 ProposalValidator 로 다시 한다(docs/contracts/mcp-tools-input-output.md 의 save_proposal 절). 같은 thread_id 로 다시 저장하면 검사 없이 처음 제안서 결과를 돌려준다. Agent 는 required 칸을 늘 보내지만 service 가 직접 거부하는 조건은 각 칸 설명에 적은 것뿐이다.",
   "type": "object",
-  "required": ["trigger", "candidates", "status"],
+  "required": [
+    "trigger",
+    "candidates",
+    "status"
+  ],
   "properties": {
-    "thread_id": { "type": ["string", "null"], "description": "진단 번호. 같은 번호로 다시 저장하면 처음 제안서를 돌려준다" },
-    "trigger": { "type": "object", "description": "/diagnose 가 받은 요청 그대로" },
-    "baseline_snapshot_id": { "type": ["string", "null"] },
-    "snapshot_id": { "type": ["string", "null"] },
+    "thread_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "진단 번호(Agent 의 pipeline_thread_id). 같은 번호로 다시 저장하면 처음 제안서를 돌려준다"
+    },
+    "trigger": {
+      "type": "object",
+      "description": "/diagnose 가 받은 요청(DiagnoseRequest) 그대로. Agent 는 늘 보낸다"
+    },
+    "baseline_snapshot_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "snapshot_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "failure": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
-        "execution_id": { "type": ["string", "null"] },
-        "skill": { "type": ["string", "null"] },
-        "category": { "type": ["string", "null"] },
-        "message": { "type": ["string", "null"] },
-        "missing_inputs": { "type": "array", "items": { "type": "string" } },
-        "at": { "type": ["string", "null"], "format": "date-time" }
-      }
+        "execution_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skill": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missing_inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "description": "실행 기록의 첫 EXECUTION_ERROR. 오류가 없으면 null"
     },
     "root_cause": {
-      "type": ["object", "null"],
-      "required": ["skill", "change_no", "proof_run_ids"],
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "proof_run_ids"
+      ],
       "properties": {
-        "skill": { "type": "string" },
-        "change_no": { "type": "integer", "minimum": 1 },
-        "hunk_id": { "type": "string" },
-        "from_version": { "type": "integer" },
-        "to_version": { "type": "integer" },
-        "summary": { "type": "string" },
-        "before": { "type": ["string", "null"] },
-        "after": { "type": ["string", "null"] },
-        "proof_run_ids": { "type": "array", "items": { "type": "string" } }
-      }
+        "skill": {
+          "type": "string"
+        },
+        "change_no": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hunk_id": {
+          "type": "string"
+        },
+        "from_version": {
+          "type": "integer",
+          "description": "후보 snapshot 의 skill 버전. 지금은 to_version 과 같다"
+        },
+        "to_version": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string",
+          "description": "hunk 의 before 와 after 를 이은 글"
+        },
+        "before": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "after": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_run_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "수정 없는 대조 실행 뒤에 원인을 되돌린 실행을 이어 붙인 목록"
+        }
+      },
+      "description": "확정한 원인 변경. 원인을 못 찾았으면 null. status=proposed 면 proof_run_ids 가 비지 않아야 하고, 모든 번호가 service 가 run_scenarios 로 돌린 실행이어야 한다"
     },
     "intent": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
-        "text": { "type": "string" },
-        "checks": { "type": "array", "items": { "type": "string" } },
-        "confirmed": { "type": ["boolean", "null"], "description": "Agent 는 보내지 않는다. 승인할 때 service 가 true 로 채운다" }
+        "text": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Check 문법으로 읽을 수 있는 확인 조건만 남긴 목록"
+        },
+        "dropped_checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "check": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "버린 조건과 이유"
+        },
+        "confirmed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Agent 는 보내지 않는다. 승인할 때 service 가 true 로 채운다"
+        }
       }
     },
     "candidates": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["candidate_no", "kind", "patches"],
+        "required": [
+          "candidate_no",
+          "kind",
+          "patches"
+        ],
         "properties": {
-          "candidate_no": { "type": "integer", "minimum": 1 },
-          "kind": { "enum": ["same_skill", "linked_skills", "run_order"] },
-          "workspace_id": { "type": ["string", "null"] },
+          "candidate_no": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "목록 순서와 같게 1부터 빠짐없이 매긴다"
+          },
+          "kind": {
+            "enum": [
+              "same_skill",
+              "linked_skills",
+              "run_order"
+            ],
+            "description": "LLM 이 낸 값이며 service 는 검사하지 않는다"
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "검증한 연습 공간. 형식 오류로 검증하지 않은 후보는 null"
+          },
           "patches": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["skill", "base_version", "patch"],
+              "required": [
+                "skill",
+                "base_version",
+                "patch"
+              ],
               "properties": {
-                "skill": { "type": "string" },
-                "base_version": { "type": "integer" },
-                "patch": { "type": "string" }
+                "skill": {
+                  "type": "string"
+                },
+                "base_version": {
+                  "type": "integer",
+                  "description": "create_workspace 가 준 skill_versions 값"
+                },
+                "patch": {
+                  "type": "string",
+                  "description": "unified diff"
+                }
               }
             }
           },
           "results": {
-            "type": ["object", "null"],
+            "type": [
+              "object",
+              "null"
+            ],
             "properties": {
-              "fixes_failure": { "type": "boolean" },
+              "fixes_failure": {
+                "type": "boolean"
+              },
               "keeps_old_orders": {
                 "type": "object",
-                "required": ["passed", "total"],
-                "properties": { "passed": { "type": "integer" }, "total": { "type": "integer" } }
+                "required": [
+                  "passed",
+                  "total"
+                ],
+                "properties": {
+                  "passed": {
+                    "type": "integer"
+                  },
+                  "total": {
+                    "type": "integer"
+                  }
+                }
               },
-              "keeps_intent": { "type": "boolean" },
-              "no_broken_links": { "type": "boolean" },
-              "changed_skill_count": { "type": "integer" },
-              "tools_called": { "type": "array", "items": { "type": "string" } }
-            }
+              "keeps_intent": {
+                "type": "boolean"
+              },
+              "no_broken_links": {
+                "type": "boolean"
+              },
+              "changed_skill_count": {
+                "type": "integer"
+              },
+              "tools_called": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "재현 실행 기록의 TOOL_REQUEST 도구 이름. 같은 이름이 겹칠 수 있다"
+              }
+            },
+            "description": "시험 결과. 합격은 fixes_failure, keeps_old_orders(passed == total 이고 total >= 1), keeps_intent, no_broken_links 가 모두 true 일 때다(ProposalRules.passes)"
           },
-          "valid": { "type": ["boolean", "null"] },
-          "validation_error": { "type": ["string", "null"] },
-          "evidence_run_ids": { "type": "array", "items": { "type": "string" } },
-          "rank": { "type": ["integer", "null"] },
-          "explanation": { "type": ["string", "null"] }
-        }
-      }
+          "valid": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Agent 의 합격 판정. 값이 있으면 service 가 results 로 다시 계산한 값과 같아야 한다"
+          },
+          "validation_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "patch 형식 오류나 apply_patch 거절 이유. 값이 있으면 적용하지 못한 후보로 보고 근거 검사를 건너뛴다"
+          },
+          "evidence_run_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "이 후보의 연습 공간에서 run_scenarios 로 돌린 실행 번호"
+          },
+          "rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "rank_and_explain 이 유효 후보에만 채운다"
+          },
+          "explanation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "anyOf": [
+                {
+                  "not": {
+                    "required": [
+                      "validation_error"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "validation_error": {
+                      "type": "null"
+                    }
+                  }
+                }
+              ]
+            },
+            "then": {
+              "required": [
+                "workspace_id",
+                "results",
+                "evidence_run_ids"
+              ],
+              "properties": {
+                "workspace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "results": {
+                  "type": "object"
+                },
+                "evidence_run_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "description": "후보 목록. no_valid_fix 면 비어 있어도 된다"
     },
-    "recommended_candidate_no": { "type": ["integer", "null"], "minimum": 1 },
-    "status": { "enum": ["proposed", "no_valid_fix"] }
+    "recommended_candidate_no": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "description": "status=proposed 면 합격 후보 번호 가운데 하나여야 한다"
+    },
+    "status": {
+      "enum": [
+        "proposed",
+        "no_valid_fix"
+      ],
+      "description": "proposed 는 합격 후보가 하나 이상, no_valid_fix 는 합격 후보가 없을 때다"
+    }
   }
 }

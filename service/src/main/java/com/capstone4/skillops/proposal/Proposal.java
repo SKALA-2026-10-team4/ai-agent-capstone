@@ -108,7 +108,7 @@ public class Proposal {
 
     /**
      * 운영자의 결정을 이 제안서에 표시한다. 상태를 결정 값으로 바꾸고 결정 시각을 남긴다.
-     * 승인이면 담당자가 의도 해석을 확인한 것이므로 payload 를 intent.confirmed 가 true 인 사본으로 바꾸고(계약 5 §10), 거절이면 payload 를 그대로 둔다.
+     * 승인이면 담당자가 의도 해석을 확인한 것이므로 payload 를 intent.confirmed 가 true 인 사본으로 바꾸고(docs/contracts/mcp-tools-input-output.md 의 save_proposal 절), 거절이면 payload 를 그대로 둔다.
      * 받을 수 있는 결정인지는 ProposalService 의 markDecided 가 먼저 확인하므로 여기서는 다시 보지 않는다.
      */
     void decide(String decision, Instant at) {

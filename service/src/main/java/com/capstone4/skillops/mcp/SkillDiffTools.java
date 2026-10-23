@@ -30,12 +30,10 @@ public class SkillDiffTools {
         this.diffService = diffService;
     }
 
-    // TODO(C-1/B, 계약 확정 후): 이 도구의 입력은 skill_id, before_snapshot_id, after_snapshot_id 다. 진단 Agent
-    // (skillops-agent/skillops_agent/tools.py 의 MCPTools.diff_skill)는 이 이름으로 보내지만, v1 계약 문서
-    // (docs/contracts/mcp-tools-input-output.md 4장)는 skill, from_version, to_version 을 적고 있다.
-    // 문서를 실제 서버 스키마에 맞추거나, Registry 버전 번호를 불변 snapshot 으로 바꾸는 변환 계층을 합의한다.
-    // 인자 이름만 바꿔 버전 정수를 snapshot UUID 자리에 넘기지 않는다.
-    // 응답 칸의 TODO 는 service/src/main/java/com/capstone4/skillops/snapshot/DiffSkillResult.java 에 있다.
+    // 입력은 skill_id, before_snapshot_id, after_snapshot_id 이고, 진단 Agent(skillops-agent/skillops_agent/tools.py 의
+    // MCPTools.diff_skill)도 이 이름으로 보낸다. 입출력 표는 docs/contracts/mcp-tools-input-output.md 의 diff_skill 절에 있다.
+    // 버전 번호로 비교하는 입력을 더하려면 Registry 버전을 불변 snapshot 으로 바꾸는 변환 계층을 따로 두고,
+    // 버전 정수를 snapshot UUID 자리에 넘기지 않는다.
     /**
      * before_snapshot_id 와 after_snapshot_id 의 snapshot 에서 skill_id 의 SKILL.md 를 비교한 결과를 JSON 으로 돌려준다.
      * 계산은 SkillDiffService.diffSkill 에 맡긴다. OrderAgentException 으로 올라온 실패(주문 Agent 조회 실패, 입력 형식
