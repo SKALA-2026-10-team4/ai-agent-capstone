@@ -51,6 +51,8 @@ After  (v1):  save_proposal → wait_for_approval → END
 
 > 승인/거부 모두 Agent는 종료합니다. 실제 promote와 smoke check, 실패 시 rollback은 서비스가 담당합니다.
 
+> 현재 코드(2026-10-22 리팩토링 기준)에서 그래프는 `save_proposal → END` 로 끝난다. 승인 결정은 service 가 기록하고 Agent 로 보내지 않으므로, 그래프에 연결되지 않던 `wait_for_approval` 노드 함수는 지웠다. 흐름표는 `skillops-agent/skillops_agent/graph.py` 의 `FLOW` 에 있다.
+
 ---
 
 ## 3. MCP 도구 필드명 변경
