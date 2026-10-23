@@ -1,4 +1,4 @@
-"""LangGraph Node 함수 11개(v1)와 노드별 도우미를 모은다.
+"""정상 경로 노드 11개와 partial 증거 수집 노드 2개 및 도우미를 모은다.
 
 skillops-agent/skillops_agent/graph.py 의 FLOW 표에 노드 이름이 있고, 같은 파일의 build_graph 가
 그 이름으로 이 모듈의 함수를 찾아(getattr) 등록한다. 이때 guarded 가 각 노드를 감싸 예외를 ERROR
@@ -79,6 +79,7 @@ from .contracts import (
     validate_report,
 )
 from .llm import make_structured_llm
+from .partial_evidence import collect_diffs, collect_sources, prepare_partial_evidence
 from .prompts import load as load_prompt
 from .state import (
     AblationRun,
@@ -529,8 +530,9 @@ async def fetch_evidence(state: AgentState) -> dict:
     """2번 노드다. 진단의 증거를 모은다.
 
     실행과 두 snapshot 을 고정하고(_fix_snapshots), 후보 snapshot 의 skill 목록과 버전을 list_skills
-    로 읽고(skillops-agent/skillops_agent/contracts.py 의 check_skill_listing), 두 snapshot 의 실제
-    변경을 hunk 단위로 모은다(_collect_changes). 실행이 없으면(type=skill_saved)
+    로 읽는다. 목록이 partial이면 metadata 증거를 반환하고 전용 수집 경로로 보낸다.
+    완전한 목록은 check_skill_listing으로 검사하고 실제 변경을 hunk로 모은다(_collect_changes).
+    실행이 없으면(type=skill_saved)
     사전 검증(_preflight)으로 BASELINE_FAILED, VALIDATION_FAILED, VALIDATED 가운데 하나로 끝내거나
     실패한 실행으로 진단을 잇는다. 변경이 없으면 NO_SKILL_CHANGES 를 남기고, diagnosis_only 요청이면
     의도 조건 검사(_evaluate_intent_checks)로 결론을 낸다.
@@ -542,9 +544,16 @@ async def fetch_evidence(state: AgentState) -> dict:
     progress = _progress(state, "fetch_evidence", "실제 snapshot과 실행 증거 수집")
     async with get_tools() as t:
         snaps = await _fix_snapshots(t, trigger)
-        versions = check_skill_listing(
-            await t.list_skills(snaps.candidate), snaps.candidate, snaps.after["hash"]
-        )
+        listing = await t.list_skills(snaps.candidate)
+        if listing.get("partial") or listing.get("parse_errors"):
+            evidence = prepare_partial_evidence(listing, snaps.before, snaps.after)
+            return {
+                **progress, "evidence": evidence,
+                "trace": snaps.trace, "snapshot_id": snaps.candidate,
+                "baseline_snapshot_id": snaps.baseline, "execution_id": snaps.execution,
+                "skill_versions": {item["skill_id"]: item["version"] for item in listing["items"]},
+            }
+        versions = check_skill_listing(listing, snaps.candidate, snaps.after["hash"])
         diffs, changes = await _collect_changes(t, snaps, trigger.get("changed_paths"))
         update = {}
         execution, trace, ids = snaps.execution, snaps.trace, []
@@ -579,6 +588,44 @@ async def fetch_evidence(state: AgentState) -> dict:
         if trigger.get("diagnosis_only"):
             update.update(await _evaluate_intent_checks(t, trigger, execution, snaps.candidate))
     return {**progress, **update}
+
+
+def _partial_stop(evidence: dict) -> dict:
+    """partial 증거 수집을 오류 설명과 함께 끝내며 자동 수정 경로로 보내지 않는다."""
+    return {
+        "evidence": evidence,
+        "diagnosis_status": DiagnosisStatus.ERROR,
+        "error": "ContractError: candidate skill metadata is incomplete",
+        "diagnosis": {
+            "explanation": (
+                "Skill 메타데이터가 불완전하여 증거만 수집했습니다. "
+                "자동 수정과 실행은 수행하지 않습니다."
+            ),
+            "evidence_only": True,
+            "collection_status": evidence["collection_status"],
+            "collection_error_count": len(evidence["collection_errors"]),
+        },
+    }
+
+
+async def collect_partial_sources(state: AgentState) -> dict:
+    """partial 원문 수집 결과를 독립 노드로 반환해 diff 호출 전에 영구 저장한다."""
+    progress = _progress(state, "collect_partial_sources", "불완전한 Skill 목록의 원문 증거 수집")
+    async with get_tools() as tools:
+        evidence, stopped = await collect_sources(tools, state["evidence"])
+    return {**progress, **(_partial_stop(evidence) if stopped else {"evidence": evidence})}
+
+
+async def collect_partial_diffs(state: AgentState) -> dict:
+    """partial의 가능한 diff를 저장하고 LLM·workspace·patch 호출 없이 종료한다."""
+    progress = _progress(
+        state, "collect_partial_diffs", "불완전한 Skill 목록의 diff 증거 수집 후 종료"
+    )
+    async with get_tools() as tools:
+        evidence, diff, changes = await collect_diffs(
+            tools, state["evidence"], state["trigger"].get("changed_paths")
+        )
+    return {**progress, **_partial_stop(evidence), "diff": diff, "changes": changes}
 
 
 # ── Node 3: hypothesize ───────────────────────────────────────────────────────

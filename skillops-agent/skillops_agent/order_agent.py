@@ -1,6 +1,6 @@
 """주문 Agent(order-agent/)의 진단용 조회 API 를 부른다.
 
-실행 기록, 실패 목록, snapshot 의 skill 목록과 본문을 읽는다. 상대편은 모두
+실행 기록, 실패 목록, snapshot의 skill 목록·본문·원본 파일을 읽는다. 상대편은 모두
 order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
 GET 경로다. 응답은 가공하지 않고 그대로 돌려준다. order-agent/docs/diagnosis-read-api.md 가 이벤트
 원문 보존을 요구하기 때문이다. 조회가 실패하면 빈 결과로 바꾸지 않고 OrderAgentError 를 던진다. 이
@@ -8,7 +8,7 @@ GET 경로다. 응답은 가공하지 않고 그대로 돌려준다. order-agent
 service/src/main/java/com/capstone4/skillops/mcp/ToolResults.java 가 만드는 C-1 MCP 도구 오류와
 같고, 어느 실행을 조회했는지 담는 execution_id 칸이 더 있다.
 
-skillops-agent/skillops_agent/tools.py 의 MCPTools 가 조회 네 개를 자기 httpx client 와 함께 부른다.
+skillops-agent/skillops_agent/tools.py 의 MCPTools가 조회 다섯 개를 자기 httpx client와 함께 부른다.
 재시도 규칙은 MAX_ATTEMPTS, RETRY_BACKOFF_SECONDS, _is_retryable_status 에서 바꾼다.
 
 사용 예는 다음과 같다.
@@ -26,6 +26,7 @@ from typing import Any
 import httpx
 
 from .config import ORDER_AGENT_BASE_URL
+from .contracts import is_snapshot_path
 
 # client 를 주지 않아 이 모듈이 직접 만드는 client 의 timeout(초)이다. 운영 경로의 MCPTools 는 자기
 # client(skillops-agent/skillops_agent/tools.py 의 ORDER_AGENT_TIMEOUT_SECONDS)를 넘기므로 이 값을
@@ -134,22 +135,42 @@ async def get_skill(
     )
 
 
-async def _get(path: str, client: httpx.AsyncClient | None, **ref: str) -> Any:
+async def get_snapshot_file(
+    snapshot_id: str, path: str, *, client: httpx.AsyncClient | None = None
+) -> dict:
+    """메타데이터 해석 없이 고정 snapshot의 파일을 기존 files REST로 조회한다."""
+    _require_uuid("snapshot_id", snapshot_id)
+    if not is_snapshot_path(path):
+        raise OrderAgentError("INVALID_INPUT", "잘못된 snapshot 파일 경로", retryable=False,
+                              snapshot_id=snapshot_id)
+    try:
+        return await _get(f"/api/snapshots/{snapshot_id}/files", client,
+                          params={"path": path}, snapshot_id=snapshot_id)
+    except (ValueError, UnicodeError) as exc:
+        raise OrderAgentError("ORDER_AGENT_INVALID_RESPONSE", "파일 응답의 JSON을 읽을 수 없습니다",
+                              retryable=False, snapshot_id=snapshot_id) from exc
+
+
+async def _get(
+    path: str, client: httpx.AsyncClient | None, *, params: dict | None = None, **ref: str
+) -> Any:
     """path 를 GET 으로 부르고 JSON 본문을 돌려준다.
 
     client 를 받으면 그 client 의 주소와 timeout 을 따른다. 없으면
     skillops-agent/skillops_agent/config.py 의 ORDER_AGENT_BASE_URL(환경 변수
     ORDER_AGENT_BASE_URL)과 TIMEOUT_SECONDS 로 client 를 직접 만들고 조회가 끝나면 닫는다. ref 는
-    실패할 때 OrderAgentError 에 실을 요청 인자(execution_id 또는 snapshot_id)다. 조회 함수 네 개가
-    모두 이 함수를 거친다.
+    실패할 때 OrderAgentError에 실을 요청 인자(execution_id 또는 snapshot_id)다.
+    조회 함수 다섯 개가 모두 이 함수를 거친다.
     """
     if client is None:
         async with httpx.AsyncClient(base_url=ORDER_AGENT_BASE_URL, timeout=TIMEOUT_SECONDS) as own:
-            return await _get_with_retry(own, path, ref)
-    return await _get_with_retry(client, path, ref)
+            return await _get_with_retry(own, path, ref, params=params)
+    return await _get_with_retry(client, path, ref, params=params)
 
 
-async def _get_with_retry(client: httpx.AsyncClient, path: str, ref: dict) -> Any:
+async def _get_with_retry(
+    client: httpx.AsyncClient, path: str, ref: dict, *, params: dict | None = None
+) -> Any:
     """GET 을 최대 MAX_ATTEMPTS 번 시도하고, 성공하면 JSON 본문을 가공 없이 돌려준다.
 
     order-agent/docs/diagnosis-read-api.md 8장은 GET 의 일시 연결 오류, 429, 일시 5xx 만 제한해서
@@ -159,7 +180,7 @@ async def _get_with_retry(client: httpx.AsyncClient, path: str, ref: dict) -> An
     """
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            response = await client.get(path)
+            response = await client.get(path, **({"params": params} if params is not None else {}))
         except httpx.TransportError as e:
             error = OrderAgentError(
                 "ORDER_AGENT_UNAVAILABLE", f"주문 Agent 에 연결하지 못했습니다: {e}",

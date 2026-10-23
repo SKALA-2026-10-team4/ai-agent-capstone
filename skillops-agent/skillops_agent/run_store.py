@@ -180,12 +180,14 @@ class RunStore:
         return _row_to_run(row)
 
     def list(self):
-        """최근 진단을 created_at 내림차순으로 최대 RECENT_RUNS_LIMIT 건 돌려준다.
+        """최근 진단을 한 번의 쿼리로 읽되 원문 evidence는 상세 조회에만 포함한다.
 
         skillops-agent/skillops_agent/main.py 의 list_runs 가 부른다.
         """
         return self._query_runs(
-            "SELECT * FROM diagnosis_runs ORDER BY created_at DESC LIMIT ?", (RECENT_RUNS_LIMIT,)
+            "SELECT id, change_id, fingerprint, trigger_json, created_at, "
+            "json_remove(state_json, '$.evidence') AS state_json "
+            "FROM diagnosis_runs ORDER BY created_at DESC LIMIT ?", (RECENT_RUNS_LIMIT,)
         )
 
     def recover(self):

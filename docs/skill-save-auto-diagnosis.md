@@ -77,6 +77,8 @@ C의 현재 dry-run은 데모 재고를 사용한 뒤 복원한다. 기준 주�
 
 ## API와 설정
 
+2026-10-23 · #72: partial Skill 목록은 원문·해시·파싱 오류·가능한 diff를 수집한 뒤 ERROR로 종료한다. 자동 수정이나 실행은 하지 않는다. 새 `evidence`는 진단 상세에만 포함하며 목록에서는 제외한다. 상태·저장 한도·실패 보존 규칙은 [진단 증거 조회 계약](contracts/diagnosis-evidence.md)을 따른다.
+
 - 기존 POST /api/snapshots/edits 응답 validation_status는 이제 QUEUED다. immutable snapshot metadata는 저장 당시 상태이며, 실제 진행은 별도 전달/진단 API에서 읽는다.
 - 주문 Agent GET /api/skill-changes/{change_id}: change_id, snapshot_id, thread_id, delivery_status, attempts, last_error.
 - C POST /internal/skill-changes: 서버간 저장 이벤트 중계. 설정한 X-Service-Token 검증.

@@ -1,9 +1,10 @@
 """B 의 진단 그래프를 현재 C 계약으로 조립한다. 제안서는 C 의 save_proposal 로 저장한다.
 
-흐름은 이 모듈의 FLOW 표 하나에 모여 있다. 노드 11개는 init, fetch_evidence, hypothesize,
+흐름은 이 모듈의 FLOW 표 하나에 모여 있다. 정상 경로는 init, fetch_evidence, hypothesize,
 ablate, check_ablation, extract_intent, generate_candidates, verify_candidates, check_valid,
 rank_and_explain, save_proposal 순서이고, 노드 함수는 skillops-agent/skillops_agent/nodes.py 에
 같은 이름으로 있다. build_graph 가 FLOW 의 이름으로 그 함수를 찾아 guarded 로 감싸 등록한다.
+partial 목록은 collect_partial_sources, collect_partial_diffs에서 증거를 저장하고 끝난다.
 분기는 세 곳이다.
 - fetch_evidence 뒤에서는 route_evidence 가 진단을 이을지(diagnose) 끝낼지(stop) 정한다.
 - check_ablation 뒤에서는 route_ablation 이 원인 확정(confirmed), 가설 재시도(retry), 재시도
@@ -114,6 +115,7 @@ def _step_limit_reached(state: AgentState) -> bool:
 def route_evidence(state: AgentState) -> str:
     """증거 수집 뒤 판정이다. 종료 상태가 정해졌거나 변경이 없으면 stop, 아니면 diagnose 다.
 
+    partial evidence가 있으면 원문·diff 수집 경로로만 보낸다. 그 경로는 자동 수정을 호출하지 않는다.
     fetch_evidence 가 VALIDATED, BASELINE_FAILED, VALIDATION_FAILED, NO_SKILL_CHANGES,
     INTENT_VIOLATION, EVALUATED 처럼 RUNNING 이 아닌 상태를 남겼으면 진단할 것이 없으므로 END 로
     간다. 사전 검증이 결론을 낸 저장 직후 요청과 diagnosis_only 진단이 여기서 끝난다. 사전 검증이
@@ -122,6 +124,8 @@ def route_evidence(state: AgentState) -> str:
     """
     if state.get("diagnosis_status") != DiagnosisStatus.RUNNING:
         return "stop"
+    if state.get("evidence"):
+        return "partial"
     if not state.get("changes"):
         return "stop"
     return "diagnose"
@@ -175,7 +179,11 @@ def route_valid(state: AgentState) -> str:
 ENTRY = "init"
 FLOW = {
     "init": "fetch_evidence",
-    "fetch_evidence": (route_evidence, {"diagnose": "hypothesize", "stop": END}),
+    "fetch_evidence": (route_evidence, {
+        "diagnose": "hypothesize", "partial": "collect_partial_sources", "stop": END,
+    }),
+    "collect_partial_sources": "collect_partial_diffs",
+    "collect_partial_diffs": END,
     "hypothesize": "ablate",
     "ablate": "check_ablation",
     "check_ablation": (

@@ -606,7 +606,9 @@ async def test_prompts_receive_previous_failures_none_on_first_try(stub, llm):
 
 @pytest.mark.asyncio
 async def test_graph_has_the_eleven_pipeline_nodes():
-    assert set(graph.get_graph().nodes) == set(HAPPY_NODES) | {"__start__", "__end__"}
+    assert set(graph.get_graph().nodes) == set(HAPPY_NODES) | {
+        "collect_partial_sources", "collect_partial_diffs", "__start__", "__end__",
+    }
 
 
 # ── 가설 재시도와 단계 한도 ────────────────────────────────────────────────────
@@ -1203,6 +1205,7 @@ async def test_run_store_keeps_progress_and_final_state(stub, llm):
         "max_steps",
         "trace",
         "diff",
+        "evidence",
         "skill_versions",
         "snapshot_id",
         "baseline_snapshot_id",
@@ -1392,13 +1395,13 @@ EVIDENCE_ERRORS = [
         "skill_list_partial",
         initial(),
         _tool_change("list_skills", lambda r, *a: r.update(partial=True)),
-        "candidate skill metadata is incomplete",
+        "invalid partial evidence manifest",
     ),
     (
         "skill_list_parse_errors",
         initial(),
         _tool_change("list_skills", lambda r, *a: r.update(parse_errors=["bad"])),
-        "candidate skill metadata is incomplete",
+        "invalid partial evidence manifest",
     ),
     (
         "changed_paths",

@@ -1,5 +1,7 @@
 # MCP 도구 입출력 안내
 
+2026-10-23 · #72 partial 목록의 증거 수집 연동: Python은 기존 원문 파일 REST와 `diff_skill` MCP를 사용해 증거만 저장하고 종료합니다. 새 MCP tool·필드 변경은 없으며 apply_patch v1.3을 유지합니다. 진단 상세 REST의 새 evidence 필드는 [별도 계약](diagnosis-evidence.md)을 따릅니다.
+
 계약 5 · **v1 제안** (v0 초안을 고친 것) · 2026-10-20 · 작성 C-2 · 동결 회의 안건
 
 > **2026-10-23 갱신 (#72 4단계, apply_patch v1.3).** 필수 `flow_errors:[{skill,code,reason,message}]`를 추가했습니다. 연결 검사 `no_broken_links`, 필수 정보 검사 `metadata_valid`, 실행 구조 검사 `flow_valid`가 모두 통과해야 후보가 합격합니다. 네 오류 목록은 누락·null·잘못된 타입이면 계약 오류입니다. service와 Python을 함께 갱신해야 합니다. 도구 애플리케이션 계약 버전이며 MCP protocolVersion과 별개입니다. [응답 JSON Schema](apply-patch-result.schema.json) · [flow 오류 예제](examples/apply-patch-flow-error.json)

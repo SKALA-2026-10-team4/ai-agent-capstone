@@ -42,6 +42,15 @@ class ContractError(ValueError):
     pass
 
 
+def is_snapshot_path(value) -> bool:
+    """파일 조회와 manifest 검증에 공통으로 사용할 snapshot 상대 경로 규칙이다."""
+    return (
+        isinstance(value, str) and value.startswith("skills/") and len(value) <= 500
+        and "\\" not in value and "\x00" not in value
+        and all(part not in ("", ".", "..") for part in value.split("/"))
+    )
+
+
 def execution_uuid(value: str) -> str:
     """실행 ID 를 하이픈이 있는 UUID 글로 맞춘다.
 

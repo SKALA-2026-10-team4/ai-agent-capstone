@@ -46,6 +46,7 @@ def test_empty_run_fields_keeps_key_order_and_defaults():
     assert list(empty_run_fields().items()) == [
         ("trace", None),
         ("diff", None),
+        ("evidence", None),
         ("skill_versions", {}),
         ("snapshot_id", None),
         ("baseline_snapshot_id", None),

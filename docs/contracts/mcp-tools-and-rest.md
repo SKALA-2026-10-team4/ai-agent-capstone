@@ -4,6 +4,8 @@
 
 변경 기록: 2026-10-23 · #72 apply_patch v1.3 — 최신 요청·응답은 아래 apply_patch 행과 [상세 명세 8절](mcp-tools-input-output.md#8-수정-적용하기--apply_patch)을 따른다. 다른 행의 v0 설계와 구분한다. [성공 응답 Schema](apply-patch-result.schema.json)
 
+변경 기록: 2026-10-23 · #72 partial 진단은 기존 주문 Agent 원문 파일 REST와 service diff_skill을 이용해 증거만 저장한다. 진단 상세 REST에 추가한 evidence와 오류 의미는 [진단 증거 조회 계약](diagnosis-evidence.md)을 따른다. 새 MCP tool·필드 추가 및 자동 수정은 없다.
+
 ## MCP (service → SkillOps Agent)
 
 전송: Streamable HTTP, `POST http://localhost:8080/mcp` (Spring AI MCP Server, `protocol: STREAMABLE`).

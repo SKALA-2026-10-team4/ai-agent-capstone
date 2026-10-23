@@ -218,6 +218,8 @@ class AgentState(TypedDict):
     trace: dict | None
     # diff_skill 결과를 {files: 응답 목록, hunks: changes} 로 묶은 값이다.
     diff: dict | None
+    # partial 목록에서 수집한 원문·목록 오류·manifest다. 자동 수정에는 사용하지 않는다.
+    evidence: dict | None
     # 후보 snapshot 의 list_skills 응답에서 만든 {skill_id: version} 이다.
     skill_versions: dict
     # 진단한 후보 snapshot ID 다. v1 계약에서는 실행이 있으면 실행 당시 snapshot ID 다.
@@ -306,6 +308,7 @@ def empty_run_fields() -> dict:
     return {
         "trace": None,
         "diff": None,
+        "evidence": None,
         "skill_versions": {},
         "snapshot_id": None,
         "baseline_snapshot_id": None,

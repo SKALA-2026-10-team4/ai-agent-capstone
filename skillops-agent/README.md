@@ -17,6 +17,7 @@ uv run scripts/mcp_smoke.py              # service(8080) 가 떠 있을 때: MCP
 - 현재 C 계약·실행 입력·설정·미지원 경계는 [B/C 연동 안내](docs/c-contract-integration.md)를 따른다.
 - #72의 apply_patch v1.3은 `dependency_violations`, `metadata_errors`, `flow_errors` 필드를 요구한다. service와 Python을 함께 갱신해야 하며 구버전 응답의 필드 누락은 계약 오류로 처리한다.
 - 실서버 도구 호출이 기본이다. 오프라인 stub을 쓰려면 `SKILLOPS_USE_STUB_MCP=true`를 명시한다.
+- #72 partial 목록은 원문·해시·오류·diff를 수집해 상세 실행 기록에 저장하고 종료한다. 이 경로에서는 자동 수정·LLM·실행 평가를 호출하지 않는다. [진단 증거 조회 계약](../docs/contracts/diagnosis-evidence.md).
 - C에 제안 저장 도구가 없어 평가 결과는 `NOT_SAVED`로 종료한다. 승인·반영 완료를 뜻하지 않는다.
 
 - #72 3단계: `apply_patch` v1.2의 필수 `metadata_errors`를 읽어 후보의 `metadata_valid`를 판정한다. service와 Python을 함께 갱신해야 한다. [필수 정보 변경 내역](../docs/changes/2026-10-23-skill-metadata-validation.md).

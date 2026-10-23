@@ -1,8 +1,8 @@
 """진단 노드가 쓰는 도구 계층이다. 실제 도구(MCPTools)와 stub 선택 팩토리(get_tools)를 정의한다.
 
 MCPTools 는 두 곳을 부른다.
-- 주문 Agent HTTP API 는 list_failed_runs, get_snapshot, get_trace, list_skills, get_skill 이
-  부른다. get_snapshot 을 뺀 네 개는 skillops-agent/skillops_agent/order_agent.py 를 거쳐 재시도와
+- 주문 Agent HTTP API는 list_failed_runs, get_snapshot, get_trace, list_skills, get_skill,
+  get_snapshot_file이 부른다. get_snapshot을 뺀 다섯 개는 order_agent.py를 거쳐 재시도와
   OrderAgentError 규칙을 따른다. 상대편은
   order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 다.
 - service MCP 서버(/mcp)의 도구는 ping, diff_skill, get_dependency_graph, create_workspace,
@@ -153,7 +153,7 @@ class MCPTools:
 
     # ── Order Agent HTTP API (v1) ────────────────────────────────────────────────
 
-    # 조회 네 개(list_failed_runs, get_trace, list_skills, get_skill)는 order_agent 의 함수를 불러
+    # 조회 다섯 개(실패 목록·trace·Skill 목록·Skill·원문 파일)는 order_agent 의 함수를 불러
     # 재시도와 OrderAgentError 규칙을 따른다. 주소와 timeout 은 self._http 를 따른다.
     # get_snapshot 만 이 규칙 밖에 있다.
     async def list_failed_runs(self) -> dict:
@@ -199,6 +199,10 @@ class MCPTools:
         skillops-agent/skillops_agent/nodes.py 의 _repair_inputs 가 부른다.
         """
         return await order_agent.get_skill(snapshot_id, skill_id, client=self._http)
+
+    async def get_snapshot_file(self, snapshot_id: str, path: str) -> dict:
+        """partial 증거 수집에 사용할 원본 파일을 공유 HTTP client로 읽는다."""
+        return await order_agent.get_snapshot_file(snapshot_id, path, client=self._http)
 
     # ── MCP 도구 ─────────────────────────────────────────────────────────────────
 
