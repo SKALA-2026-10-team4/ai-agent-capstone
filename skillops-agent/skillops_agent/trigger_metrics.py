@@ -103,12 +103,25 @@ def regressions(before: dict, after: dict) -> list[str]:
     ]
 
 
-def _change(before: float | None, after: float | None) -> float:
-    """지표 변화량이다.
+def _recall_change(before: float | None, after: float | None) -> float | None:
+    """재현율 변화량이다. 불려야 하는 질의가 없어 잴 수 없으면 None(비교 안 함)이다."""
+    if before is None or after is None:
+        return None
+    return after - before
 
-    잴 수 없던 정밀도(None)는 target 을 잘못 고른 적이 없다는 뜻이라 1 로 본다.
+
+def _precision_change(before: float | None, after: float | None) -> float | None:
+    """정밀도 변화량이다. None 은 target 이 한 번도 불리지 않아 잴 수 없다는 뜻이다.
+
+    - None → None: 변화 없음(0).
+    - None → 값: 잘못 불린 적이 없던 상태(1.0)와 비교한다. 1.0 미만이면 새 오호출이라 하락이다.
+    - 값 → None: 아예 안 불리게 된 것이라 개선으로 세지 않는다(None). 재현율 0 검사가 따로 막는다.
     """
-    return (1.0 if after is None else after) - (1.0 if before is None else before)
+    if before is None and after is None:
+        return 0.0
+    if after is None:
+        return None
+    return after - (1.0 if before is None else before)
 
 
 def judge(before: dict, after: dict) -> tuple[bool, list[str]]:
@@ -116,20 +129,26 @@ def judge(before: dict, after: dict) -> tuple[bool, list[str]]:
 
     통과 조건: 재현율이나 정밀도 중 하나가 올랐고, 둘 다 내려가지 않았고, 회귀가 0건이다.
     안 불리는 문제(재현율)와 엉뚱하게 불리는 문제(정밀도)를 모두 개선으로 본다.
+    target 이 불려야 하는 질의가 있는데 개선안에서 한 번도 불리지 않으면(재현율 0) 실패다.
     """
     reasons = []
     changes = {
-        name: _change(before[key], after[key])
-        for name, key in (("재현율", "recall"), ("정밀도", "precision"))
+        "재현율": _recall_change(before["recall"], after["recall"]),
+        "정밀도": _precision_change(before["precision"], after["precision"]),
     }
-    if not any(c > 0 for c in changes.values()):
+    if after["recall"] is None:
+        # 정상 호출을 확인할 질의가 없으면 개선을 검증할 수 없으므로 통과시키지 않는다.
+        reasons.append("대상 skill 이 불려야 하는 질의가 없어 정상 호출을 확인할 수 없습니다.")
+    elif after["recall"] == 0.0:
+        reasons.append("대상 skill 이 불려야 하는 질의에서 한 번도 불리지 않았습니다(재현율 0).")
+    if not any(c is not None and c > 0 for c in changes.values()):
         reasons.append(
             f"호출 재현율과 정밀도가 오르지 않았습니다(재현율 {before['recall']} → "
             f"{after['recall']}, 정밀도 {before['precision']} → {after['precision']})."
         )
     subjects = (("재현율", "재현율이", "recall"), ("정밀도", "정밀도가", "precision"))
     for name, subject, key in subjects:
-        if changes[name] < 0:
+        if changes[name] is not None and changes[name] < 0:
             reasons.append(f"호출 {subject} 내려갔습니다({before[key]} → {after[key]}).")
     lost = regressions(before, after)
     if lost:
