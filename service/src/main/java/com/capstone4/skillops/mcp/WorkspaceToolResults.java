@@ -3,6 +3,7 @@ package com.capstone4.skillops.mcp;
 import java.util.function.Supplier;
 
 import com.capstone4.skillops.snapshot.OrderAgentException;
+import com.capstone4.skillops.workspace.WorkspaceFrozenException;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 
@@ -12,8 +13,9 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
  * success, orderAgentError, error 로 만든다. 그래서 C-1 도구와 오류 JSON 의 칸 이름도 순서도 같다.
  *
  * C-1 의 ToolResults.run 은 OrderAgentException 만 구조화하지만 이 정책은 더 넓다. 주문 Agent 조회가 실패하면(연습 공간을
- * snapshot_id 로 시작할 때) OrderAgentException 의 code 와 retryable 등을 그대로 돌려주고, IllegalArgumentException 은
- * INVALID_INPUT, 그 밖의 RuntimeException 은 INTERNAL_ERROR 로 바꾼다. 예외를 그대로 던지면 SDK 가 "Error invoking method"
+ * snapshot_id 로 시작할 때) OrderAgentException 의 code 와 retryable 등을 그대로 돌려주고, 고정된 연습 공간에 넣은 수정
+ * (WorkspaceFrozenException)은 WORKSPACE_FROZEN, IllegalArgumentException 은 INVALID_INPUT, 그 밖의 RuntimeException 은
+ * INTERNAL_ERROR 로 바꾼다. 예외를 그대로 던지면 SDK 가 "Error invoking method"
  * 로 시작하는 글 오류로 감싸서 Agent 가 code 와 retryable 을 읽지 못하기 때문이다.
  *
  * service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 의 createWorkspace, applyPatch, runScenarios 와
@@ -35,14 +37,16 @@ final class WorkspaceToolResults {
     /**
      * body 를 실행해 성공하면 결과 JSON 한 덩어리를, 실패하면 isError=true 와
      * {code, message, retryable, upstream_status, snapshot_id} 를 돌려준다. catch 순서가 곧 정책이다.
-     * OrderAgentException 과 IllegalArgumentException 을 RuntimeException 보다 먼저 잡아야 주문 Agent 의 code 와 입력 오류가
-     * INTERNAL_ERROR 로 묻히지 않는다.
+     * OrderAgentException, WorkspaceFrozenException, IllegalArgumentException 을 RuntimeException 보다 먼저 잡아야 주문 Agent 의
+     * code 와 고정 오류, 입력 오류가 INTERNAL_ERROR 로 묻히지 않는다.
      */
     static CallToolResult run(Supplier<Object> body) {
         try {
             return ToolResults.success(body.get());
         } catch (OrderAgentException e) {
             return ToolResults.orderAgentError(e);
+        } catch (WorkspaceFrozenException e) {
+            return ToolResults.error(WorkspaceFrozenException.CODE, e.getMessage(), false, null, null);
         } catch (IllegalArgumentException e) {
             return ToolResults.error(INVALID_INPUT, e.getMessage(), false, null, null);
         } catch (RuntimeException e) {

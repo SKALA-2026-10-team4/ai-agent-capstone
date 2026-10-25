@@ -6,7 +6,7 @@ import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.annotation.JsonNaming;
 
 /**
- * run_scenarios 의 결과 묶음이다. 계약 5 v1 모양이며 JSON 칸 이름은 snake_case 다.
+ * run_scenarios 의 결과 묶음이다. 계약 5 v1 모양에 시험 주문별 intent_scoped 를 더했고 JSON 칸 이름은 snake_case 다.
  * service/src/main/java/com/capstone4/skillops/scenario/ScenarioRunner.java 의 report() 가 만들고,
  * service/src/main/java/com/capstone4/skillops/mcp/WorkspaceToolResults.java 의 run() 이 JSON 글 하나로 바꿔 도구 결과로 돌려준다.
  * 진단 Agent 는 skillops-agent/skillops_agent/contracts.py 의 validate_report 로 이 모양을 검사한다.
@@ -29,10 +29,18 @@ public record ScenarioRunReport(String workspaceId, boolean allPassed, List<Scen
      * @param passed        모든 실행이 합격이면 true 다
      * @param runIds        반복할 때마다 생긴 모의 실행 번호다. 제안서의 근거로 쓴다
      * @param failures      떨어진 실행마다 한 칸이다. 비어 있으면 합격이다
+     * @param intentScoped  intent_expectations 가운데 scope 에 맞는 것이 이 시험 주문에 붙었으면 true 다. 기준 주문이면 시험 주문 파일의
+     *                      expect 대신 그 checks 와 불변식으로 채점했다는 뜻이다. intent_expectations 가 없으면 늘 false 다
      */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record ScenarioResult(String scenarioId, String replayOfRunId, boolean passed, List<String> runIds,
-            List<Failure> failures) {
+            List<Failure> failures, boolean intentScoped) {
+
+        /** 의도 scope 와 상관없는 결과를 만든다. 테스트가 쓴다. */
+        public ScenarioResult(String scenarioId, String replayOfRunId, boolean passed, List<String> runIds,
+                List<Failure> failures) {
+            this(scenarioId, replayOfRunId, passed, runIds, failures, false);
+        }
     }
 
     /**

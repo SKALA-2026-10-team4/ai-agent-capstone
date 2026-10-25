@@ -9,15 +9,18 @@
  * 2. ScenarioRunner 가 입력을 모두 검사하고, 재현 주문의 원래 주문을 OrderAgentRunClient 로 미리 꺼낸다.
  * 3. 시험 주문마다 FlowRunner 로 repeat 번 모의 실행한다. 실행기는 ContractOnlyFlowRunner(기본)나 HarnessFlowRunner 이며,
  *    HarnessFlowRunner 는 주문 Agent 의 실행 기록을 OrderAgentTraceConverter 로 RunOutcome 으로 바꾼다.
- * 4. 실행마다 ScenarioGrader 가 Expectation 과 Check 로 채점하고, RunLedger 가 실행 번호를 scenario_runs 표에 남긴다.
+ * 4. 실행마다 ScenarioGrader 가 Expectation 과 Check 로 채점하고, RunLedger 가 실행 번호와 합격 여부, intent_scoped, checks_hash,
+ *    intent_matches 를 scenario_runs 표에 남긴다. 담당자 의도(intent_expectations)는 IntentPlan 이 채점 기준으로 바꾼다.
  * 5. 결과는 ScenarioRunReport 로 모아 돌려준다. 진단 Agent 는 skillops-agent/skillops_agent/contracts.py 의 validate_report 로
- *    결과 모양을 검사하고, save_proposal 은 RunLedger 로 근거 실행 번호를 대조한다.
+ *    결과 모양을 검사하고, save_proposal 은 RunLedger 로 근거 실행 번호를 대조하고 판정을 다시 계산한다
+ *    (service/src/main/java/com/capstone4/skillops/proposal/ProposalJudge.java).
  *
  * 흐름을 바꾸거나 튜닝할 때 고칠 곳은 다음과 같다.
  * 반복 횟수의 기본값과 범위는 ScenarioRunner 의 DEFAULT_REPEAT, MIN_REPEAT, MAX_REPEAT 이다.
  * 검사 순서는 곧 오류 우선순위이며 ScenarioRunner.run 본문의 호출 순서가 정한다.
  * 채점 규칙과 떨어진 이유의 순서는 ScenarioGrader.grade 가, 재현 주문의 합격 기준은 Expectation.replay 가 정한다.
- * 확인 조건 문법은 Check 에 있고, skillops-agent/skillops_agent/contracts.py 의 check_problem 이 같은 문법을 흉내 낸다.
+ * 확인 조건 문법(조건 문법 v2)은 Check 에 있고, skillops-agent/skillops_agent/contracts.py 의 check_problem 이 같은 문법을 흉내 낸다.
+ * 의도 채점 규칙(scope, 불변식, intent_scoped)은 IntentPlan 과 ScenarioRunner.withIntent 에 있다.
  * 실행기는 service/src/main/resources/application.yml 의 skillops.flow-runner(환경 변수 SKILLOPS_FLOW_RUNNER)로 고른다.
  * 주문 Agent 를 기다리는 시간은 OrderAgentRunClient 의 CONNECT_TIMEOUT 과 READ_TIMEOUT 이다.
  * 모의 실행을 한 번에 하나씩 돌리는 곳은 ScenarioRunner.run 의 순차 반복과 HarnessFlowRunner 의 공정 락 두 곳이다.

@@ -72,7 +72,7 @@ service 는 브라우저·주문 Agent 와 SkillOps Agent 사이의 HTTP 중계�
 
 - 주문 Agent 는 `skill_change_events` 행을 snapshot 저장과 같은 트랜잭션에 기록한다. 저장 뒤 화면을 닫아도 서버가 전달한다.
 - `SkillChangeDispatcher` 는 앞 실행이 끝나고 3초(`order-agent.skill-change-dispatch-delay-ms`) 뒤에 다시 돈다. 한 번에 thread_id 가 아직 없는 가장 오래된 행 하나를 `SELECT ... FOR UPDATE SKIP LOCKED` 로 잠가 보낸다. 연결 타임아웃은 2초, 읽기 타임아웃은 10초다.
-- 응답의 thread_id 를 받으면 기록하고 재전송을 멈춘다. 실패하면 시도 횟수를 올리고 `last_error` 에 "진단 요청 전달 실패: <예외 클래스 이름>" 을 남긴 뒤 다음 차례에 다시 보낸다. 실패한 행이 계속 가장 먼저 골라지므로, 그 행이 계속 실패하면 뒤에 저장된 행도 전달되지 않는다.
+- 응답의 thread_id 를 받으면 기록하고 재전송을 멈춘다. 실패하면 시도 횟수를 올리고 `last_error` 에 "진단 요청 전달 실패: <예외 클래스 이름>" 을 남긴 뒤 다음 차례에 다시 보낸다. 다만 service 가 요청 자체를 거절한 경우(HTTP 400, 409, 413, 415, 422)는 다시 보내도 같은 답이므로 `failed_at` 을 적고 `last_error` 에 "진단 요청 거절(HTTP n)" 을 남긴 뒤 더는 고르지 않는다. 토큰·주소·부하 문제(401, 403, 404, 408, 429, 5xx)는 설정을 고치면 풀리므로 계속 다시 보낸다. 그래서 계속 실패하는 행이 뒤에 저장된 행을 막는 경우는 설정 문제일 때뿐이다. 잘못 쓴 의도 조건은 저장 단계에서 `INVALID_SKILL_EDITS`(400)로 막는다(`docs/plans/2026-10-26-behavior-edit-root-fix.md` 2.10 V3-2).
 - SkillOps Agent 는 같은 change_id 와 같은 본문이 다시 오면 기존 thread_id 를 `duplicate=true` 로 돌려준다. 같은 change_id 에 다른 본문이 오면 409 로 거부한다.
 - service 는 토큰이 틀리면 401, `type=skill_saved` 와 `change_id` 가 없으면 400 으로 답한다. Agent 의 오류 응답은 404 만 그대로 두고 나머지(401, 409 포함)는 502 `DIAGNOSIS_UPSTREAM_ERROR` 로, 연결 실패나 5초 읽기 타임아웃은 502 `DIAGNOSIS_UNAVAILABLE` 로 바꾼다.
 - SkillOps Agent 는 SQLite 에 요청, 중복 키, 노드별 진행, 최종 결과를 저장한다. 재시작하면 완료 결과는 유지하고, QUEUED 나 RUNNING 이던 진단은 ERROR(재시작으로 중단)로 바꾼다. 유료 모델 작업을 자동으로 다시 시작하지 않는다.
@@ -80,12 +80,13 @@ service 는 브라우저·주문 Agent 와 SkillOps Agent 사이의 HTTP 중계�
 
 ## 상태 의미
 
-전달 상태(주문 Agent `GET /api/skill-changes/{change_id}` 의 `delivery_status`)는 둘이다.
+전달 상태(주문 Agent `GET /api/skill-changes/{change_id}` 의 `delivery_status`)는 셋이다.
 
 | 상태 | 의미 |
 | --- | --- |
 | PENDING | 저장은 끝났고 SkillOps Agent 에 아직 전달하지 못했다. 재전송 중이면 `attempts` 와 `last_error` 가 함께 보인다. |
 | ACCEPTED | SkillOps Agent 가 접수해 thread_id 를 받았다. |
+| FAILED | service 가 요청을 거절해(HTTP 400·409·413·415·422) 다시 보내지 않는다. `last_error` 에 거절 코드가 있다. 같은 수정본은 고쳐서 다시 저장해야 진단된다. |
 
 진단 상태(SkillOps Agent 의 `diagnosis_status`, `skillops-agent/skillops_agent/state.py` 의 `DiagnosisStatus`)는 아래와 같다.
 

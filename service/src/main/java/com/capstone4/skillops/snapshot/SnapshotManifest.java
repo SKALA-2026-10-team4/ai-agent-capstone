@@ -13,7 +13,8 @@ import tools.jackson.databind.annotation.JsonNaming;
  * hash 는 snapshot 전체 해시이고 files 는 파일마다 경로, 해시, 크기를 담는다.
  * service/src/main/java/com/capstone4/skillops/snapshot/OrderAgentClient.java 의 getSnapshot 이 읽는다.
  * 같은 패키지의 SkillDiffService, DependencyGraphService, DependencyGraphResult 와
- * service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 의 createFromSnapshot 이 쓴다.
+ * service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 의 createFromSnapshot 과
+ * service/src/main/java/com/capstone4/skillops/proposal/ProposalJudge.java(metadata 의 intent, baseline_snapshot_id 와 SKILL.md 해시)가 쓴다.
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record SnapshotManifest(String snapshotId, String hash, String createdAt, Map<String, Object> metadata,

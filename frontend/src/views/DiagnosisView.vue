@@ -18,6 +18,13 @@
 // 간격은 frontend/src/config.js 의 DIAGNOSIS_POLL_MS 이다.
 // 다시 읽을지, 상태 제목, 후보와 원인을 고르는 규칙은 frontend/src/utils/diagnosisView.js 에 있고,
 // 진단 상태가 늘면 그 파일의 DIAGNOSIS_LABEL 과 IN_PROGRESS_STATUSES 를 고친다.
+// 진단 결과(diagnosis.finding)가 INTENT_NOT_REALIZED 면 상태 제목 아래에 '의도가 아직 실행되지 않음'
+// 안내를, 원인 종류(root_cause.kind)가 incomplete_edit 면 원인 칸 제목을 바꿔 보여 준다. 담당자 의도와
+// 기대 결과, 후보 종류(encode_rule 등)와 경고(is_revert, weakens_contract), service 가 다시 계산한
+// 판정(server_overrides)도 있으면 보여 준다. 모양은 docs/plans/2026-10-26-behavior-edit-root-fix.md
+// 2.3·2.5~2.7 절이고 이름표는 frontend/src/utils/diagnosisView.js 와 frontend/src/utils/proposalView.js 에 있다.
+// 진단 결과가 NEEDS_TOOL('도구 개발 필요')이고 제안서에 개발 요청서(development_request, 2.11 절)가 있으면
+// frontend/src/components/DevelopmentRequestCard.vue 로 요청서 카드를 함께 보여 준다.
 // mock 모드(frontend/src/api/client.js 의 USE_MOCK)에는 진단 경로가 없으므로 아무것도 읽지 않고
 // 안내만 보여 준다.
 // frontend/tests/diagnosis.spec.js 가 상태 제목, '진행 로그' 제목, '전체 기록' 링크를 확인한다.
@@ -26,7 +33,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { Activity } from 'lucide-vue-next'
 import { USE_MOCK } from '@/api/client'
 import { getChangeDelivery, getDiagnosis, listDiagnoses } from '@/api/diagnoses'
+import CandidateTags from '@/components/CandidateTags.vue'
+import DevelopmentRequestCard from '@/components/DevelopmentRequestCard.vue'
+import IntentExpectations from '@/components/IntentExpectations.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ServerOverrides from '@/components/ServerOverrides.vue'
 import { DIAGNOSIS_POLL_MS } from '@/config'
 import {
   baselineSnapshotOf,
@@ -34,9 +45,14 @@ import {
   candidatesOf,
   candidateVerdict,
   diagnosisLabel,
+  findingLabel,
+  findingNote,
+  intentOf,
   rootCauseOf,
   shouldPollAgain,
 } from '@/utils/diagnosisView'
+import { developmentRequestOf } from '@/utils/developmentRequest'
+import { overrideRows, rootCauseKind, rootCauseKindLabel } from '@/utils/proposalView'
 import { executionPath } from '@/utils/traceRun'
 
 const route = useRoute()
@@ -59,6 +75,20 @@ const pending = computed(() => route.query.change_id && !run.value)
 // 후보와 원인은 저장된 제안서에 있으면 그것을, 없으면 진단 결과의 값을 쓴다.
 const candidates = computed(() => candidatesOf(run.value))
 const root = computed(() => rootCauseOf(run.value))
+// 진단 결과 이름(diagnosis.finding), 담당자 의도, service 가 다시 계산한 판정 줄이다. 없으면 null 이나
+// 빈 목록이다.
+const finding = computed(() => run.value?.diagnosis?.finding ?? null)
+const intent = computed(() => intentOf(run.value))
+const overrides = computed(() => overrideRows(run.value?.proposal))
+// 개발 요청서와 마크다운 배경 절의 맥락이다. 요청서는 진단 결과의 칸을 먼저, 없으면 저장된 제안서 칸을 본다.
+const devRequest = computed(() => developmentRequestOf(run.value))
+const devContext = computed(() => ({
+  proposalId: run.value?.proposal?.id ?? null,
+  intentText: intent.value?.text ?? null,
+  rootCause: root.value ?? null,
+  baselineSnapshotId: run.value ? baselineSnapshotOf(run.value) : null,
+  snapshotId: run.value ? candidateSnapshotOf(run.value) : null,
+}))
 /**
  * 실행 번호를 실행 화면 주소로 바꾼다. frontend/src/utils/traceRun.js 의 executionPath 가
  * 알아보지 못하는 모양이면 받은 값을 그대로 /executions/ 뒤에 붙인다.
@@ -139,7 +169,9 @@ async function refresh(epoch) {
   } catch (e) {
     if (epoch === generation) error.value = e.message
   }
-  if (epoch === generation && shouldPollAgain(run.value, error.value)) {
+  // 거절된 전달(FAILED)은 주문 Agent 가 다시 보내지 않으므로 더 조회해도 바뀌지 않는다.
+  const rejected = delivery.value?.delivery_status === 'FAILED'
+  if (epoch === generation && !rejected && shouldPollAgain(run.value, error.value)) {
     timer = setTimeout(() => refresh(epoch), DIAGNOSIS_POLL_MS)
   }
 }
@@ -173,15 +205,19 @@ onBeforeUnmount(stopPolling)
   <p v-if="USE_MOCK" class="callout">실제 검증·진단 기록은 서버 모드에서 확인할 수 있어요.</p>
   <p v-if="error" class="callout err" role="alert">{{ error }} 잠시 후 다시 조회합니다.</p>
   <section v-if="pending" class="card" role="status">
-    <h2>저장 완료 · 자동 검증 요청 전달 대기</h2>
+    <h2>{{ delivery?.delivery_status === 'FAILED' ? '저장 완료 · 자동 검증 요청 거절됨' : '저장 완료 · 자동 검증 요청 전달 대기' }}</h2>
     <p>변경 번호: <code>{{ route.query.change_id }}</code></p>
     <p>주문 Agent가 요청을 전달하면 이 화면에 진행 상태가 나타나요.</p>
-    <p v-if="delivery?.last_error">{{ delivery.last_error }} 서버가 자동으로 재전송합니다.</p>
+    <p v-if="delivery?.delivery_status === 'FAILED'">{{ delivery.last_error }} 진단 요청이 거절되어 다시 보내지 않습니다. 수정본을 고쳐 다시 저장해 주세요.</p>
+    <p v-else-if="delivery?.last_error">{{ delivery.last_error }} 서버가 자동으로 재전송합니다.</p>
   </section>
   <template v-if="run">
     <RouterLink to="/diagnoses">전체 기록</RouterLink>
     <section class="card stack" role="status">
       <h2>{{ diagnosisLabel(run.diagnosis_status) }}</h2>
+      <p v-if="finding" class="callout warn">
+        <strong>{{ findingLabel(finding) }}</strong><template v-if="findingNote(finding)"> — {{ findingNote(finding) }}</template>
+      </p>
       <p>진단 번호: <code>{{ run.thread_id }}</code></p>
       <p>기준 세트: <code>{{ baselineSnapshotOf(run) }}</code></p>
       <p>수정 세트: <code>{{ candidateSnapshotOf(run) }}</code></p>
@@ -197,9 +233,17 @@ onBeforeUnmount(stopPolling)
         <li v-for="(event, i) in run.events" :key="i"><time>{{ event.at }}</time> · {{ event.msg }}</li>
       </ol>
     </section>
+    <section v-if="intent" class="card">
+      <h2>바꾸려는 업무 규칙(의도)</h2>
+      <blockquote>{{ intent.text }}</blockquote>
+      <IntentExpectations :intent="intent" />
+      <p v-if="!intent.expectations?.length" class="muted">기대 결과를 적지 않았어요. SkillOps 가 의도 글과 바뀐 내용으로 기대 결과를 만들어 시험해요.</p>
+    </section>
     <section v-if="root?.skill" class="card">
-      <h2>원인 실험 결과</h2>
+      <h2>{{ rootCauseKind(root) === 'incomplete_edit' ? '원인 · 의도를 실행하지 못하는 수정' : '원인 실험 결과' }}</h2>
+      <p class="muted">{{ rootCauseKindLabel(root) }}</p>
       <p>{{ root.skill }}: {{ root.summary }}</p>
+      <p v-if="root.repro_scenario_ids?.length">재현 주문: <code v-for="id in root.repro_scenario_ids" :key="id">{{ id }} </code></p>
       <RouterLink v-for="id in root.proof_run_ids" :key="id" :to="executionLink(id)">{{ id }} </RouterLink>
     </section>
     <section v-if="run.diagnosis" class="card">
@@ -207,8 +251,10 @@ onBeforeUnmount(stopPolling)
       <p>{{ run.diagnosis.explanation }}</p>
       <p v-for="(failure, i) in run.diagnosis.failures" :key="i">{{ failure.reason }} <RouterLink :to="executionLink(failure.run_id)">실행 기록</RouterLink></p>
     </section>
+    <DevelopmentRequestCard v-if="devRequest" :request="devRequest" :context="devContext" />
     <section v-for="candidate in candidates" :key="candidate.candidate_no" class="card">
       <h2>후보 {{ candidate.candidate_no }} · {{ candidateVerdict(candidate.valid) }}</h2>
+      <CandidateTags :candidate="candidate" />
       <p v-if="candidate.valid == null">생성된 수정안입니다. 검증이 완료되지 않아 적용 가능한 수정안으로 확정되지 않았어요.</p>
       <p>{{ candidate.explanation }}</p>
       <p v-if="candidate.validation_error" class="error-text">{{ candidate.validation_error }}</p>
@@ -221,6 +267,11 @@ onBeforeUnmount(stopPolling)
         <summary>실행 증거</summary>
         <p v-for="id in candidate.evidence_run_ids" :key="id"><RouterLink :to="executionLink(id)">{{ id }}</RouterLink></p>
       </details>
+    </section>
+    <section v-if="overrides.length" class="card">
+      <h2>서버가 다시 계산한 판정</h2>
+      <p>SkillOps Agent 가 보낸 판정과 service 가 실행 장부로 다시 계산한 판정이 달라 서버 값으로 바꿨어요.</p>
+      <ServerOverrides :rows="overrides" />
     </section>
     <section v-if="run.preflight_run_ids?.length" class="card">
       <h2>저장 직후 검증 기록</h2>
@@ -242,4 +293,5 @@ p, code { overflow-wrap: anywhere; }
 li { margin-bottom: 10px; }
 time { color: var(--muted); font-size: .8rem; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+blockquote { margin: 8px 0 0; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
 </style>

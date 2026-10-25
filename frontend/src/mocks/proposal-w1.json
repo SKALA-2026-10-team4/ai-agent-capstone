@@ -1,0 +1,311 @@
+{
+  "proposal_id": "p_mockw1",
+  "status": "no_valid_fix",
+  "created_at": "2026-10-26T05:40:00Z",
+  "decided_at": null,
+  "thread_id": "9e2f4a5b-1c3d-4e7f-8a9b-3c4d5e6f7a8b",
+  "valid_candidate_nos": [],
+  "recommended_candidate_no": null,
+  "document": {
+    "title": "notify 개발 요청서",
+    "summary": "2026년 10월 26일 14시 32분에 Skill 수정본으로 기준 주문을 시험했더니 notify 단계에서 주문이 멈췄습니다. notify Skill 이 새로 받는 값 shipping.weather 를 지금 어떤 업무 도구도 만들지 않습니다. SKILL.md 수정만으로는 해결할 수 없어 개발 요청서를 만들었습니다. 도구가 생길 때까지 쓸 임시 대안도 함께 적었습니다.",
+    "sections": [
+      {
+        "key": "overview",
+        "heading": "개요",
+        "paragraphs": [
+          "2026년 10월 26일 14시 32분에 Skill 수정본으로 기준 주문을 시험했더니 notify 단계에서 주문이 멈췄습니다. notify Skill 이 새로 받는 값 shipping.weather 를 지금 어떤 업무 도구도 만들지 않습니다. SKILL.md 수정만으로는 해결할 수 없어 개발 요청서를 만들었습니다. 도구가 생길 때까지 쓸 임시 대안도 함께 적었습니다."
+        ],
+        "quote": null,
+        "items": [],
+        "facts": [],
+        "parts": [],
+        "candidate_no": null
+      },
+      {
+        "key": "what_happened",
+        "heading": "발생 경위",
+        "paragraphs": [
+          "담당자가 Skill 편집 화면에서 notify 수정본을 저장하면서 바꾸려는 업무 규칙을 함께 적었습니다. 저장 직후 SkillOps가 이 수정본으로 기준 주문 6건을 모의 실행했습니다.",
+          "notify 단계가 받아야 할 값 shipping.weather 가 앞 단계에서 넘어오지 않아, 업무 도구를 부르기 전에 주문이 멈췄습니다."
+        ],
+        "quote": null,
+        "items": [],
+        "facts": [
+          {
+            "label": "시작 계기",
+            "value": "Skill 수정본 저장"
+          },
+          {
+            "label": "멈춘 단계",
+            "value": "notify"
+          },
+          {
+            "label": "오류 종류",
+            "value": "CONTRACT_VIOLATION (Skill 사이 입력값 불일치)"
+          },
+          {
+            "label": "받지 못한 값",
+            "value": "shipping.weather"
+          },
+          {
+            "label": "실패한 실행",
+            "value": "r_e0000000000000000000000000000001, r_e0000000000000000000000000000002"
+          },
+          {
+            "label": "수정 전 Skill 세트",
+            "value": "66666666-6666-4666-8666-666666666666"
+          },
+          {
+            "label": "수정 후 Skill 세트",
+            "value": "77777777-7777-4777-8777-777777777777"
+          }
+        ],
+        "parts": [],
+        "candidate_no": null
+      },
+      {
+        "key": "cause",
+        "heading": "원인",
+        "paragraphs": [
+          "원인은 notify Skill 의 변경에 있습니다. notify 의 inputs 와 실행 규칙(rules)에 shipping.weather 를 더했습니다.",
+          "SkillOps는 이 변경만 되돌린 연습 공간에서 같은 주문을 다시 돌렸습니다. 그러자 주문이 끝까지 처리됐고, 그래서 이 변경을 원인으로 확정했습니다.",
+          "주문 Agent 의 업무 도구 목록을 보면 shipping.weather 를 내는 도구가 없습니다. 그래서 Skill 끼리 값을 바꿔 주고받는 수정안으로는 고칠 수 없습니다."
+        ],
+        "quote": null,
+        "items": [],
+        "facts": [
+          {
+            "label": "바뀐 뒤",
+            "value": "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta, shipping.weather]"
+          },
+          {
+            "label": "원인 확인 실행",
+            "value": "r_e1000000000000000000000000000001, r_e1000000000000000000000000000002"
+          }
+        ],
+        "parts": [],
+        "candidate_no": null
+      },
+      {
+        "key": "intent",
+        "heading": "변경 의도",
+        "paragraphs": [
+          "담당자가 적은 변경 의도는 아래와 같습니다."
+        ],
+        "quote": "배송지에 태풍 경보가 있으면 알림을 보내기 전에 주문을 보류한다",
+        "items": [],
+        "facts": [],
+        "parts": [],
+        "candidate_no": null
+      },
+      {
+        "key": "development_request",
+        "heading": "개발 요청",
+        "paragraphs": [
+          "notify Skill 이 새로 받는 값 shipping.weather 를 만드는 업무 도구가 필요합니다.",
+          "기존 배송 예약 도구가 이 값을 함께 내도록 넓히거나, 날씨를 조회하는 새 도구를 notify 앞에 더하는 두 방법이 있습니다. 새 도구 이름은 SkillOps 가 붙인 예시 이름입니다."
+        ],
+        "quote": null,
+        "items": [],
+        "facts": [
+          {
+            "label": "필요한 값",
+            "value": "shipping.weather"
+          },
+          {
+            "label": "필요로 하는 Skill",
+            "value": "notify"
+          }
+        ],
+        "parts": [],
+        "candidate_no": null
+      },
+      {
+        "key": "interim",
+        "heading": "임시 대안",
+        "paragraphs": [
+          "도구가 생길 때까지는 notify 의 inputs 와 rules 에서 shipping.weather 를 빼면 수정 전처럼 주문이 끝까지 처리됩니다. 날씨에 따른 보류는 그동안 운영자가 직접 확인해 주세요."
+        ],
+        "quote": null,
+        "items": [],
+        "facts": [
+          {
+            "label": "증명 실행",
+            "value": "r_e1000000000000000000000000000001, r_e1000000000000000000000000000002"
+          }
+        ],
+        "parts": [],
+        "candidate_no": null
+      },
+      {
+        "key": "decision",
+        "heading": "결정 요청",
+        "paragraphs": [
+          "승인할 수 있는 수정안은 없습니다.",
+          "개발 요청서를 개발팀에 전달하고, 필요하면 임시 대안으로 Skill 을 고쳐 다시 저장해 주세요. 내용을 확인했으면 이 제안서를 닫아 주세요."
+        ],
+        "quote": null,
+        "items": [],
+        "facts": [],
+        "parts": [],
+        "candidate_no": null
+      },
+      {
+        "key": "reference",
+        "heading": "참고 정보",
+        "paragraphs": [],
+        "quote": null,
+        "items": [],
+        "facts": [
+          {
+            "label": "제안서 번호",
+            "value": "p_mockw1"
+          },
+          {
+            "label": "진단 번호",
+            "value": "9e2f4a5b-1c3d-4e7f-8a9b-3c4d5e6f7a8b"
+          },
+          {
+            "label": "변경 번호",
+            "value": "c_20261026_02"
+          },
+          {
+            "label": "제안서를 만든 시각",
+            "value": "2026년 10월 26일 14시 40분"
+          }
+        ],
+        "parts": [],
+        "candidate_no": null
+      }
+    ],
+    "tone_warnings": []
+  },
+  "proposal": {
+    "thread_id": "9e2f4a5b-1c3d-4e7f-8a9b-3c4d5e6f7a8b",
+    "trigger": {
+      "type": "skill_saved",
+      "execution_id": null,
+      "baseline_snapshot_id": "66666666-6666-4666-8666-666666666666",
+      "candidate_snapshot_id": "77777777-7777-4777-8777-777777777777",
+      "changed_paths": [
+        "skills/notify/SKILL.md"
+      ],
+      "change_id": "c_20261026_02",
+      "entry_skill_id": "order-flow",
+      "diagnosis_only": false,
+      "intent_checks": [],
+      "run_id": null,
+      "skill": null,
+      "version": null
+    },
+    "baseline_snapshot_id": "66666666-6666-4666-8666-666666666666",
+    "snapshot_id": "77777777-7777-4777-8777-777777777777",
+    "failure": {
+      "execution_id": "e0000000-0000-0000-0000-000000000001",
+      "skill": "notify",
+      "category": "CONTRACT_VIOLATION",
+      "message": "required input shipping.weather not found",
+      "missing_inputs": [
+        "shipping.weather"
+      ],
+      "at": "2026-10-26T05:32:00Z"
+    },
+    "root_cause": {
+      "skill": "notify",
+      "change_no": 1,
+      "hunk_id": "h_1",
+      "from_version": 1,
+      "to_version": 2,
+      "summary": "inputs 와 rules 에 shipping.weather 를 더했지만 이 값을 만드는 업무 도구가 없습니다",
+      "before": "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]",
+      "after": "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta, shipping.weather]",
+      "proof_run_ids": [
+        "r_e1000000000000000000000000000001",
+        "r_e1000000000000000000000000000002"
+      ],
+      "kind": "change",
+      "repro_scenario_ids": []
+    },
+    "intent": {
+      "text": "배송지에 태풍 경보가 있으면 알림을 보내기 전에 주문을 보류한다",
+      "checks": [],
+      "confirmed": null,
+      "source": "owner",
+      "expectations": []
+    },
+    "candidates": [],
+    "recommended_candidate_no": null,
+    "status": "no_valid_fix",
+    "server_overrides": [],
+    "development_request": {
+      "kind": "needs_tool",
+      "title": "notify 가 쓰는 shipping.weather 를 만드는 업무 도구 개발",
+      "gaps": [
+        {
+          "key": "shipping.weather",
+          "needed_by": "notify",
+          "field": "inputs",
+          "kind": "missing_value"
+        },
+        {
+          "key": "shipping.weather",
+          "needed_by": "notify",
+          "field": "rules",
+          "kind": "missing_value"
+        }
+      ],
+      "options": [
+        {
+          "type": "extend_tool",
+          "tool": "shipping.reserve",
+          "skill": "shipping-reserve",
+          "add_produces": [
+            "shipping.weather"
+          ]
+        },
+        {
+          "type": "new_tool",
+          "suggested_name": "weather.lookup",
+          "place_before": "notify",
+          "available_inputs": [
+            "order.id",
+            "order.customer",
+            "order.items",
+            "order.payment_method",
+            "order.shipping",
+            "order.total",
+            "inventory.available",
+            "inventory.reservable_quantity",
+            "inventory.reserved",
+            "payment.id",
+            "payment.status",
+            "shipping.id",
+            "shipping.eta"
+          ],
+          "produces": [
+            "shipping.weather"
+          ]
+        }
+      ],
+      "change_points": [
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java",
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java",
+        "order-agent/skills/shipping-reserve/SKILL.md"
+      ],
+      "interim": {
+        "summary": "도구가 생길 때까지는 notify 의 inputs 와 rules 에서 shipping.weather 를 빼면 수정 전처럼 주문이 끝까지 처리됩니다. 날씨에 따른 보류는 그동안 운영자가 직접 확인해 주세요.",
+        "patch": "--- a/notify/SKILL.md\n+++ b/notify/SKILL.md\n@@ -3,10 +3,6 @@\n description: 배송 예약 결과를 고객에게 알린다\n-inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta, shipping.weather]\n+inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]\n outputs: [notify.sent, notify.channel]\n depends_on: [shipping-reserve]\n owner: 주문운영팀\n version: 2\n-rules:\n-  - when: \"shipping.weather == 'storm'\"\n-    then: hold\n-    reason: WEATHER_HOLD\n",
+        "proof_run_ids": [
+          "r_e1000000000000000000000000000001",
+          "r_e1000000000000000000000000000002"
+        ]
+      },
+      "evidence_run_ids": [
+        "r_e0000000000000000000000000000001",
+        "r_e0000000000000000000000000000002"
+      ]
+    }
+  },
+  "decision": null
+}

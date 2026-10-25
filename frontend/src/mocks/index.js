@@ -5,17 +5,21 @@
 // service 경로는 serviceRoutes 위 주석에 적은 service 컨트롤러의 규칙을 따른다.
 //
 // 주문 실행은 Skill 편집 화면의 계약 점검과 같은 buildGraph(frontend/src/utils/flowGraph.js)로 정적
-// 계약 검사를 하고, 통과하면 단계마다 업무 도구를 흉내 낸다. Skill 저장 경로인
+// 계약 검사를 하고, 통과하면 단계마다 업무 도구를 흉내 낸다. 단계 Skill 의 실행 규칙(rules)은 도구
+// 전에 평가해 맞으면 주문을 보류하거나 거절한다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.2 절). Skill 저장 경로인
 // POST /api/snapshots/edits 와 진단 조회 경로(/service/api/diagnoses, /api/skill-changes)는 흉내
 // 내지 않는다. 그 화면들은 frontend/src/api/client.js 의 USE_MOCK 을 보고 요청을 보내지 않는다.
 //
 // 실서버의 이벤트 이름이나 순서가 바뀌면 execute 를, 경로나 응답
 // 모양이 바뀌면 orderAgentRoutes 와 serviceRoutes 를 함께 고친다.
 import { ApiError } from '@/api/error'
+import { holds, readCondition } from '@/utils/condition'
 import { buildGraph } from '@/utils/flowGraph'
-import { ENTRY_SKILL, flowSteps, toSkill } from '@/utils/skillSet'
-import { PUBLISHED_FILES, fixtureFiles } from './skillFiles'
+import { ENTRY_SKILL, flowRuleProblems, flowSteps, toSkill } from '@/utils/skillSet'
+import { PUBLISHED_FILES, fixtureFiles, prepaidPolicyFiles } from './skillFiles'
+import proposalB01 from './proposal-b01.json'
 import proposalF1 from './proposal-f1.json'
+import proposalW1 from './proposal-w1.json'
 
 // 실서버처럼 응답이 조금 늦게 오도록 요청마다 기다리는 시간(밀리초)이다. handleMock 이 쓴다.
 const MOCK_LATENCY_MS = 120
@@ -43,11 +47,18 @@ const products = [
 ]
 // 메모리 저장소다. snapshots 는 id 마다 { snapshot_id, hash, created_at, metadata,
 // files } 이고 files 는 경로마다 { content, hash } 다. orders 와 executions 는 id 마다 주문과
-// 실행 기록을 두고, proposals 는 frontend/src/mocks/proposal-f1.json 한 건으로 시작한다.
+// 실행 기록을 두고, proposals 는 frontend/src/mocks/proposal-f1.json(입력·출력 연결이 끊긴 결함)과
+// frontend/src/mocks/proposal-b01.json(본문 정책을 실행 규칙으로 옮기는 encode_rule 후보),
+// frontend/src/mocks/proposal-w1.json(notify 가 어떤 도구도 만들지 않는 shipping.weather 를 요구해 후보 대신
+// 개발 요청서를 낸 no_valid_fix) 세 건으로 시작한다.
 const snapshots = {}
 const orders = {}
 const executions = {}
-const proposals = { [proposalF1.proposal_id]: clone(proposalF1) }
+const proposals = {
+  [proposalF1.proposal_id]: clone(proposalF1),
+  [proposalB01.proposal_id]: clone(proposalB01),
+  [proposalW1.proposal_id]: clone(proposalW1),
+}
 
 // 파일 묶음을 새 snapshot 으로 저장하고 manifest 를 돌려준다. 파일 hash 목록과 metadata 로 묶음
 // hash 를 만든다. publishFixture 와 createOrder(세트를 고르지 않은 주문의 게시본 실행)가 부른다.
@@ -108,6 +119,20 @@ const STEP_TYPE = {
 }
 // 앞 단계가 거절돼 건너뛴 처리 단계에 남기는 문구다.
 const SKIP_MESSAGE = '앞 단계 거절로 실행하지 않았습니다.'
+// 실행 규칙으로 멈춰 건너뛴 처리 단계에 남기는 문구다.
+const RULE_SKIP_MESSAGE = '업무 규칙으로 실행하지 않았습니다.'
+
+/**
+ * 단계 Skill 의 실행 규칙을 위에서부터 보고 처음 맞는 규칙의 번호(0부터)를 돌려준다. 없으면 -1 이다.
+ * 평가 문맥은 그 단계의 선언 입력 { 키: 값 } 이다. 서버 쪽 대응은 OrderHarness.runStep 의 규칙
+ * 평가이고, 조건 문법은 frontend/src/utils/condition.js 가 읽는다. execute 가 단계마다 부른다.
+ */
+function matchedRule(skill, inputs) {
+  return (skill.rules ?? []).findIndex((r) => {
+    const condition = readCondition(r.when)
+    return !!condition && holds(condition, inputs)
+  })
+}
 
 /**
  * 업무 도구 하나를 흉내 내고 { context, final_status } 를 돌려준다. context 는 다음 단계가 읽을
@@ -224,7 +249,10 @@ function executionRecord({ executionId, order, snapshot, completion, errorCatego
  * FLOW_VALIDATED 를 남기고 steps 순서대로 단계마다 SKILL_LOADED, SKILL_STARTED,
  * DECISION_INPUT, MODEL_RESPONSE, TOOL_REQUEST, TOOL_RESULT, SKILL_COMPLETED,
  * SKILL_FINISHED 를 남긴다. 재고
- * 부족(REJECTED)과 결제 거절(HOLD)은 실패가 아닌 업무 종료(BUSINESS_STOP)로 끝낸다.
+ * 부족(REJECTED)과 결제 거절(HOLD)은 실패가 아닌 업무 종료(BUSINESS_STOP)로 끝낸다. 단계의 실행
+ * 규칙이 맞으면 도구를 부르지 않고 RULE_MATCHED, (결제 전이면) 재고 해제, SKILL_FINISHED(business_stop),
+ * BUSINESS_STOP 순서로 남기고 업무 종료한다. 규칙 조건이 선언 입력이 아닌 값을 보면 정적 검사에서
+ * CONTRACT_VIOLATION(reason RULE_KEY_NOT_INPUT)으로 막는다.
  * 마지막에 EXECUTION_FINISHED 를 남기고 실행 기록을 executions 에 넣는다.
  *
  * order 객체를 직접 고친다. 서버의 이벤트 이름이나 순서가 바뀌면 이
@@ -301,6 +329,7 @@ async function execute(order, snapshot) {
   // 단계 자리에 흐름 Skill 이 오면(NESTED_FLOW_NOT_SUPPORTED) 서버처럼 계약 위반으로 본다.
   const unreadable = graph.nodes.find((n) => n.parse_error)
   const violation = graph.missing[0]
+  const ruleViolation = flowRuleProblems(skills)[0]
   step('INTAKE', 'SUCCESS', null, '주문 접수 완료')
   if (unreadable) {
     fail(unreadable.parse_error === 'NESTED_FLOW_NOT_SUPPORTED' ? 'CONTRACT_VIOLATION' : unreadable.parse_error, {})
@@ -314,6 +343,15 @@ async function execute(order, snapshot) {
       missing_inputs: violation.missing_inputs,
       missing_dependencies: violation.missing_dependencies,
       message: 'Skill에 필요한 입력 또는 선행 단계가 충족되지 않았습니다.',
+    })
+  } else if (ruleViolation) {
+    // 실행 규칙의 조건 키가 그 단계의 선언 input 이 아니면 업무 도구 실행 전에 막는다.
+    step(STEP_TYPE[ruleViolation.skill_id] ?? 'RECOVERY', 'FAILED', 'CONTRACT_VIOLATION', '주문 처리 중 오류가 발생했습니다.')
+    fail('CONTRACT_VIOLATION', {
+      skill_id: ruleViolation.skill_id,
+      phase: 'static_validation',
+      reason: 'RULE_KEY_NOT_INPUT',
+      message: `실행 규칙 조건의 값 이름 ${ruleViolation.key} 가 Skill 의 선언 입력이 아닙니다.`,
     })
   } else {
     // 검사를 통과하면 steps 순서대로 단계를 실행한다.
@@ -332,6 +370,27 @@ async function execute(order, snapshot) {
         version: skill.version,
         hash: skill.file_hash,
       })
+      // 실행 규칙이 맞으면 도구를 부르지 않고 주문을 멈춘다. hold 는 HOLD, reject 는 REJECTED 이고
+      // 결과 코드는 규칙의 reason 이다. 결제 상태는 건드리지 않고, 결제 전이면 예약 재고를 해제한다.
+      // 이 단계와 뒤 업무 단계의 처리 단계는 SKIPPED 로 남긴다.
+      const ruleIndex = matchedRule(skill, Object.fromEntries(skill.inputs.map((k) => [k, ctx[k]])))
+      if (ruleIndex >= 0) {
+        const rule = skill.rules[ruleIndex]
+        const finalStatus = rule.then === 'reject' ? 'REJECTED' : 'HOLD'
+        // data 는 skill_id, rule_index 와 규칙의 when · then · reason 이다.
+        ev('RULE_MATCHED', id, { skill_id: id, rule_index: ruleIndex, ...rule })
+        if (order._reserved && order.payment.status !== 'PAID') release(id, rule.reason)
+        order.status = finalStatus
+        order.result_code = rule.reason
+        order.message = `업무 규칙 ${rule.reason} 에 따라 주문을 ${finalStatus === 'REJECTED' ? '거절' : '보류'}했습니다.`
+        for (const later of orderSteps.slice(i).filter((x) => x !== 'order-intake' && STEP_TYPE[x])) {
+          step(STEP_TYPE[later], 'SKIPPED', rule.reason, RULE_SKIP_MESSAGE)
+        }
+        finished({ business_stop: true, final_status: finalStatus, rule_reason: rule.reason, output: {} })
+        ev('BUSINESS_STOP', id, { final_status: finalStatus })
+        businessStop = true
+        break
+      }
       // 도구가 묶이지 않은 단계 Skill 은 서버의 ToolCatalog 처럼 UNSUPPORTED_SKILL 로 실패한다.
       if (!tool) {
         fail('UNSUPPORTED_SKILL', { skill_id: id })
@@ -762,11 +821,15 @@ const serviceRoutes = [
 // handleMock 이 찾는 전체 경로 표다.
 const routes = [...orderAgentRoutes, ...serviceRoutes]
 
-// 처음 열었을 때 볼 거리가 있도록 정상본과 결함본으로 주문을 한 건씩 미리
+// 처음 열었을 때 볼 거리가 있도록 정상본과 결함본, 실행 규칙 예시 세트로 주문을 한 건씩 미리
 // 실행해 둔다. seeded 는 그 작업의 Promise 이고 첫 요청 때 한 번만 만든다.
 let seeded = null
 // 정상본(baseline)과 결함본(broken-contract) snapshot 을 차례로 게시하고 각 세트로
 // 같은 주문을 실행한다. 결함본 주문은 계약 위반으로 실패하므로 그 오류는 무시한다.
+// 마지막으로 payment 의 '선입금 주문만 결제' 정책을 실행 규칙으로 옮긴 내 수정본(user-edit)을
+// 게시해 같은 카드 주문을 돌린다. 이 주문은 payment 단계에서 규칙 PREPAID_ONLY 에 걸려 HOLD 로 멈춘다.
+// 실제 서버에서는 이런 세트를 POST /api/snapshots/edits 로 저장하며, metadata 의 intent 는 그때 담당자가
+// 적은 의도다.
 async function seed() {
   const order = {
     customer: 'c_1001',
@@ -778,6 +841,11 @@ async function seed() {
     const { snapshot_id } = await publishFixture(fixture)
     await createOrder({ ...order, snapshot_id }, { 'Idempotency-Key': uuid() }).catch(() => {})
   }
+  const ruled = await publish(prepaidPolicyFiles({ withRule: true }), {
+    source: 'user-edit',
+    intent: { text: proposalB01.proposal.intent.text, expectations: clone(proposalB01.proposal.intent.expectations) },
+  })
+  await createOrder({ ...order, snapshot_id: ruled.snapshot_id }, { 'Idempotency-Key': uuid() })
 }
 
 /**

@@ -110,6 +110,33 @@ class ProposalControllerTest {
                 .andExpect(jsonPath("$.decision.approver_name").value("운영자"));
     }
 
+    /** 개발 요청서(development_request)는 저장한 원본 제안서에 있으므로 상세의 proposal 에 그대로 나온다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11 절). */
+    @Test
+    void detailCarriesTheDevelopmentRequest() throws Exception {
+        Map<String, Object> request = Map.of(
+                "kind", "needs_tool",
+                "title", "shipping.weather 값을 만드는 도구 필요",
+                "gaps", List.of(Map.of("key", "shipping.weather", "needed_by", "shipping-reserve", "field", "inputs",
+                        "kind", "missing_value")),
+                "options", List.of(Map.of("type", "new_tool", "suggested_name", "weather.lookup")),
+                "interim", Map.of("summary", "입력에서 값을 빼면 주문이 끝까지 처리됩니다.", "proof_run_ids",
+                        List.of("r_d0000000000000000000000000000002")));
+        Map<String, Object> payload = Map.of("candidates", List.of(), "status", "no_valid_fix", "development_request", request);
+        given(proposals.find("p_dev")).willReturn(Optional.of(Proposal.create("p_dev", "thread-2", "no_valid_fix", payload,
+                Map.of("sections", List.of(Map.of("key", "development_request", "heading", "개발 요청"))), List.of(),
+                Instant.parse("2026-10-26T01:30:00Z"))));
+
+        mockMvc.perform(get("/api/proposals/p_dev").header("Authorization", "Bearer " + tokenFor("owner")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("no_valid_fix"))
+                .andExpect(jsonPath("$.proposal.development_request.kind").value("needs_tool"))
+                .andExpect(jsonPath("$.proposal.development_request.gaps[0].key").value("shipping.weather"))
+                .andExpect(jsonPath("$.proposal.development_request.options[0].suggested_name").value("weather.lookup"))
+                .andExpect(jsonPath("$.proposal.development_request.interim.proof_run_ids[0]")
+                        .value("r_d0000000000000000000000000000002"))
+                .andExpect(jsonPath("$.document.sections[0].heading").value("개발 요청"));
+    }
+
     @Test
     void undecidedDetailHasNullDecision() throws Exception {
         given(proposals.find("p_abc")).willReturn(Optional.of(proposal()));
