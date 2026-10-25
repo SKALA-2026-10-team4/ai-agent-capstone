@@ -133,7 +133,7 @@ watch(() => route.fullPath, countPending, { immediate: true })
   height: 30px;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-fill); /* 강조색 면 위 글자. 다크에서는 검정이 된다 */
 }
 
 nav {
@@ -185,7 +185,7 @@ nav {
   padding: 0 6px;
   border-radius: 999px;
   background: var(--err);
-  color: #fff;
+  color: var(--on-fill); /* 오류색 면 위 글자 */
   font-size: 11px;
   font-weight: 700;
   text-align: center;

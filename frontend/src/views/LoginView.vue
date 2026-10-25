@@ -93,7 +93,7 @@ async function submit() {
   height: 44px;
   border-radius: 12px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-fill); /* 강조색 면 위 글자. 다크에서는 검정이 된다 */
 }
 
 .sub {
