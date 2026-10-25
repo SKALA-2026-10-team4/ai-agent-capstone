@@ -25,6 +25,44 @@
 - 기존 평가 REST와 사람의 승인·반려 권한 테스트도 전체 실행에 포함됐다.
 - 스모크 스크립트를 무인증 MCP 호출·MCP 중복 접수·REST/MCP 키 분리 확인으로 갱신했다. Python 구문 검사와 네트워크 없는 응답 시뮬레이션으로 MCP 요청에 토큰을 보내지 않는지 확인했다.
 - 갱신한 전체 스모크는 성공 REST 6회·실패 REST 6회·별도 MCP 접수 6회로 실제 fixed 실행 18회를 생성한다. MCP 재시도는 추가 작업을 만들지 않는다.
-- 이번 변경 후 실제 서버·DB 수용 검증과 실제 LLM 실행은 수행하지 않았다. 이전 실서버 검증 JSON은 JWT 방식 당시의 증거로 보존하며 현재 무인증 정책을 검증한 결과로 해석하지 않는다.
+- 무인증 전환 후 실제 서버·DB 수용 검증도 완료했다. 아래 결과를 따른다. 이전 JWT 검증 JSON과 이번 증거는 별도 보존한다. 실제 LLM 실행은 하지 않았다.
 
-검증 당시에는 커밋하지 않았으며, 이후 사용자 요청으로 관련 코드·테스트·명세를 함께 로컬 커밋한다. push·배포는 수행하지 않았다.
+구현은 `f7b2245`에 커밋했다. 아래 실서버 수용 검증 결과 문서·JSON은 후속 작업으로, 사용자 요청에 따라 별도 로컬 커밋에 기록한다. push·배포는 수행하지 않았다.
+
+
+## 무인증 전환 후 실제 서버 수용 검증
+
+2026-10-26, 소스 `f7b2245`로 성공했다. 별도 PostgreSQL 17 컨테이너와 service_eval/order_eval DB를 생성하고, service 18080·주문 Agent 18081을 루프백에 바인딩했다. 기존 Docker 8081 서버·DB를 사용하거나 변경하지 않았다.
+
+```bash
+skillops-agent/.venv/bin/python service/scripts/evaluation_contract_smoke.py \
+  --service http://127.0.0.1:18080 \
+  --order-agent http://127.0.0.1:18081 \
+  --environment eval-88-anonymous-isolated-v1 \
+  --output /private/tmp/evaluation-88-anon-smoke.json
+```
+
+| 검증 | 실제 결과 |
+|---|---|
+| JWT 없는 MCP 초기화·목록·새 도구 4개 | 성공, 전체 도구 11개 |
+| submit_evaluation 접수·재접수 | 같은 MCP 키의 동일 작업 재사용 |
+| 동일 키를 사용한 REST/MCP 접수 | 별도 evaluation 생성, 범위 분리 확인 |
+| 실제 fixed 변경 전후 평가 | 기준 0/3 → 후보 3/3, 회귀 0, SERVER_VERIFIED |
+| 실패 후보 평가·검증 제안 저장 | FAIL·NOT_VERIFIED, REST 409 및 무인증 MCP EVIDENCE_MISMATCH |
+| 무인증 save_proposal_v2 | 성공, 승인 후 재저장도 같은 proposal_id·approved 반환 |
+| REST 및 사람 승인 | OPERATOR 승인 성공, 아래 무권한 요청 차단 |
+| 비로그인 REST 쓰기 7개 경로 | 전부 401 |
+| OWNER REST 쓰기 7개 경로 | 전부 403 |
+| REST 평가 조회 | 비로그인 401, OWNER 성공 |
+| 서비스 재시작·새 로그인·새 무인증 MCP 세션 | 보고서 전체 일치, approved 상태와 완료 수 보존 |
+| 재고·live 실패 목록 | 실행 전후 동일 |
+| 실제 실행 DB 집계 | 18건, 모두 fixed/dry_run, api_calls 합계 0 |
+| 기존 Python MCP 클라이언트 | 수정 없이 tools/list 11개·ping pong 성공 |
+
+권한을 확인한 쓰기 경로는 평가 접수, 검증 제안 저장, 평가셋 검토, 취소, 재시도, 제안 승인, 제안 반려다. 승인·반려는 이미 승인된 제안을 대상으로도 권한 검사에서 차단되어 상태를 바꾸지 않았다. 각 요청에 유효한 본문·필수 헤더를 사용해 입력 오류와 인증 거부를 혼동하지 않았다.
+
+접수 작업 3개는 전부 실행을 마쳐 status=SUCCEEDED였다. 그중 실패 후보의 **평가 판정**은 FAIL이다. 작업 완료 상태와 후보 합격을 구분한다.
+
+추가 권한·재시작 검증은 임시 Python 점검 스크립트로 실제 HTTP를 호출했고, 실행 수·모델 사용량은 일회용 DB의 agent_executions 집계로 확인했다. 인증 토큰·주문 원문·전체 trace를 제외한 결과는 [수용 검증 JSON](2026-10-26-evaluation-mcp-anonymous-smoke.json)에 보관한다.
+
+이번 검증은 실제 LLM 품질이나 AI 그래프 전체 연동을 검증한 것은 아니다. 검증용 service·주문 Agent 프로세스와 일회용 DB 컨테이너는 정리했다. 기존 사용자 컨테이너 3개는 그대로 유지했다.

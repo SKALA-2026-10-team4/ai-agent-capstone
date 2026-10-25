@@ -129,3 +129,5 @@ REST 입력 오류는 400 INVALID_EVALUATION_INPUT, 미지원은 422 EVALUATION_
 기본 fixed harness는 꺼져 있다. `SKILLOPS_EVALUATION_FIXED_HARNESS_ENABLED=true`, `SKILLOPS_EVALUATION_ISOLATED_ORDER_AGENT_URL`, `SKILLOPS_EVALUATION_ENVIRONMENT_REF`를 지정하고 해당 서버를 fixed·전용 DB/재고로 운영해야 한다. 실제 trace 모드를 사후 대조하지만 잘못 설정된 상위 서버의 유료 호출 자체를 사전에 강제 차단하는 기능은 아니다.
 
 `service/scripts/evaluation_contract_smoke.py`는 별도 루프백 포트만 허용하며 실제 dry-run·제안서·승인을 생성한다. 정상/실패 후보, REST/MCP 멱등 접수, MCP의 무인증 호출·접수 키 분리, 재고 복원·live 실패 목록 분리를 확인한다. 재현 명령과 검증 결과는 [구현 보고서](../reports/2026-10-26-evaluation-backend-implementation.md)에 기록한다.
+
+무인증 전환 후 실서버 수용 검증(소스 `f7b2245`)도 완료했다. 새 MCP 4개·REST 권한 유지·재시작 보존·고정 실행 18건을 확인했으며, 결과와 한계는 [MCP 인증 간소화 기록](../reports/2026-10-26-evaluation-mcp-anonymous.md#무인증-전환-후-실제-서버-수용-검증)을 따른다.

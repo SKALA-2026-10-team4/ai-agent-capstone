@@ -1,0 +1,225 @@
+{
+  "success": {
+    "evaluation_id": "f8986508-cb8a-4a38-99e7-f8d5ffe0efb5",
+    "attempt_id": "71deab03-d30f-41b6-ab7d-880cc16baf5a",
+    "status": "QUEUED",
+    "status_url": "/api/evaluations/f8986508-cb8a-4a38-99e7-f8d5ffe0efb5"
+  },
+  "report": {
+    "evaluation_id": "f8986508-cb8a-4a38-99e7-f8d5ffe0efb5",
+    "attempt_id": "71deab03-d30f-41b6-ab7d-880cc16baf5a",
+    "status": "SUCCEEDED",
+    "verdict": "PASS",
+    "verification_status": "SERVER_VERIFIED",
+    "planned": 6,
+    "completed": 6,
+    "paired": 3,
+    "regression_trials": 0,
+    "regression_case_ids": [],
+    "baseline": {
+      "task_success": {
+        "numerator": 0,
+        "denominator": 3,
+        "value": 0.0
+      },
+      "selection_accuracy": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "recall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "precision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "elapsed_ms": 416,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": "0",
+      "usage_complete": false,
+      "success_by_round": [
+        0.0
+      ],
+      "success_variance": null
+    },
+    "candidate": {
+      "task_success": {
+        "numerator": 3,
+        "denominator": 3,
+        "value": 1.0
+      },
+      "selection_accuracy": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "recall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "precision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "elapsed_ms": 312,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": "0",
+      "usage_complete": false,
+      "success_by_round": [
+        1.0
+      ],
+      "success_variance": null
+    },
+    "reasons": [],
+    "policy_version": "order-functional-v1+fixed-policy-v1",
+    "grader_version": "scenario-grader-v1",
+    "safety": "UNMEASURABLE",
+    "input": {
+      "baseline_snapshot_id": "f51df130-433e-4912-ad20-50cc274f996e",
+      "baseline_hash": "fb29343a83ed303cfff12470435d74b2f344094ed82e968f68ae37278b08b259",
+      "candidate_snapshot_id": "17424088-d546-4eeb-8a15-7235195aa3e0",
+      "candidate_hash": "199152c7964ccfcae38541194a563b6c962779385a57f1f67ff802ade508a41a",
+      "evaluation_set_id": "0f01f720-f3e7-40b8-b5db-d4def4cc4587",
+      "evaluation_set_version": 1,
+      "evaluation_set_hash": "508d96f7c8af1e8b6467d3831b6d779a27c533d79e2408779f5dac53ff25c4f5",
+      "environment_ref": "eval-88-anonymous-isolated-v1",
+      "runner_kind": "ORDER_HARNESS",
+      "model_mode": "FIXED",
+      "repeat": 1
+    }
+  },
+  "failure": {
+    "evaluation_id": "80fb79ff-0fda-4dbe-ab30-71a3ae8fd657",
+    "attempt_id": "9d0f23f4-2783-4421-8c2c-a08b421129de",
+    "status": "QUEUED",
+    "status_url": "/api/evaluations/80fb79ff-0fda-4dbe-ab30-71a3ae8fd657"
+  },
+  "failure_verdict": "FAIL",
+  "proposal_id": "p_c0972e0980914a14a4c6bacde6b38ce7",
+  "approval": "approved",
+  "mcp_tools": [
+    "apply_patch",
+    "create_workspace",
+    "diff_skill",
+    "get_dependency_graph",
+    "get_evaluation",
+    "get_evaluation_report",
+    "ping",
+    "run_scenarios",
+    "save_proposal",
+    "save_proposal_v2",
+    "submit_evaluation"
+  ],
+  "inventory_restored": true,
+  "live_failures_unchanged": true,
+  "llm_api_calls": 0,
+  "source_commit": "f7b2245",
+  "mcp_anonymous_tools_verified": true,
+  "mcp_idempotency_verified": true,
+  "rest_mcp_scope_separated": true,
+  "mcp_evaluation": {
+    "evaluation_id": "228824cf-bc4c-4953-b10b-fa109cd969e5",
+    "attempt_id": "9fa2db4d-fafe-47b4-936a-196db7f6dcf1",
+    "status": "SUCCEEDED",
+    "reason": null,
+    "planned": 6,
+    "completed": 6,
+    "baseline_snapshot_id": "f51df130-433e-4912-ad20-50cc274f996e",
+    "candidate_snapshot_id": "17424088-d546-4eeb-8a15-7235195aa3e0",
+    "set_hash": "508d96f7c8af1e8b6467d3831b6d779a27c533d79e2408779f5dac53ff25c4f5",
+    "runner_kind": "ORDER_HARNESS",
+    "model_mode": "FIXED",
+    "created_at": "2026-10-25T23:10:37.158269Z"
+  },
+  "rest_access_checks": [
+    {
+      "path": "/api/evaluations",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/verified-proposals",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluation-sets/0f01f720-f3e7-40b8-b5db-d4def4cc4587/review",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluations/f8986508-cb8a-4a38-99e7-f8d5ffe0efb5/attempts/71deab03-d30f-41b6-ab7d-880cc16baf5a/cancel",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluations/f8986508-cb8a-4a38-99e7-f8d5ffe0efb5/attempts/71deab03-d30f-41b6-ab7d-880cc16baf5a/retries",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/proposals/p_c0972e0980914a14a4c6bacde6b38ce7/approve",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/proposals/p_c0972e0980914a14a4c6bacde6b38ce7/reject",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluations",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/verified-proposals",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluation-sets/0f01f720-f3e7-40b8-b5db-d4def4cc4587/review",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluations/f8986508-cb8a-4a38-99e7-f8d5ffe0efb5/attempts/71deab03-d30f-41b6-ab7d-880cc16baf5a/cancel",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluations/f8986508-cb8a-4a38-99e7-f8d5ffe0efb5/attempts/71deab03-d30f-41b6-ab7d-880cc16baf5a/retries",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/proposals/p_c0972e0980914a14a4c6bacde6b38ce7/approve",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/proposals/p_c0972e0980914a14a4c6bacde6b38ce7/reject",
+      "identity": "OWNER",
+      "status": 403
+    }
+  ],
+  "anonymous_rest_read_denied": true,
+  "owner_rest_read_allowed": true,
+  "anonymous_failed_proposal_refused": true,
+  "approved_proposal_reused": true,
+  "persisted_report_equal": true,
+  "restart_verified": true,
+  "existing_python_mcp_smoke_passed": true,
+  "actual_execution_count": 18,
+  "all_executions_fixed": true,
+  "all_executions_dry_run": true,
+  "verified_date_kst": "2026-10-26"
+}
