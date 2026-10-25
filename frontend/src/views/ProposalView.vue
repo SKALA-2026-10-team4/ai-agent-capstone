@@ -159,7 +159,7 @@ function applyToDraft() {
     :title="detail.document.title"
     description="SkillOps가 실제 주문 흐름에서 시험한 결과예요. 개요부터 차례로 읽고 결정해 주세요."
     :icon="Sparkles"
-    :back="{ to: '/proposals', label: '받은 제안서' }"
+    :back="{ to: '/proposals', label: '수정안 목록' }"
   >
     <template #badges>
       <ProposalStatusBadge :status="status" />

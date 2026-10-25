@@ -1,4 +1,4 @@
-// 화면 표시 형식 도우미다. UUID 줄이기, id 앞부분, 원 표기를 한곳에 둔다.
+// 화면 표시 형식 도우미다. UUID 줄이기, id 앞부분, 원 표기, 날짜 표기를 한곳에 둔다.
 // frontend/src/utils/eventView.js, frontend/src/utils/traceRun.js,
 // frontend/src/stores/workspace.js 와 여러 화면이 쓴다. import 가 없어
 // frontend/unit/format.test.js 가 Node 에서 바로 불러온다.
@@ -27,3 +27,12 @@ export const shortId = (id) => id.slice(0, 8)
 
 // 금액을 '30,000원' 처럼 쓴다. 자릿수 구분은 실행 환경 locale 을 따른다.
 export const won = (amount) => `${amount.toLocaleString()}원`
+
+// ISO 시각을 '2026.10.21 14:10' 처럼 쓴다. 실행 환경의 시간대로 보여 주고,
+// 값이 없거나 읽을 수 없으면 빈 글자다. frontend/src/views/ProposalListView.vue 의 생성일시가 쓴다.
+export const dateTime = (iso) => {
+  const d = iso ? new Date(iso) : null
+  if (!d || Number.isNaN(d.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
