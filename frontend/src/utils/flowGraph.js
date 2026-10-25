@@ -8,7 +8,7 @@
 // frontend/src/views/SnapshotCompareView.vue(두 세트의 위반 비교),
 // frontend/src/mocks/index.js 의 execute(mock 정적 검사)다.
 //
-// 계약 규칙을 바꾸려면 buildGraph 와 ORDER_KEYS 를 고친다. 서버 쪽에서 같은 규칙을 가진
+// 계약 규칙을 바꾸려면 buildGraph 와 flowErrorsOf 와 ORDER_KEYS 를 고친다. 서버 쪽에서 같은 규칙을 가진
 // service/src/main/java/com/capstone4/skillops/snapshot/DependencyAnalyzer.java 와 SkillLoader 의
 // validateFlow 도 함께 맞춘다.
 import { ENTRY_SKILL, flowSteps } from './skillSet.js'
@@ -28,10 +28,47 @@ export const ORDER_KEYS = [
   'order.shipping',
 ]
 
+// 실행 순서에 둘 수 있는 단계 수 상한이다.
+// order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderFlowPolicy.java 의
+// MAX_FLOW_STEPS 와 service/src/main/java/com/capstone4/skillops/skill/FlowStructureValidator.java 의
+// MAX_FLOW_STEPS 와 같아야 한다.
+export const MAX_FLOW_STEPS = 12
+
+/**
+ * 실행 순서 자체의 구조 오류를 모은다. 빈 순서, 상한 초과, 중복 단계이며 SkillLoader.validateFlow 가
+ * 단계를 하나도 읽기 전에 INVALID_FLOW 로 막는 것들이다. 항목은 { reason, skill_id, message } 이고
+ * reason 은 FlowStructureValidator 의 Violation.reason 과 같은 값을 쓴다. 이 검사가 없던 동안에는
+ * 단계가 비거나 중복된 초안을 저장 전 점검이 통과시켰다.
+ */
+function flowErrorsOf(steps, entrySkillId) {
+  const errors = []
+  if (!steps.length) {
+    errors.push({ reason: 'EMPTY_STEPS', skill_id: entrySkillId, message: '실행 순서(steps)가 비어 있어요.' })
+  }
+  if (steps.length > MAX_FLOW_STEPS) {
+    errors.push({
+      reason: 'TOO_MANY_STEPS',
+      skill_id: entrySkillId,
+      message: `실행 순서는 ${MAX_FLOW_STEPS}단계를 넘을 수 없어요(지금 ${steps.length}단계).`,
+    })
+  }
+  // 같은 단계가 여러 번 나오면 처음 겹칠 때 한 번만 남긴다.
+  const seen = new Set()
+  const reported = new Set()
+  for (const id of steps) {
+    if (seen.has(id) && !reported.has(id)) {
+      reported.add(id)
+      errors.push({ reason: 'DUPLICATE_STEP', skill_id: id, message: `${id} 가 실행 순서에 여러 번 있어요.` })
+    }
+    seen.add(id)
+  }
+  return errors
+}
+
 /**
  * steps 순서대로 단계 Skill 을 따라가며 의존 그래프와 계약 위반을 만든다.
  * skills 는 toSkill() 결과 목록이고 steps 는 검사할 순서(초안이면 바뀐 순서)다.
- * 돌려주는 값은 { entry_skill_id, steps, nodes, edges, missing, complete } 다.
+ * 돌려주는 값은 { entry_skill_id, steps, nodes, edges, missing, flow_errors, complete } 다.
  *
  * 단계마다 inputs 가 앞 단계의 outputs 나 ORDER_KEYS 로 채워졌는지, depends_on 이
  * 이미 지난 단계인지 본다. 빠진 것은 missing 에 { skill_id, missing_inputs,
@@ -93,6 +130,8 @@ export function buildGraph(skills, steps, entrySkillId = ENTRY_SKILL) {
     nodes,
     edges: [...edges, ...io.values()],
     missing,
+    // 실행 순서 구조 오류다. 단계별 계약 위반(missing)과 달리 단계를 읽기 전에 걸린다.
+    flow_errors: flowErrorsOf(steps, entrySkillId),
     complete: nodes.every((n) => !n.parse_error),
   }
 }
@@ -108,7 +147,7 @@ export const flowGraphOf = (skills) =>
     ENTRY_SKILL,
   )
 
-// 화면에 띄울 문제 수를 센다. 계약 위반 수와 parse_error 노드 수를 더한다.
+// 화면에 띄울 문제 수를 센다. 실행 순서 구조 오류와 계약 위반 수와 parse_error 노드 수를 더한다.
 // frontend/src/views/SkillDraftView.vue 가 저장 전 점검 숫자로 쓴다.
 export const problemCount = (graph) =>
-  graph.missing.length + graph.nodes.filter((n) => n.parse_error).length
+  graph.flow_errors.length + graph.missing.length + graph.nodes.filter((n) => n.parse_error).length

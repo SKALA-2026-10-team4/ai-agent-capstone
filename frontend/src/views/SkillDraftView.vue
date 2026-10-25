@@ -279,7 +279,7 @@ function create() {
         <h3>저장 전 점검</h3>
         <div v-if="!problems" class="callout ok">
           <CircleCheck :size="18" />
-          <p>선언된 입력·출력 연결에서 문제를 찾지 못했어요. 저장하면 기본 주문 검증이 자동으로 시작돼요.</p>
+          <p>실행 순서와 선언된 입력·출력 연결에서 문제를 찾지 못했어요. 저장하면 기본 주문 검증이 자동으로 시작돼요.</p>
         </div>
         <template v-else>
           <div class="callout err">
@@ -287,6 +287,14 @@ function create() {
             <p>이대로면 주문이 <strong>{{ problems }}곳</strong>에서 멈춰요.</p>
           </div>
           <ul class="problems">
+            <!-- 실행 순서 구조 오류다. 서버도 단계를 읽기 전에 이것부터 막는다. -->
+            <li v-for="e in graph.flow_errors" :key="`${e.reason}:${e.skill_id}`">
+              <RouterLink :to="`/skills/${e.skill_id}`"><strong>{{ e.skill_id }}</strong></RouterLink>
+              — {{ e.message }}
+              <small>
+                <RouterLink :to="`/skills/${ENTRY_SKILL}`">{{ ENTRY_SKILL }}</RouterLink> 의 steps 를 확인해 주세요.
+              </small>
+            </li>
             <li v-for="m in graph.missing" :key="m.skill_id">
               <RouterLink :to="`/skills/${m.skill_id}`"><strong>{{ m.skill_id }}</strong></RouterLink>
               <template v-if="m.missing_inputs.length">

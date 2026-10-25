@@ -276,8 +276,10 @@ async function execute(order, snapshot) {
   ev('MODEL_RESPONSE', null, { raw_response: JSON.stringify({ skill: ENTRY_SKILL }), input_tokens: null, output_tokens: null })
   ev('SKILL_SELECTED', null, { raw_name: ENTRY_SKILL, resolved_skill_id: null })
   ev('SKILL_RESOLVED', null, { raw_name: ENTRY_SKILL, resolved_skill_id: ENTRY_SKILL })
+  // 진입 Skill 을 읽지 못하면 SKILL_LOADED 를 남기지 않고 아래에서 그 오류로 끝낸다.
+  // 서버 OrderHarness 도 이 Skill 을 load 한 뒤에야 SKILL_LOADED 를 남긴다.
   const flow = skills.find((s) => s.skill_id === ENTRY_SKILL)
-  ev('SKILL_LOADED', ENTRY_SKILL, { path: flow.path, version: flow.version, hash: flow.file_hash })
+  if (flow && !flow.error) ev('SKILL_LOADED', ENTRY_SKILL, { path: flow.path, version: flow.version, hash: flow.file_hash })
 
   // 정적 계약 검사다. 진입 Skill 의 steps 순서로 buildGraph 를 부른다.
   const orderSteps = flowSteps(skills)
@@ -297,12 +299,20 @@ async function execute(order, snapshot) {
     ev('EXECUTION_ERROR', details.skill_id ?? null, { category, ...details })
   }
 
-  // 읽지 못한 Skill 이 있으면 그 오류로, 계약 위반이 있으면 CONTRACT_VIOLATION 으로 실패한다.
-  // 단계 자리에 흐름 Skill 이 오면(NESTED_FLOW_NOT_SUPPORTED) 서버처럼 계약 위반으로 본다.
+  // 서버 SkillLoader 와 같은 순서로 막는다. 진입 Skill 을 읽지 못함, 실행 순서 구조
+  // 오류(INVALID_FLOW), 단계 Skill 을 읽지 못함, 계약 위반(CONTRACT_VIOLATION) 순이다. 단계 자리에
+  // 흐름 Skill 이 오면(NESTED_FLOW_NOT_SUPPORTED) 서버처럼 계약 위반으로 본다.
   const unreadable = graph.nodes.find((n) => n.parse_error)
   const violation = graph.missing[0]
   step('INTAKE', 'SUCCESS', null, '주문 접수 완료')
-  if (unreadable) {
+  if (!flow || flow.error) {
+    // 진입 Skill 은 steps 에 없어 그래프 노드가 되지 않으므로 여기서 따로 본다.
+    fail(flow ? flow.error : 'UNKNOWN_SKILL', {})
+  } else if (graph.flow_errors.length) {
+    // validateFlow 가 단계를 하나도 읽기 전에 거절하는 경우다(빈 순서, 12단계 초과, 중복 단계).
+    // 서버는 details 없이 INVALID_FLOW 만 던지므로 여기서도 비워 둔다.
+    fail('INVALID_FLOW', {})
+  } else if (unreadable) {
     fail(unreadable.parse_error === 'NESTED_FLOW_NOT_SUPPORTED' ? 'CONTRACT_VIOLATION' : unreadable.parse_error, {})
   } else if (violation) {
     // 정적 계약 검사에서 막혔으므로 업무 도구는 하나도 실행하지 않고,

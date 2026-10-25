@@ -83,6 +83,7 @@ test('게시본: 계약 위반이 없고 노드·간선 순서가 정해져 있�
       io('shipping-reserve', 'notify', ['shipping.id', 'shipping.eta']),
     ],
     missing: [],
+    flow_errors: [],
     complete: true,
   })
   assert.equal(problemCount(graph), 0)
@@ -163,8 +164,34 @@ test('진입 Skill 이름은 기본값 order-flow 이고 인자로 바꿀 수 �
     nodes: [],
     edges: [],
     missing: [],
+    // 빈 실행 순서는 서버가 INVALID_FLOW 로 막으므로 구조 오류로 남는다.
+    flow_errors: [{ reason: 'EMPTY_STEPS', skill_id: 'order-flow', message: '실행 순서(steps)가 비어 있어요.' }],
     complete: true,
   })
+  assert.equal(problemCount(buildGraph([], [])), 1)
+})
+
+test('실행 순서 구조 오류: 빈 순서 · 12단계 초과 · 중복 단계', () => {
+  const skills = skillsOf(PUBLISHED_FILES)
+  // 정상 순서에는 구조 오류가 없다.
+  assert.deepStrictEqual(buildGraph(withoutEntry(skills), stepsOf(skills)).flow_errors, [])
+  // 상한까지는 통과하고 한 단계만 더해도 걸린다. 단계 이름은 겹치지 않게 만든다.
+  const many = (n) => Array.from({ length: n }, (_, i) => `step-${i}`)
+  assert.deepStrictEqual(buildGraph([], many(12)).flow_errors, [])
+  assert.deepStrictEqual(buildGraph([], many(13)).flow_errors, [
+    {
+      reason: 'TOO_MANY_STEPS',
+      skill_id: 'order-flow',
+      message: '실행 순서는 12단계를 넘을 수 없어요(지금 13단계).',
+    },
+  ])
+  // 중복은 겹치는 이름마다 한 번만 남는다.
+  assert.deepStrictEqual(buildGraph([], ['a', 'b', 'a', 'b', 'a']).flow_errors, [
+    { reason: 'DUPLICATE_STEP', skill_id: 'a', message: 'a 가 실행 순서에 여러 번 있어요.' },
+    { reason: 'DUPLICATE_STEP', skill_id: 'b', message: 'b 가 실행 순서에 여러 번 있어요.' },
+  ])
+  // 구조 오류도 저장 전 점검 숫자에 들어간다. 여기서는 중복 1개와 없는 skill 2개다.
+  assert.equal(problemCount(buildGraph([], ['a', 'a'])), 3)
 })
 
 test('같은 키를 다시 내보내면 마지막 공급자가 io 간선의 출발점이 된다', () => {

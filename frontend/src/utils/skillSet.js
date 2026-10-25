@@ -27,22 +27,37 @@ export const skillPath = (id) => `skills/${id}/SKILL.md`
 // frontend/src/api/skillSets.js 가 manifest 에서 관련 파일을 고를 때 쓴다.
 export const isSkillFile = (path) => SKILL_PATH.test(path)
 
+// 단계 Skill(steps 가 없는 Skill)이 반드시 적어야 하는 목록 칸이다. 흐름 Skill 은 빼도 된다.
+// SkillLoader.load 가 strings(m, 칸, steps.isEmpty()) 로 거는 required 와 같다.
+const REQUIRED_STEP_LISTS = ['inputs', 'outputs', 'depends_on']
+// version 상한이다. 서버는 Java Integer 만 받으므로 이 값을 넘으면 거절한다.
+const MAX_VERSION = 2147483647
+
 /**
  * 파싱 결과 p 에서 SkillLoader.load 와 같은 필수 항목을 검사하고 첫 문제의 화면 문구를 돌려준다.
  * 문제가 없으면 null 이다. 여기서 걸리는 초안은 서버도 INVALID_SKILL_FORMAT 으로 거절한다. 검사
  * 순서는 구분선과 YAML 형식, name 과 폴더 이름, description, owner, version(1 이상의 정수),
- * 본문, 단계 Skill 의 inputs, outputs, depends_on 이다. 흐름 Skill(steps 가 있는 Skill)은 마지막
- * 검사를 건너뛴다. 초안 검사 규칙을 바꾸려면 이 함수를 고친다.
+ * 본문, 목록 칸 형식, 단계 Skill 의 inputs, outputs, depends_on 이다. 흐름 Skill(steps 가 있는
+ * Skill)은 마지막 검사를 건너뛴다. 초안 검사 규칙을 바꾸려면 이 함수를 고친다.
+ * description 과 owner 는 글인지부터 보는데, 숫자를 적으면 예전 코드가 trim 을 불러 예외를
+ * 냈기 때문이다. 서버의 requireMetadata 도 String 인지부터 본다.
  */
 function formatProblem(p, skillId) {
   if (p.error) return p.detail ?? '맨 위 --- 구분선과 YAML 형식을 확인해 주세요.'
   if (p.name !== skillId) return `name 이 폴더 이름(${skillId})과 달라요.`
-  if (!p.description?.trim()) return 'description 이 비어 있어요.'
-  if (!p.owner?.trim()) return 'owner 가 비어 있어요.'
-  if (!Number.isInteger(p.version) || p.version < 1) return 'version 은 1 이상의 정수여야 해요.'
+  if (typeof p.description !== 'string' || !p.description.trim()) return 'description 은 비어 있지 않은 글이어야 해요.'
+  if (typeof p.owner !== 'string' || !p.owner.trim()) return 'owner 는 비어 있지 않은 글이어야 해요.'
+  if (!Number.isInteger(p.version) || p.version < 1 || p.version > MAX_VERSION) {
+    return `version 은 1 이상 ${MAX_VERSION} 이하의 정수여야 해요.`
+  }
   if (!p.body) return '본문이 비어 있어요.'
-  if (!p.steps.length && !(p.raw.inputs && p.raw.outputs && p.raw.depends_on)) {
-    return '단계 Skill 은 inputs · outputs · depends_on 을 모두 적어야 해요(없으면 []).'
+  if (p.invalid_lists.length) {
+    return `${p.invalid_lists.join(' · ')} 은 비어 있지 않은 글의 목록이어야 해요(없으면 []).`
+  }
+  if (!p.steps.length) {
+    // 누락과 null(빈 칸, null, ~)을 함께 거절한다. [] 는 적은 것으로 본다.
+    const blank = REQUIRED_STEP_LISTS.filter((key) => p.raw[key] == null)
+    if (blank.length) return `단계 Skill 은 ${blank.join(' · ')} 을 적어야 해요(없으면 []).`
   }
   return null
 }
@@ -68,6 +83,7 @@ export function toSkill(path, text, fileHash = null) {
     outputs: [],
     depends_on: [],
     steps: [],
+    invalid_lists: [],
     ...parsed,
     error: problem ? 'INVALID_SKILL_FORMAT' : null,
     error_message: problem,
