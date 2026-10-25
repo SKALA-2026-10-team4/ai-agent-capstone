@@ -31,7 +31,7 @@ const pending = ref(0)
 // badge 가 true 인 항목 옆에 검토 대기 수를 붙이고, sub 가 true 인 항목은 바로 위 항목의
 // 하위 메뉴로 들여 쓴다. active 는 지금 주소에서 이 메뉴를 선택된 것으로 볼지 정한다.
 // 상세 화면(/proposals/:id, /executions/:id)에서도 상위 메뉴에 배경이 남도록 경로 앞부분으로 본다.
-// 테스트 실행과 테스트 목록은 같은 /orders 화면이라 #history(실행 기록 위치) 유무로 나눈다.
+// 테스트 실행(/orders)은 새 주문과 방금 실행한 결과, 테스트 목록(/executions)은 이전 실행 기록 화면이다.
 const GROUPS = [
   {
     title: 'skill 관리',
@@ -47,14 +47,9 @@ const GROUPS = [
   {
     title: '테스트 관리',
     items: [
-      { to: '/orders', label: '테스트 실행', icon: PlayCircle, active: (r) => r.path === '/orders' && r.hash !== '#history' },
-      {
-        to: '/orders#history',
-        label: '테스트 목록',
-        icon: ListChecks,
-        // 실행 상세는 실행 기록에서 들어가므로 테스트 목록으로 본다.
-        active: (r) => (r.path === '/orders' && r.hash === '#history') || r.path.startsWith('/executions'),
-      },
+      { to: '/orders', label: '테스트 실행', icon: PlayCircle, active: (r) => r.path.startsWith('/orders') },
+      // 실행 상세(/executions/:id)도 실행 기록에서 들어가므로 테스트 목록으로 본다.
+      { to: '/executions', label: '테스트 목록', icon: ListChecks, active: (r) => r.path.startsWith('/executions') },
     ],
   },
 ]

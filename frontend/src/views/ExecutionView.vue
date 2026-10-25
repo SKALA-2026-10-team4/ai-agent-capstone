@@ -4,7 +4,8 @@
 // 식별자, 오류 상세, 실행 당시 snapshot 으로 그린 단계 흐름, 시간 순서의 이벤트를 보여 준다.
 // order-agent/docs/team-scenarios.md 의 "담당자 간 전달할 증거"(execution_id, order_id, snapshot,
 // 오류 상세, 최종 상태)를 모두 보여 주는 것이 목적이다.
-// 이 화면을 여는 곳은 frontend/src/views/OrderView.vue 의 결과와 실행 기록 링크, 그리고
+// 이 화면을 여는 곳은 frontend/src/views/OrderView.vue 의 실행 결과 링크,
+// frontend/src/views/ExecutionListView.vue 의 실행 기록 줄, 그리고
 // frontend/src/views/DiagnosisView.vue 와 frontend/src/components/ProposalFacts.vue 의 실행 번호
 // 링크다. 실행 번호 링크의 주소는 frontend/src/utils/traceRun.js 의 executionPath 가 만든다.
 // trace 는 frontend/src/api/orderAgent.js 의 getTrace 로 읽는다. GET /api/executions/{id}/trace 는
@@ -96,7 +97,7 @@ const statusOf = (id) => run.value?.bySkill[id]?.status ?? 'skipped'
     :title="trace ? `실행 ${shortId(trace.execution_id)}` : '실행 기록'"
     description="주문 Agent 가 어떤 Skill 파일로 무엇을 했는지, 어디서 왜 멈췄는지 남긴 기록이에요."
     :icon="ScrollText"
-    :back="{ to: '/orders#history', label: '테스트 목록' }"
+    :back="{ to: '/executions', label: '테스트 목록' }"
   />
   <p v-if="error" class="error-text">{{ error }}</p>
 
