@@ -2,6 +2,8 @@
 
 작성일: 2026-10-26 · 브랜치: `feat/#88_skill-backend-contract`
 
+> 후속 변경: 사용자 요청으로 새 MCP 4개를 JWT 없이 호출하도록 전환했다. 이 보고서의 실서버 인증 검증·12회 스모크 결과는 전환 전 기록이다. 현재 정책·키 범위·추가 테스트는 [MCP 인증 간소화 기록](2026-10-26-evaluation-mcp-anonymous.md)을 따른다.
+
 ## 구현 결과
 
 AI 코드 변경 없이 **고정 입력 접수 → 비동기 전후 실행 → 실제 증거 저장 → 서버 판정 → 검증된 snapshot 제안 → 사람 승인** 경로를 구현했다. 기존 Python·주문 Agent·프런트엔드 코드는 변경하지 않았다. 기존 service 실행·제안·승인 코드는 재사용하며 새 평가 모듈·도구·저장 경계를 추가했다.
@@ -20,7 +22,7 @@ AI 코드 변경 없이 **고정 입력 접수 → 비동기 전후 실행 → �
 | `EvaluationRunner` | 기존 snapshot/실행 클라이언트·공용 파서·채점기 재사용. 매 회차 workspace를 다시 읽지 않음 |
 | `EvaluationReports` | 실제 저장 결과로 업무·선택·회귀·분모·편차·관측 상태 계산 |
 | `EvaluationController`, `EvaluationErrors` | 인증된 REST 접수·조회·취소·재실행·구조화 오류 |
-| `EvaluationTools` | REST와 같은 서비스를 사용하는 MCP 4개 추가, JWT 권한 검사 |
+| `EvaluationTools` | REST와 같은 서비스를 사용하는 MCP 4개 추가. 후속 변경으로 MCP JWT 검사 제거, REST 권한 유지 |
 | `VerifiedProposal*` | 제출된 valid/results를 받지 않고 서버 평가로 승인 가능한 snapshot 제안 생성 |
 
 새로 작성한 함수·기능에는 짧은 주석을 남겼다. 기존 도구 7개·apply_patch v1.3·기존 승인 API 모양은 유지했다. MCP 실제 목록은 기존 7개+신규 4개=11개다.

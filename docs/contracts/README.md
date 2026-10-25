@@ -23,3 +23,5 @@
 2026-10-23 · #72: `apply_patch` 응답 v1.3의 [JSON Schema](apply-patch-result.schema.json)와 [Java/Python 공통 예제](examples/apply-patch-dependency-violation.json)를 추가했다. 필수 `dependency_violations`와 기존 `broken_links`를 함께 검사하고, `metadata_errors`는 별도 `metadata_valid` 판정에 사용한다. [필수 정보 오류 예제](examples/apply-patch-metadata-error.json)와 [두 Java 모듈의 공유 문서](examples/skill-metadata-cases.json)도 추가했다. 자세한 호환 규칙은 [도구 입출력 명세](mcp-tools-input-output.md#8-수정-적용하기--apply_patch)를 따른다.
 
 2026-10-23 · #72 4단계: 필수 `flow_errors`와 후보 결과 `flow_valid`를 추가했다. [flow 오류 예제](examples/apply-patch-flow-error.json), [두 Java 모듈의 공통 flow 사례](examples/flow-structure-cases.json), [변경 내역](../changes/2026-10-23-flow-structure-validation.md)을 참고한다.
+
+2026-10-26 · #88 후속: 새 평가 MCP 4개도 JWT 없이 호출하도록 통일했습니다. REST·승인 인증은 유지하며 MCP 접수는 공유 멱등 키 범위를 사용합니다. 상세 정책은 [평가 계약](evaluation-backend.md#mcp)을 따릅니다.

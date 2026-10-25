@@ -19,7 +19,7 @@
 
 ## MCP (service, SkillOps Agent 가 부른다)
 
-전송은 Streamable HTTP `POST http://localhost:8080/mcp`이다. 기존 도구 7개는 인증 방식을 유지하며, #88 새 도구 4개에는 Bearer JWT 권한 검사를 적용한다. 총 11개이며 새 REST/MCP 입출력·상태·저장 계약은 [백엔드 평가·비교 v1.0](evaluation-backend.md)을 따른다. Python 기존 호출은 변경하지 않았다.
+전송은 Streamable HTTP `POST http://localhost:8080/mcp`이다. 기존 7개와 #88 새 도구 4개는 모두 JWT 없이 호출한다. REST와 사람의 승인·반려 API 인증은 유지한다. 총 11개이며 새 REST/MCP 입출력·상태·저장 계약은 [백엔드 평가·비교 v1.0](evaluation-backend.md)을 따른다. Python 기존 호출은 변경하지 않았다.
 
 | 도구 | 인자 | 구현 |
 |---|---|---|

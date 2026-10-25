@@ -47,36 +47,44 @@ def wait_report(service, accepted, token):
 def mcp(service, token, accepted, payload, key, proposal_input, proposal_id):
     """실제 Streamable HTTP에서 새 도구와 기존 도구의 공존을 검사한다."""
     init, headers = request(service, "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-        "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "evaluation-contract-smoke", "version": "1"}}}, token)
+        "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "evaluation-contract-smoke", "version": "1"}}})
     assert "result" in init, init
     session = next((value for key, value in headers.items() if key.lower() == "mcp-session-id"), None)
     extra = {"Mcp-Session-Id": session, "MCP-Protocol-Version": "2025-03-26"} if session else {}
-    request(service, "/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}, token, extra, expected=202)
-    listed, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, token, extra)
+    request(service, "/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}, extra=extra, expected=202)
+    listed, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, extra=extra)
     names = {tool["name"] for tool in listed["result"]["tools"]}
     assert {"run_scenarios", "save_proposal", "apply_patch", "submit_evaluation", "get_evaluation", "get_evaluation_report", "save_proposal_v2"} <= names
     result, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
-        "name": "get_evaluation_report", "arguments": {"evaluation_id": accepted["evaluation_id"], "attempt_id": accepted["attempt_id"]}}}, token, extra)
+        "name": "get_evaluation_report", "arguments": {"evaluation_id": accepted["evaluation_id"], "attempt_id": accepted["attempt_id"]}}}, extra=extra)
     assert not result.get("error"), result
     assert not result["result"].get("isError"), result
     report = json.loads(result["result"]["content"][0]["text"])
     assert report["verification_status"] == "SERVER_VERIFIED", report
+    mcp_accepted = None
     for number, name, arguments in [(4, "submit_evaluation", {"request": payload, "idempotency_key": key}),
                                      (5, "save_proposal_v2", {"request": proposal_input})]:
         reply, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": number, "method": "tools/call", "params": {
-            "name": name, "arguments": arguments}}, token, extra)
+            "name": name, "arguments": arguments}}, extra=extra)
         assert not reply.get("error") and not reply["result"].get("isError"), reply
         content = json.loads(reply["result"]["content"][0]["text"])
         if name == "submit_evaluation":
-            assert content["evaluation_id"] == accepted["evaluation_id"]
+            mcp_accepted = content
+            assert content["evaluation_id"] != accepted["evaluation_id"], "REST 사용자와 MCP 공유 키가 섞였습니다"
         else:
             assert content["proposal_id"] == proposal_id
-    denied, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {
+    duplicate, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {
+        "name": "submit_evaluation", "arguments": {"request": payload, "idempotency_key": key}}}, extra=extra)
+    assert not duplicate.get("error") and not duplicate["result"].get("isError"), duplicate
+    assert json.loads(duplicate["result"]["content"][0]["text"])["evaluation_id"] == mcp_accepted["evaluation_id"]
+    wait_report(service, mcp_accepted, token)
+    anonymous, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {
         "name": "get_evaluation", "arguments": {"evaluation_id": accepted["evaluation_id"]}}}, extra=extra)
-    assert denied.get("error") or denied.get("result", {}).get("isError"), "인증 없이 새 평가 도구를 사용할 수 있습니다"
+    assert not anonymous.get("error") and not anonymous["result"].get("isError"), anonymous
+    assert json.loads(anonymous["result"]["content"][0]["text"])["evaluation_id"] == accepted["evaluation_id"]
     missing_payload = dict(payload, candidate_snapshot_id=str(uuid.uuid4()))
     failed, _ = request(service, "/mcp", {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {
-        "name": "submit_evaluation", "arguments": {"request": missing_payload, "idempotency_key": str(uuid.uuid4())}}}, token, extra)
+        "name": "submit_evaluation", "arguments": {"request": missing_payload, "idempotency_key": str(uuid.uuid4())}}}, extra=extra)
     assert failed["result"].get("isError"), failed
     failure = json.loads(failed["result"]["content"][0]["text"])
     assert failure["code"] == "SNAPSHOT_NOT_FOUND" and failure["upstream_status"] == 404, failure

@@ -109,16 +109,18 @@ VerifiedInput: `{evaluation_id,attempt_id,summary,intent_text}`. 설명·의도�
 
 ## MCP
 
-기존 7개에 아래 4개가 추가되어 tools/list는 11개다. 기존 도구의 입출력·apply_patch v1.3은 유지한다. 새 도구는 HTTP 요청에 Bearer JWT가 필요하며 기존 Python MCP 클라이언트는 아직 사용하지 않는다.
+기존 7개에 아래 4개가 추가되어 tools/list는 11개다. 기존 도구의 입출력·apply_patch v1.3은 유지한다. 새 도구도 기존 MCP처럼 JWT 없이 호출한다. REST의 JWT·역할 검사와 사람의 승인·반려 권한은 유지한다. 기존 Python MCP 클라이언트는 아직 새 도구를 호출하지 않는다.
 
 | 도구 | 입력 | 권한·반환 |
 |---|---|---|
-| submit_evaluation | `{request:Submit,idempotency_key:string}` | OPERATOR, Accepted |
-| get_evaluation | `{evaluation_id}` | 로그인, View |
-| get_evaluation_report | `{evaluation_id,attempt_id}` | 로그인, Report |
-| save_proposal_v2 | `{request:VerifiedInput}` | OPERATOR, Saved |
+| submit_evaluation | `{request:Submit,idempotency_key:string}` | 인증 없음, Accepted |
+| get_evaluation | `{evaluation_id}` | 인증 없음, View |
+| get_evaluation_report | `{evaluation_id,attempt_id}` | 인증 없음, Report |
+| save_proposal_v2 | `{request:VerifiedInput}` | 인증 없음, Saved |
 
-결과는 기존 content[0].text의 JSON이다. 평가 도메인 오류는 isError=true와 code/message/retryable/upstream_status/snapshot_id 형식이다. 인증·인가 거부는 SDK의 도구 실행 오류로 반환될 수 있으며 도메인 JSON으로 강제하지 않는다.
+결과는 기존 content[0].text의 JSON이다. 평가 도메인 오류는 isError=true와 code/message/retryable/upstream_status/snapshot_id 형식이다. MCP는 인증 없이 평가 접수·조회·검증 제안 저장을 허용한다. 제안 저장은 사람의 승인이나 운영 반영을 수행하지 않는다.
+
+MCP 접수의 멱등 키 범위는 로그인 여부와 관계없이 고정된 `mcp:anonymous`다. 모든 MCP 호출자가 이 범위를 공유하므로 UUID 등 충돌하지 않는 키를 사용한다. 같은 키·같은 입력은 재사용하고 다른 입력은 409 의미의 도메인 충돌 오류로 반환한다. REST는 로그인 사용자 이름을 범위로 사용하며, 동일 키를 REST와 MCP에 전달해도 동일 작업을 재사용하지 않는다. 이미 접수된 REST 작업은 평가 ID로 MCP에서 조회할 수 있다. REST 사용자 이름으로 `mcp:anonymous`는 사용하지 않는다.
 
 REST 입력 오류는 400 INVALID_EVALUATION_INPUT, 미지원은 422 EVALUATION_CAPABILITY_UNSUPPORTED/BUDGET_ENFORCEMENT_UNSUPPORTED, 없는 리소스는 404, 멱등·상태·근거 충돌은 409다. 저장 경합은 EVALUATION_WRITE_CONFLICT(409,retryable=true), 상위 조회 오류는 원래 코드와 retryable을 보존한다. REST 오류 공통 필드는 `{code,message,retryable}`다.
 
@@ -126,4 +128,4 @@ REST 입력 오류는 400 INVALID_EVALUATION_INPUT, 미지원은 422 EVALUATION_
 
 기본 fixed harness는 꺼져 있다. `SKILLOPS_EVALUATION_FIXED_HARNESS_ENABLED=true`, `SKILLOPS_EVALUATION_ISOLATED_ORDER_AGENT_URL`, `SKILLOPS_EVALUATION_ENVIRONMENT_REF`를 지정하고 해당 서버를 fixed·전용 DB/재고로 운영해야 한다. 실제 trace 모드를 사후 대조하지만 잘못 설정된 상위 서버의 유료 호출 자체를 사전에 강제 차단하는 기능은 아니다.
 
-`service/scripts/evaluation_contract_smoke.py`는 별도 루프백 포트만 허용하며 실제 dry-run·제안서·승인을 생성한다. 정상/실패 후보, REST/MCP 멱등 접수, 새 MCP 인증, 재고 복원·live 실패 목록 분리를 확인한다. 재현 명령과 검증 결과는 [구현 보고서](../reports/2026-10-26-evaluation-backend-implementation.md)에 기록한다.
+`service/scripts/evaluation_contract_smoke.py`는 별도 루프백 포트만 허용하며 실제 dry-run·제안서·승인을 생성한다. 정상/실패 후보, REST/MCP 멱등 접수, MCP의 무인증 호출·접수 키 분리, 재고 복원·live 실패 목록 분리를 확인한다. 재현 명령과 검증 결과는 [구현 보고서](../reports/2026-10-26-evaluation-backend-implementation.md)에 기록한다.

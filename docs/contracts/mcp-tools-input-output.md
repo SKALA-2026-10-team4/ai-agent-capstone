@@ -4,7 +4,7 @@
 
 SkillOps 서비스(`service/`)는 MCP 서버로 기존 도구 7개와 #88 평가 도구 4개, 총 11개를 내놓습니다. 기존 SkillOps Agent(`skillops-agent/`)는 기존 도구를 계속 사용합니다. 이 문서는 도구마다 **무엇을 보내고, 무엇을 돌려받고, 그 사이에 서비스가 어떤 저장 공간을 읽고 쓰는지**를 정리한 것입니다.
 
-2026-10-26 · #88: `submit_evaluation`, `get_evaluation`, `get_evaluation_report`, `save_proposal_v2`를 추가했습니다. 새 도구의 JWT 권한·입출력·실행 범위는 [평가 계약 v1.0](evaluation-backend.md#mcp)을 따릅니다. 기존 도구와 apply_patch v1.3은 유지하며 Python은 아직 새 도구를 호출하지 않습니다.
+2026-10-26 · #88: `submit_evaluation`, `get_evaluation`, `get_evaluation_report`, `save_proposal_v2`를 추가했습니다. 새 도구는 기존 MCP처럼 JWT 없이 호출하며, 입출력·실행 범위·공유 멱등 키 정책은 [평가 계약 v1.0](evaluation-backend.md#mcp)을 따릅니다. 기존 도구와 apply_patch v1.3은 유지하며 Python은 아직 새 도구를 호출하지 않습니다.
 
 2026-10-23 · #72 공용 파서: service와 주문 Agent가 동일한 skill-parser 모듈을 사용합니다. 분석·workspace·실행 모두 YAML frontmatter 100,000 코드 포인트 제한과 같은 안전 옵션을 적용합니다. 초과 시 기존 파싱 오류 필드·코드로 처리하고 diff 원문 hunks는 보존합니다. 입력·응답 필드와 apply_patch v1.3은 변경하지 않습니다. [현재 SKILL 해석 계약](skill-frontmatter.md#72-최종-갱신--서버-공용-파싱-모듈-2026-10-23).
 
