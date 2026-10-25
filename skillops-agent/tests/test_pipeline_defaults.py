@@ -121,5 +121,8 @@ def test_retry_limits_and_repeats_are_positive_integers():
         assert type(value) is int and value > 0
 
 
-def test_llm_factory_uses_the_configured_temperature():
+def test_llm_factory_uses_the_configured_temperature(monkeypatch):
+    # 기본 모델(gpt-5 계열)은 온도를 받지 않아 langchain_openai 가 값을 뺀다.
+    # 온도를 받는 모델로 본다.
+    monkeypatch.setattr("skillops_agent.llm.MODEL", "gpt-4.1-mini")
     assert make_llm().temperature == config.LLM_TEMPERATURE

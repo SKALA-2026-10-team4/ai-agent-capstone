@@ -13,8 +13,9 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(usecwd=True))
 
 # LLM 모델 이름(SKILLOPS_MODEL)이다.
-# skillops-agent/skillops_agent/llm.py 의 make_llm 이 ChatOpenAI 를 만들 때 쓴다.
-MODEL = os.getenv("SKILLOPS_MODEL", "gpt-4.1-mini")
+# skillops-agent/skillops_agent/llm.py 의 make_llm 이 ChatOpenAI 를 만들 때 쓴다. RAG 실험에서
+# gpt-4.1-mini·gpt-4o-mini 는 참고 자료를 받아도 거의 쓰지 못해 gpt-5.4-mini 를 기본으로 둔다.
+MODEL = os.getenv("SKILLOPS_MODEL", "gpt-5.4-mini")
 # service 주소(SKILLOPS_SERVICE_URL)다. 이 모듈에서 MCP_URL 기본값을 만들 때만 쓴다.
 SERVICE_URL = os.getenv("SKILLOPS_SERVICE_URL", "http://localhost:8080")
 # service MCP 서버 주소(SKILLOPS_MCP_URL)다. skillops-agent/skillops_agent/tools.py 의 MCPTools 와
@@ -38,6 +39,16 @@ ORDER_AGENT_BASE_URL = os.getenv("ORDER_AGENT_BASE_URL", "http://localhost:8081"
 # /runs 조회도 같은 토큰으로 막는다. 비어 있으면 검증을 건너뛴다(개발 모드). service 에도 같은
 # 값을 준다.
 SERVICE_TOKEN = os.getenv("SKILLOPS_SERVICE_TOKEN", "")
+
+# false 이면 진단 노드가 RAG 참고 자료(skillops-agent/rag/rag_data.json)를 붙이지 않는다. 기본값은
+# true 다. skillops-agent/skillops_agent/rag.py 의 references 가 이 값을 본다.
+RAG_ENABLED = os.getenv("SKILLOPS_RAG_ENABLED", "true").lower() == "true"
+# RAG 참고 자료에서 빼고 고를 자료 id 목록(SKILLOPS_RAG_EXCLUDE, 쉼표로 구분)이다. 장애 사례로
+# 평가할 때 같은 케이스의 사례(예: case-S2)를 빼서 답을 미리 보여 주지 않는 데 쓴다. 기본값은 빈
+# 목록이다.
+RAG_EXCLUDED_IDS = [
+    v.strip() for v in os.getenv("SKILLOPS_RAG_EXCLUDE", "").split(",") if v.strip()
+]
 
 # true 이면 service(:8080) 없이 stub 응답으로 개발한다. 기본값은 false 다.
 # skillops-agent/skillops_agent/tools.py 의 get_tools 가 이 값을 보고
@@ -130,5 +141,6 @@ DEFAULT_ENTRY_SKILL_ID = "order-flow"
 # skillops-agent/tests/test_flow_characterization.py 의 대체 설명('rank N: ...') 단언도 고친다.
 RANK_FALLBACK_EVIDENCE_COUNT = 2
 # LLM 샘플링 온도다. skillops-agent/skillops_agent/llm.py 의 make_llm 이 쓴다.
-# 같은 입력에 출력이 흔들리지 않게 0.0 으로 둔다.
+# 같은 입력에 출력이 흔들리지 않게 0.0 으로 둔다. gpt-5 계열은 온도를 받지 않아 langchain_openai 가
+# 이 값을 빼고 보낸다. 그래서 기본 모델에서는 같은 입력에도 결과가 달라질 수 있다.
 LLM_TEMPERATURE = 0.0
