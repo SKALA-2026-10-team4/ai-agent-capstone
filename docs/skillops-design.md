@@ -118,7 +118,7 @@ flowchart LR
 | 후보 재생성 | 3회 | `MAX_CANDIDATE_RETRIES` |
 | 사전 시험·원인 확정·후보 검증 반복 | 2회 · 1회 · 2회 | `PREFLIGHT_REPEAT` · `ABLATION_REPEAT` · `VERIFY_REPEAT` |
 | 단계 한도 | 40 | `MAX_STEPS_DEFAULT` |
-| 모델 | `gpt-4.1-mini` | 환경 변수 `SKILLOPS_MODEL` |
+| 모델 | `gpt-5.4-mini` | 환경 변수 `SKILLOPS_MODEL` |
 | 프롬프트 | 단계별 파일 | `skillops-agent/prompts/` |
 
 승인 대기 노드는 없다. 그래프는 `save_proposal` 에서 끝나고, 승인은 service 가 화면 요청을 받아 기록한다.

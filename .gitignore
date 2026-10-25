@@ -72,6 +72,8 @@ chroma/
 *.sqlite3
 *.db
 !docs/**/*.db
+# 승인·반려된 제안서에서 쌓은 RAG 사례. 환경마다 다른 운영 데이터라 올리지 않는다.
+skillops-agent/rag/proposal_cases.json
 
 # ===== 로그·임시 파일 =====
 *.log
