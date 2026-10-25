@@ -15,10 +15,13 @@ intent:
   checks: []
 
 order_agent:
-  # 정상 배송 주문만 끝까지 가서 완료 검사에 걸린다. 재고 부족(g-02)과 결제 거절(g-03)은 알림 전에 정상 종료한다.
-  g-01: {result: error, category: INCOMPLETE_FLOW, skill: null}
+  # 정상 배송 주문(g-01, g-04~g-06)만 끝까지 가서 완료 검사에 걸린다. 재고 부족(g-02)과 결제 거절(g-03)은 알림 전에 정상 종료한다.
+  g-01: &incomplete {result: error, category: INCOMPLETE_FLOW, skill: null}
   g-02: {result: pass}
   g-03: {result: pass}
+  g-04: *incomplete
+  g-05: *incomplete
+  g-06: *incomplete
 
 answer:
   status: [EVALUATED]
