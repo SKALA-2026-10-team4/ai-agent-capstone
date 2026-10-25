@@ -22,6 +22,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.capstone4.skillops.scenario.TestFixtures;
 import com.capstone4.skillops.workspace.WorkspaceService.BrokenLink;
 import com.capstone4.skillops.workspace.WorkspaceService.ChangedSkill;
+import com.capstone4.skillops.workspace.WorkspaceService.DependencyViolation;
 import com.capstone4.skillops.workspace.WorkspaceService.PatchInput;
 import com.capstone4.skillops.workspace.WorkspaceService.PatchResult;
 
@@ -52,6 +53,9 @@ class ApplyPatchTest {
         assertThat(result.workspaceId()).isEqualTo("w_1");
         assertThat(result.changedSkills()).containsExactly(new ChangedSkill("inventory-check", 2));
         assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).isEmpty();
+        assertThat(result.flowErrors()).isEmpty();
         WorkspaceSkill saved = savedRecord().getSkills().get("inventory-check");
         assertThat(saved).isEqualTo(new WorkspaceSkill(1, F1Texts.repaired(), 1));
     }
@@ -251,11 +255,95 @@ class ApplyPatchTest {
         WorkspaceRecord saved = savedRecord();
         assertThat(saved.getSkills().get("inventory-check").fullText()).isEqualTo(F1Texts.repaired());
         assertThat(saved.getSkills().get("notify").fullText()).contains("name: notice");
+        assertThat(result.metadataErrors()).anySatisfy(error -> {
+            assertThat(error.skill()).isEqualTo("notify");
+            assertThat(error.field()).isEqualTo("name");
+        });
     }
 
-    /** broken_links 에는 빠진 입력만 넣는다. 먼저 끝나야 할 skill(depends_on)이 늦게 오는 것은 넣지 않는다. */
+    /** owner를 없애도 실험용 patch는 저장하고 필수 정보 오류를 별도로 알린다. */
     @Test
-    void missingDependenciesAreNotReportedAsBrokenLinks() {
+    void savesPatchWithMissingOwnerAndReportsMetadataError() {
+        String patch = "@@ -7,1 +7,0 @@\n-owner: 재무팀\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("payment", 1, patch),
+                new PatchInput("inventory-check", 1, F1Texts.repairOutputsPatch())));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("payment");
+            assertThat(error.field()).isEqualTo("owner");
+            assertThat(error.code()).isEqualTo("INVALID_SKILL_FORMAT");
+        });
+        assertThat(savedRecord().getSkills().get("payment").fullText()).doesNotContain("owner:");
+    }
+
+    /** 실행 flow 밖의 수정하지 않은 문서도 실제 실행기 후보 조회를 고려해 검사한다. */
+    @Test
+    void includesMetadataErrorsOutsideEntryFlow() {
+        Map<String, WorkspaceSkill> skills = new TreeMap<>(record.getSkills());
+        skills.put("unused", new WorkspaceSkill(1, "---\nname: unused\nversion: 1\n"
+                + "description: unused\ninputs: []\noutputs: []\ndepends_on: []\n---\nBody\n"));
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), skills);
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("inventory-check", 1, F1Texts.repairOutputsPatch())));
+
+        assertThat(result.metadataErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("unused");
+            assertThat(error.field()).isEqualTo("owner");
+        });
+        verify(repository).save(any());
+    }
+
+    /** 중복 단계가 있는 원문도 저장하되 실행 구조 오류를 반환한다. */
+    @Test
+    void duplicateStepsAreSavedForDiagnosisButCannotPassStructureCheck() {
+        var skills = new TreeMap<>(TestFixtures.liveSkills());
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), skills);
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+        String patch = "@@ -4,1 +4,1 @@\n"
+                + "-steps: [order-intake, inventory-check, payment, shipping-reserve, notify]\n"
+                + "+steps: [order-intake, inventory-check, payment, payment, shipping-reserve, notify]\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("order-flow", 1, patch)));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).isEmpty();
+        assertThat(result.flowErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("payment");
+            assertThat(error.reason()).isEqualTo("DUPLICATE_STEP");
+        });
+        assertThat(savedRecord().getSkills().get("order-flow").fullText()).contains("payment, payment");
+    }
+
+    /** 없는 단계가 입력 누락을 만들지 않아도 정상 후보로 오인하지 않게 오류를 보존한다. */
+    @Test
+    void unknownFinalStepIsReportedEvenWithoutBrokenLinks() {
+        var skills = new TreeMap<>(TestFixtures.liveSkills());
+        WorkspaceSkill flow = skills.get("order-flow");
+        skills.put("order-flow", new WorkspaceSkill(1, flow.fullText().replace("notify]", "notify, missing-step]")));
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), skills);
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+        String patch = "@@ -3,1 +3,1 @@\n-description: 주문 금액을 결제한다. 결제 정책은 여기서 바꾼다.\n+description: 결제 검사\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("payment", 1, patch)));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).isEmpty();
+        assertThat(result.metadataErrors()).isEmpty();
+        assertThat(result.flowErrors()).singleElement().satisfies(error -> {
+            assertThat(error.skill()).isEqualTo("missing-step");
+            assertThat(error.code()).isEqualTo("UNKNOWN_SKILL");
+        });
+        verify(repository).save(any());
+    }
+
+    /** 입력 공급이 정상이어도 늦게 오는 선행 단계는 별도 오류로 반환하고 patch는 저장한다. */
+    @Test
+    void reportsMissingDependenciesWithoutChangingBrokenLinks() {
         record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), TestFixtures.liveSkills());
         when(repository.findById("w_1")).thenReturn(Optional.of(record));
         String diff = "@@ -6,1 +6,1 @@\n-depends_on: [inventory-check]\n+depends_on: [notify]\n";
@@ -264,7 +352,55 @@ class ApplyPatchTest {
 
         assertThat(result.changedSkills()).containsExactly(new ChangedSkill("payment", 2));
         assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).containsExactly(new DependencyViolation("payment", "notify"));
         assertThat(savedRecord().getSkills().get("payment").fullText()).contains("depends_on: [notify]");
+    }
+
+    /** 이미 있던 입력 누락과 새 선행 단계 위반을 서로 덮어쓰지 않는다. */
+    @Test
+    void reportsInputAndDependencyViolationsTogether() {
+        String patch = "@@ -6,1 +6,1 @@\n-depends_on: [inventory-check]\n+depends_on: [notify]\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("payment", 1, patch)));
+
+        assertThat(result.brokenLinks()).containsExactly(new BrokenLink("payment", "inventory.reserved"));
+        assertThat(result.dependencyViolations()).containsExactly(new DependencyViolation("payment", "notify"));
+        assertThat(savedRecord().getSkills().get("payment").revision()).isEqualTo(1);
+    }
+
+    /** 다른 skill만 수정해도 기존의 선행 단계 위반을 전체 flow 기준으로 반환한다. */
+    @Test
+    void reportsDependenciesOutsideTheChangedSkill() {
+        var skills = new TreeMap<>(TestFixtures.liveSkills());
+        WorkspaceSkill payment = skills.get("payment");
+        skills.put("payment", new WorkspaceSkill(1, payment.fullText()
+                .replace("depends_on: [inventory-check]", "depends_on: [notify]")));
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), skills);
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+        String patch = "@@ -3,1 +3,1 @@\n-description: 주문 상품의 재고를 확인하고 예약한다.\n+description: 재고 확인\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("inventory-check", 1, patch)));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).containsExactly(new DependencyViolation("payment", "notify"));
+    }
+
+    /** 뒤 단계·자기 자신·없는 단계의 누락을 선언 순서대로 빠짐없이 반환한다. */
+    @Test
+    void preservesAllMissingDependenciesInDeclarationOrder() {
+        record = WorkspaceRecord.open("w_1", Instant.parse("2026-10-21T00:00:00Z"), TestFixtures.liveSkills());
+        when(repository.findById("w_1")).thenReturn(Optional.of(record));
+        String patch = "@@ -6,1 +6,1 @@\n-depends_on: [inventory-check]\n"
+                + "+depends_on: [notify, shipping-reserve, payment, missing-skill]\n";
+
+        PatchResult result = service.apply("w_1", List.of(new PatchInput("payment", 1, patch)));
+
+        assertThat(result.brokenLinks()).isEmpty();
+        assertThat(result.dependencyViolations()).containsExactly(
+                new DependencyViolation("payment", "notify"),
+                new DependencyViolation("payment", "shipping-reserve"),
+                new DependencyViolation("payment", "payment"),
+                new DependencyViolation("payment", "missing-skill"));
     }
 
     /** 실패한 수정이 불러온 연습 공간 원문을 건드리지 않았는지 확인한다. */

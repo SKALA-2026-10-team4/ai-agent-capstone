@@ -1,5 +1,9 @@
 # 주문 Agent 진단용 조회 API 명세
 
+2026-10-23 · #72 공용 파서: SkillLoader는 service와 동일한 `shared/skill-parser`를 사용한다. 기존 조회 필드·오류 코드·partial 응답은 유지하며 YAML 안전 정책·100,000 코드 포인트 제한은 [공통 SKILL 명세](../../docs/contracts/skill-frontmatter.md)를 따른다. 기존 실행 필수값·본문·목록 검증은 유지한다.
+
+2026-10-23 · #72: Python 진단기는 partial 목록의 원문을 기존 snapshot files API로 별도 조회해 해시·크기를 검증하고 증거만 저장한다. 이 서버의 조회 응답과 실행 로더는 변경하지 않았다. [진단 증거 조회 계약](../../docs/contracts/diagnosis-evidence.md).
+
 2026-10-21 / 이슈 #39 구현 기준. 두 버전 비교와 연결 관계 분석은 MCP 담당자가 구현하고, 나머지 네 기능은 주문 Agent의 HTTP API로 제공한다. 기존 snapshot·파일·trace API를 유지하며 공용 MCP v1 변환은 호출 측 계약으로 구분한다.
 
 ## 1. 제공 범위와 구현 상태

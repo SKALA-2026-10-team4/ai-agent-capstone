@@ -454,4 +454,24 @@ class ProposalCharacterizationTest {
         assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).remove("keeps_intent")))).isFalse();
         assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("no_broken_links", false)))).isFalse();
     }
+
+    /** 명시된 메타데이터 검사 실패·null·문자열은 탈락시키고 과거 제안서의 누락은 호환한다. */
+    @Test
+    void metadataResultParticipatesInValidityWithoutReinterpretingLegacyProposals() {
+        assertThat(ProposalRules.passes(passing())).isTrue();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("metadata_valid", true)))).isTrue();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("metadata_valid", false)))).isFalse();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("metadata_valid", null)))).isFalse();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("metadata_valid", "true")))).isFalse();
+    }
+
+    /** 새 flow 판정이 있으면 엄격한 Boolean true를 요구하고 과거 누락은 호환한다. */
+    @Test
+    void flowResultParticipatesInValidityWithoutReinterpretingLegacyProposals() {
+        assertThat(ProposalRules.passes(passing())).isTrue();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", true)))).isTrue();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", false)))).isFalse();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", null)))).isFalse();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("flow_valid", "true")))).isFalse();
+    }
 }

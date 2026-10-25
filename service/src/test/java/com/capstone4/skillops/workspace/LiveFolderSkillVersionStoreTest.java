@@ -10,6 +10,8 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * service/src/main/java/com/capstone4/skillops/workspace/LiveFolderSkillVersionStore.java 를 임시 폴더로 보호한다.
@@ -50,5 +52,24 @@ class LiveFolderSkillVersionStoreTest {
     @Test
     void unknownSkill() {
         assertThatThrownBy(() -> store.fullText("zz", 1)).hasMessage("zz 이라는 skill 이 없습니다");
+    }
+
+    /** 운영 폴더에서도 허용된 null 문법의 버전을 읽고 CRLF 원문을 보존한다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "~", ""})
+    void readsAllowedNullListsWithoutRewritingSource(String value) throws Exception {
+        String step = "---\nname: nullable-step\ndescription: 단계\nowner: backend\nversion: 1\n"
+                + "inputs: []\noutputs: []\ndepends_on: []\nsteps: " + value + "\n---\n본문\n";
+        String flow = ("---\nname: order-flow\ndescription: 순서\nowner: backend\nversion: 2\n"
+                + "steps: [nullable-step]\ninputs: " + value + "\noutputs: " + value + "\n---\n본문\n")
+                .replace("\n", "\r\n");
+        Files.createDirectories(dir.resolve("nullable-step"));
+        Files.createDirectories(dir.resolve("order-flow"));
+        Files.writeString(dir.resolve("nullable-step/SKILL.md"), step);
+        Files.writeString(dir.resolve("order-flow/SKILL.md"), flow);
+
+        assertThat(store.liveVersions()).isEqualTo(Map.of("a", 3, "nullable-step", 1, "order-flow", 2));
+        assertThat(store.fullText("nullable-step", 1)).isEqualTo(step);
+        assertThat(store.fullText("order-flow", 2)).isEqualTo(flow);
     }
 }

@@ -1,4 +1,4 @@
-"""LangGraph Node 함수 11개(v1)와 노드별 도우미를 모은다.
+"""정상 경로 노드 11개와 partial 증거 수집 노드 2개 및 도우미를 모은다.
 
 skillops-agent/skillops_agent/graph.py 의 FLOW 표에 노드 이름이 있고, 같은 파일의 build_graph 가
 그 이름으로 이 모듈의 함수를 찾아(getattr) 등록한다. 이때 guarded 가 각 노드를 감싸 예외를 ERROR
@@ -68,6 +68,9 @@ from .contracts import (
     execution_uuid,
     failures_of,
     file_hashes,
+    patch_contract_ok,
+    patch_flow_ok,
+    patch_metadata_ok,
     replay_scenario_id,
     reverse_hunk,
     run_ids_of,
@@ -77,6 +80,7 @@ from .contracts import (
     validate_report,
 )
 from .llm import make_structured_llm
+from .partial_evidence import collect_diffs, collect_sources, prepare_partial_evidence
 from .prompts import load as load_prompt
 from .state import (
     AblationRun,
@@ -540,8 +544,9 @@ async def fetch_evidence(state: AgentState) -> dict:
     """2번 노드다. 진단의 증거를 모은다.
 
     실행과 두 snapshot 을 고정하고(_fix_snapshots), 후보 snapshot 의 skill 목록과 버전을 list_skills
-    로 읽고(skillops-agent/skillops_agent/contracts.py 의 check_skill_listing), 두 snapshot 의 실제
-    변경을 hunk 단위로 모은다(_collect_changes). 실행이 없으면(type=skill_saved)
+    로 읽는다. 목록이 partial이면 metadata 증거를 반환하고 전용 수집 경로로 보낸다.
+    완전한 목록은 check_skill_listing으로 검사하고 실제 변경을 hunk로 모은다(_collect_changes).
+    실행이 없으면(type=skill_saved)
     사전 검증(_preflight)으로 BASELINE_FAILED, VALIDATION_FAILED, VALIDATED 가운데 하나로 끝내거나
     실패한 실행으로 진단을 잇는다. 변경이 없으면 NO_SKILL_CHANGES 를 남기고, diagnosis_only 요청이면
     의도 조건 검사(_evaluate_intent_checks)로 결론을 낸다.
@@ -553,9 +558,16 @@ async def fetch_evidence(state: AgentState) -> dict:
     progress = _progress(state, "fetch_evidence", "실제 snapshot과 실행 증거 수집")
     async with get_tools() as t:
         snaps = await _fix_snapshots(t, trigger)
-        versions = check_skill_listing(
-            await t.list_skills(snaps.candidate), snaps.candidate, snaps.after["hash"]
-        )
+        listing = await t.list_skills(snaps.candidate)
+        if listing.get("partial") or listing.get("parse_errors"):
+            evidence = prepare_partial_evidence(listing, snaps.before, snaps.after)
+            return {
+                **progress, "evidence": evidence,
+                "trace": snaps.trace, "snapshot_id": snaps.candidate,
+                "baseline_snapshot_id": snaps.baseline, "execution_id": snaps.execution,
+                "skill_versions": {item["skill_id"]: item["version"] for item in listing["items"]},
+            }
+        versions = check_skill_listing(listing, snaps.candidate, snaps.after["hash"])
         diffs, changes = await _collect_changes(t, snaps, trigger.get("changed_paths"))
         update = {}
         execution, trace, ids = snaps.execution, snaps.trace, []
@@ -590,6 +602,44 @@ async def fetch_evidence(state: AgentState) -> dict:
         if trigger.get("diagnosis_only"):
             update.update(await _evaluate_intent_checks(t, trigger, execution, snaps.candidate))
     return {**progress, **update}
+
+
+def _partial_stop(evidence: dict) -> dict:
+    """partial 증거 수집을 오류 설명과 함께 끝내며 자동 수정 경로로 보내지 않는다."""
+    return {
+        "evidence": evidence,
+        "diagnosis_status": DiagnosisStatus.ERROR,
+        "error": "ContractError: candidate skill metadata is incomplete",
+        "diagnosis": {
+            "explanation": (
+                "Skill 메타데이터가 불완전하여 증거만 수집했습니다. "
+                "자동 수정과 실행은 수행하지 않습니다."
+            ),
+            "evidence_only": True,
+            "collection_status": evidence["collection_status"],
+            "collection_error_count": len(evidence["collection_errors"]),
+        },
+    }
+
+
+async def collect_partial_sources(state: AgentState) -> dict:
+    """partial 원문 수집 결과를 독립 노드로 반환해 diff 호출 전에 영구 저장한다."""
+    progress = _progress(state, "collect_partial_sources", "불완전한 Skill 목록의 원문 증거 수집")
+    async with get_tools() as tools:
+        evidence, stopped = await collect_sources(tools, state["evidence"])
+    return {**progress, **(_partial_stop(evidence) if stopped else {"evidence": evidence})}
+
+
+async def collect_partial_diffs(state: AgentState) -> dict:
+    """partial의 가능한 diff를 저장하고 LLM·workspace·patch 호출 없이 종료한다."""
+    progress = _progress(
+        state, "collect_partial_diffs", "불완전한 Skill 목록의 diff 증거 수집 후 종료"
+    )
+    async with get_tools() as tools:
+        evidence, diff, changes = await collect_diffs(
+            tools, state["evidence"], state["trigger"].get("changed_paths")
+        )
+    return {**progress, **_partial_stop(evidence), "diff": diff, "changes": changes}
 
 
 # ── Node 3: hypothesize ───────────────────────────────────────────────────────
@@ -692,6 +742,10 @@ async def _ablate_change(
     applied = await t.apply_patch(ws["workspace_id"], [patch])
     if applied.get("workspace_id") != ws["workspace_id"] or not applied.get("changed_skills"):
         raise ContractError("ablation patch was not applied")
+    # 실험용 오류 목록의 내용은 허용하되 서버가 검사를 생략한 응답은 거부한다.
+    patch_contract_ok(applied)
+    patch_metadata_ok(applied)
+    patch_flow_ok(applied)
     results = await _run_scenarios(t, ws["workspace_id"], [repro_id], ABLATION_REPEAT)
     return AblationRun(
         change_no=change["change_no"],
@@ -1013,14 +1067,15 @@ async def generate_candidates(state: AgentState) -> dict:
 def _check_applied(applied: dict, workspace_id: str, patches: list[Patch]) -> set[str]:
     """apply_patch 응답이 이 workspace 에 후보 patch 를 모두 적용했는지 보고 대상 skill 을 준다.
 
-    응답이 이 workspace 의 것이고 broken_links 목록이 있어야 하며, changed_skills 가 후보가 고친
-    skill 과 정확히 같아야 한다. 어긋나면 ContractError 로 진단을 멈춘다. 돌려주는 skill 이름 집합의
-    크기가 changed_skill_count 가 된다. _verify_candidate 가 부른다.
+    응답이 이 workspace의 것이고 연결·필수 정보·구조 오류 목록이 있어야 한다.
+    changed_skills는 후보가 고친 skill과 정확히 같아야 한다. 어긋나면 ContractError로 진단을 멈춘다.
+    반환한 이름 집합의 크기가 changed_skill_count가 된다. _verify_candidate가 부른다.
     """
-    if applied.get("workspace_id") != workspace_id or not isinstance(
-        applied.get("broken_links"), list
-    ):
+    if applied.get("workspace_id") != workspace_id:
         raise ContractError("invalid apply_patch response")
+    patch_contract_ok(applied)
+    patch_metadata_ok(applied)
+    patch_flow_ok(applied)
     expected_skills = {p["skill"] for p in patches}
     if (
         not expected_skills
@@ -1042,8 +1097,10 @@ def _judge(
 
     fixes_failure 는 재현 시나리오가 모두 통과했는지, keeps_old_orders 는 회귀 세트의 통과 수와 전체
     수({passed, total}), keeps_intent 는 의도 조건 실행이 모두 통과했는지, no_broken_links 는
-    apply_patch 응답의 broken_links 가 비었는지다. valid 는 재현, 회귀, 의도가 모두 통과하고 끊긴
-    연결이 없을 때만 참이다. 의도 조건이 없으면 intent_results 가 빈 목록이라 keeps_intent 가 참이
+    apply_patch의 broken_links와 dependency_violations가 모두 비었는지다.
+    metadata_valid와 flow_valid는 해당 오류 목록이 비었는지이며 연결 검사와 독립적이다.
+    valid는 재현·회귀·의도가 통과하고 연결·필수 정보·구조 오류가 없을 때만 참이다.
+    의도 조건이 없으면 intent_results 가 빈 목록이라 keeps_intent 가 참이
     된다. service 는 저장할 때
     service/src/main/java/com/capstone4/skillops/proposal/ProposalRules.java 의 passes 로 valid 를
     다시 계산하고, 값이 다르면 INVALID_INPUT 으로 거부한다. 합격 기준을 바꾸려면 두 곳을 함께
@@ -1052,7 +1109,9 @@ def _judge(
     functional = all_passed(repro)
     regression_ok = all_passed(regression)
     intent_ok = all_passed(intent_results)
-    contract_ok = not applied["broken_links"]
+    contract_ok = patch_contract_ok(applied)
+    metadata_ok = patch_metadata_ok(applied)
+    flow_ok = patch_flow_ok(applied)
     results = CandidateResults(
         fixes_failure=functional,
         keeps_old_orders={
@@ -1061,10 +1120,15 @@ def _judge(
         },
         keeps_intent=intent_ok,
         no_broken_links=contract_ok,
+        metadata_valid=metadata_ok,
+        flow_valid=flow_ok,
         changed_skill_count=len(expected_skills),
         tools_called=called,
     )
-    return results, functional and regression_ok and intent_ok and contract_ok
+    return (
+        results,
+        functional and regression_ok and intent_ok and contract_ok and metadata_ok and flow_ok,
+    )
 
 
 async def _verify_candidate(
@@ -1117,6 +1181,8 @@ async def _verify_candidate(
         **candidate,
         "workspace": ws["workspace_id"],
         "results": results,
+        "metadata_errors": applied["metadata_errors"],
+        "flow_errors": applied["flow_errors"],
         "valid": valid,
         "evidence_run_ids": evidence,
     }

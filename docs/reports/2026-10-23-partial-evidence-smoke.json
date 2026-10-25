@@ -1,0 +1,75 @@
+{
+  "verified_at": "2026-10-23T19:11:59.893132+09:00",
+  "baseline_snapshot_id": "3839c4fe-6d9b-4b97-a945-a672d6da1059",
+  "normal_skill_count": 6,
+  "cases": [
+    {
+      "case": "missing-owner",
+      "snapshot_id": "ddf1ea32-9939-497d-ab13-48cbedf5eb9f",
+      "thread_id": "1ade0145-cf8f-48da-9404-c68d9fedf48f",
+      "source_count": 12,
+      "hunk_count": 1,
+      "parse_error_codes": [
+        "INVALID_SKILL_FORMAT"
+      ],
+      "frontmatter_parse_error": false,
+      "evidence_hash": "bdc206396b45ddc3575bf5b3187b690797c189155779029ce3b0340acd80a230",
+      "persisted_after_restart": true,
+      "diagnosis_status": "ERROR",
+      "collection_status": "COLLECTED",
+      "collection_error_count": 0,
+      "normal_metadata_count": 5
+    },
+    {
+      "case": "broken-yaml",
+      "snapshot_id": "486159ea-edb8-4be6-8ee1-d9c5cacdbb53",
+      "thread_id": "b66307c3-2f08-465d-aa2a-7caed769b709",
+      "source_count": 12,
+      "hunk_count": 1,
+      "parse_error_codes": [
+        "INVALID_SKILL_FORMAT"
+      ],
+      "frontmatter_parse_error": true,
+      "evidence_hash": "6ef9aa729d3b3c3791af961eff74aefd2708949e23e05b5098c3007107485a91",
+      "persisted_after_restart": true,
+      "diagnosis_status": "ERROR",
+      "collection_status": "COLLECTED",
+      "collection_error_count": 0,
+      "normal_metadata_count": 5
+    },
+    {
+      "case": "missing-version",
+      "snapshot_id": "9f70be3f-ecc9-41d0-a839-a5b4f9370c31",
+      "thread_id": "60a8a30f-88e7-4e3d-b8cc-83cfd45fe372",
+      "source_count": 12,
+      "hunk_count": 1,
+      "parse_error_codes": [
+        "INVALID_SKILL_FORMAT"
+      ],
+      "frontmatter_parse_error": false,
+      "evidence_hash": "452982ba5a8eb71f8ef926a3dbb921c45317bafd7392440c7e13f0b01997c524",
+      "persisted_after_restart": true,
+      "diagnosis_status": "ERROR",
+      "collection_status": "COLLECTED",
+      "collection_error_count": 0,
+      "normal_metadata_count": 5
+    }
+  ],
+  "mcp_tool_calls": {
+    "diff_skill": 3
+  },
+  "llm_attempts": 0,
+  "product_inventory_unchanged": true,
+  "execution_list_unchanged": true,
+  "failed_execution_list_unchanged": true,
+  "service_proxy_verified": true,
+  "token_enforced": true,
+  "runtime_directory": "skillops-agent/.data/partial-evidence-live-20261023-1",
+  "implementation_commit": "8712c91",
+  "service_database_counts_after": {
+    "workspaces": 0,
+    "proposals": 0,
+    "approvals": 0
+  },
+  "service_database_check": "Read from isolated PostgreSQL with psql after the smoke run."
+}

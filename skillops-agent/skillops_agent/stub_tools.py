@@ -23,6 +23,7 @@ UUID 와 golden 시나리오 목록은 아래 모듈 상수에서 바꾼다.
 """
 
 from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import uuid4
 
 from .contracts import ContractError, execution_uuid
@@ -232,6 +233,16 @@ class StubMCPTools:
         return {"snapshot_id": snapshot_id, "skill_id": skill_id, "version": 1,
                 "content": "---\nname: " + skill_id + "\noutputs: []\n---\nbody\n"}
 
+    async def get_snapshot_file(self, snapshot_id: str, path: str) -> dict:
+        """원문 조회 대역이다. partial 테스트는 manifest와 함께 실제 fixture로 교체한다."""
+        await self.get_snapshot(snapshot_id)
+        if path != "skills/inventory-check/SKILL.md":
+            raise ContractError("unknown stub file")
+        content = (await self.get_skill(snapshot_id, "inventory-check"))["content"]
+        raw = content.encode("utf-8")
+        return {"snapshot_id": snapshot_id, "path": path, "hash": sha256(raw).hexdigest(),
+                "size": len(raw), "encoding": "utf-8", "content": content}
+
     async def get_trace(self, execution_id):
         """실행 기록을 돌려준다. r_ 별칭도 하이픈 UUID 로 바꿔 찾는다.
 
@@ -315,7 +326,7 @@ class StubMCPTools:
         """patches 가 있고 아는 workspace 면 그 workspace 를 통과 상태로 바꾼다.
 
         패치한 skill 마다 base_version + 1 을 changed_skills 로 돌려준다. 패치 내용은 보지 않으므로
-        어떤 수정이든 고친 것으로 보고, broken_links 는 늘 비어 있다. 패치가 없거나 모르는
+        어떤 수정이든 고친 것으로 보고 입력·선행 단계 오류 목록은 늘 비어 있다. 패치가 없거나 모르는
         workspace 면 ContractError 다.
         """
         if not patches or workspace_id not in self._workspaces:
@@ -327,6 +338,9 @@ class StubMCPTools:
                 {"skill": p["skill"], "version": p["base_version"] + 1} for p in patches
             ],
             "broken_links": [],
+            "dependency_violations": [],
+            "metadata_errors": [],
+            "flow_errors": [],
         }
 
     async def run_scenarios(

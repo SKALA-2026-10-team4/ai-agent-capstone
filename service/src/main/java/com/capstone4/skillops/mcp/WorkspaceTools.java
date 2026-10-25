@@ -88,8 +88,16 @@ public class WorkspaceTools {
             patch 는 diff_skill 이 돌려준 덩어리별 diff 를 그대로 넣거나 같은 형식으로 만든다. '---', '+++' 머리줄은 없어도 된다.
             base_version 은 연습 공간 안 그 skill 의 시작 버전(create_workspace 의 skill_versions)과 같아야 한다.
             끊긴 연결이 있어도 수정은 들어간다. 판단은 부른 쪽이 한다. 고치면 SKILL.md 맨 위 칸을 읽을 수 없게 되는 수정은 거부한다.
-            돌려주는 값: {workspace_id, changed_skills:[{skill, version}], broken_links:[{skill, missing_input}]}.
-            version 은 시작 버전 + 그 skill 에 수정이 들어간 횟수다. broken_links 가 비어 있으면 연결이 모두 이어져 있다.
+            돌려주는 값: {workspace_id, changed_skills:[{skill, version}], broken_links:[{skill, missing_input}],
+            dependency_violations:[{skill, missing_dependency}], metadata_errors:[{skill, field, code, message}],
+            flow_errors:[{skill, code, reason, message}]}.
+            version 은 시작 버전 + 그 skill 에 수정이 들어간 횟수다.
+            입력 공급·선행 순서 검사를 통과하려면 broken_links 와 dependency_violations 가 모두 비어 있어야 한다.
+            metadata_errors 는 전체 workspace의 name/version/owner/description/본문과 실행용 YAML 형식 오류다.
+            필수 정보 오류가 있어도 기존 입력 거부 조건에 걸리지 않으면 patch는 저장된다. 후보 합격에는 metadata_errors도 비어야 한다.
+            flow_errors 는 중복 단계, 12단계 초과, 잘못된 단계 이름, 없는/읽을 수 없는 단계, 중첩 flow, 불완전한 분석을 알린다.
+            구조 오류가 있어도 기존 입력 거부 조건에 걸리지 않으면 저장한다. 후보 합격에는 flow_errors도 비어야 한다.
+            진단용 그래프는 그대로 유지하며 이 검사만으로 실제 실행 성공을 보장하지 않는다.
             실패하면 isError=true 와 {code, message, retryable, upstream_status, snapshot_id} 를 돌려준다.""")
     public CallToolResult applyPatch(
             @McpToolParam(description = "create_workspace 가 돌려준 연습 공간 번호") String workspace_id,

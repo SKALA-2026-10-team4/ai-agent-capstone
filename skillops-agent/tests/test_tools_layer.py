@@ -339,12 +339,14 @@ async def test_order_agent_reads_use_the_injected_http_client():
         assert await tools.get_snapshot(SNAPSHOT) == {"items": []}
         assert await tools.list_skills(SNAPSHOT) == {"items": []}
         assert await tools.get_skill(SNAPSHOT, "payment") == {"items": []}
+        assert await tools.get_snapshot_file(SNAPSHOT, "skills/payment/SKILL.md") == {"items": []}
         assert await tools.get_trace(EXECUTION) == {"items": []}
         assert await tools.list_failed_runs() == {"items": []}
     assert paths == [
         f"/api/snapshots/{SNAPSHOT}",
         f"/api/snapshots/{SNAPSHOT}/skills",
         f"/api/snapshots/{SNAPSHOT}/skills/payment",
+        f"/api/snapshots/{SNAPSHOT}/files",
         f"/api/executions/{EXECUTION}/trace",
         "/api/executions/failed",
     ]

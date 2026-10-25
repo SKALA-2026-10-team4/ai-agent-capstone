@@ -25,6 +25,61 @@ EXECUTION = "33333333-3333-4333-8333-333333333333"
 SNAPSHOT = "22222222-2222-4222-8222-222222222222"
 
 
+async def test_snapshot_file_uses_encoded_query_and_injected_client(sleeps):
+    """특수 문자가 있는 파일 경로를 params로 보내고 503만 같은 요청으로 재시도한다."""
+    requests = []
+    path = "skills/payment/resources/a & b#한글.md"
+
+    def handle(request):
+        """원래 경로가 query에서 복원되는지 확인하고 첫 요청만 일시 실패시킨다."""
+        requests.append(request)
+        assert request.url.params["path"] == path
+        return httpx.Response(503 if len(requests) == 1 else 200, json={"content": "original"})
+
+    async with httpx.AsyncClient(
+        base_url="http://injected", transport=httpx.MockTransport(handle)
+    ) as client:
+        assert await order_agent.get_snapshot_file(SNAPSHOT, path, client=client) == {
+            "content": "original"
+        }
+    assert len(requests) == 2
+    assert all(r.url.host == "injected" and r.url.path == f"/api/snapshots/{SNAPSHOT}/files"
+               for r in requests)
+    assert sleeps == [order_agent.RETRY_BACKOFF_SECONDS]
+
+
+@pytest.mark.parametrize("path", [None, "", "../SKILL.md", "skills/../SKILL.md",
+                                  "skills//SKILL.md", "skills/a\\b", "skills/a\x00b"])
+async def test_snapshot_file_rejects_invalid_path_before_request(path):
+    """manifest로 사용할 수 없는 파일 경로는 요청 전에 거부한다."""
+    client, paths = order_client(httpx.Response(200, json={}))
+    async with client:
+        with pytest.raises(OrderAgentError) as caught:
+            await order_agent.get_snapshot_file(SNAPSHOT, path, client=client)
+    assert caught.value.code == "INVALID_INPUT"
+    assert paths == []
+
+
+async def test_snapshot_file_rejects_invalid_snapshot_before_request():
+    """원문 조회에서도 snapshot UUID를 검사한다."""
+    client, paths = order_client(httpx.Response(200, json={}))
+    async with client:
+        with pytest.raises(OrderAgentError):
+            await order_agent.get_snapshot_file("bad", "skills/payment/SKILL.md", client=client)
+    assert paths == []
+
+
+async def test_snapshot_file_invalid_json_is_a_read_error():
+    """깨진 JSON을 조회 오류로 바꿔 이미 수집한 다른 파일 증거를 잃지 않게 한다."""
+    client, paths = order_client(httpx.Response(200, content=b"not JSON"))
+    async with client:
+        with pytest.raises(OrderAgentError) as caught:
+            await order_agent.get_snapshot_file(SNAPSHOT, "skills/payment/SKILL.md", client=client)
+    assert caught.value.code == "ORDER_AGENT_INVALID_RESPONSE"
+    assert caught.value.retryable is False
+    assert len(paths) == 1
+
+
 def order_client(*actions):
     """요청마다 actions 를 차례로 쓰는 MockTransport client 와 요청 경로 기록 목록을 돌려준다.
 

@@ -45,7 +45,7 @@ public class ContractOnlyFlowRunner implements FlowRunner {
     /**
      * order-flow 의 steps 순서대로 단계를 흉내 낸다. 문맥은 주문 칸으로 시작하고 단계가 내놓은 값이 차례로 더해진다.
      * 한 단계가 error 가 되면 뒤 단계는 맨 위 칸을 읽지 않고 skipped 로 둔다. 그래서 뒤 skill 의 맨 위 칸이 깨져 있어도 오류가 나지 않는다.
-     * entry flow 나 steps 에 있는 skill 이 연습 공간에 없으면 IllegalArgumentException 을 던진다.
+     * steps가 비었거나 entry flow 또는 단계 skill이 없으면 IllegalArgumentException을 던진다.
      * request.order() 가 null 이면 stepsOf 의 검사를 마친 뒤 initialContext 에서 NullPointerException 이 난다. 이 예외 문구는
      * MCP run_scenarios 오류(INTERNAL_ERROR)의 message 로 그대로 나가므로, 리팩토링 전처럼 DryRunRequest.order() 의 반환값이
      * null 이라는 문구가 되도록 initialContext 가 request 를 받아 order() 를 직접 부른다.
@@ -74,7 +74,7 @@ public class ContractOnlyFlowRunner implements FlowRunner {
     /**
      * entry flow 의 steps 를 실행 순서로 돌려준다. entry flow 이름은
      * service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 의 ENTRY_SKILL(order-flow)이다.
-     * entry flow 나 steps 에 있는 skill 이 연습 공간에 없으면 IllegalArgumentException 을 던진다.
+     * steps가 비었거나 entry flow 또는 단계 skill이 없으면 IllegalArgumentException을 던진다.
      */
     private static List<String> stepsOf(Map<String, WorkspaceSkill> skills) {
         WorkspaceSkill flow = skills.get(WorkspaceService.ENTRY_SKILL);
@@ -82,6 +82,9 @@ public class ContractOnlyFlowRunner implements FlowRunner {
             throw new IllegalArgumentException("연습 공간에 " + WorkspaceService.ENTRY_SKILL + " 가 없습니다");
         }
         List<String> order = SkillHeader.parse(flow.fullText()).steps();
+        if (order.isEmpty()) {
+            throw new IllegalArgumentException(WorkspaceService.ENTRY_SKILL + " 의 steps 에 실행할 skill 을 하나 이상 넣으세요");
+        }
         for (String skill : order) {
             if (!skills.containsKey(skill)) {
                 throw new IllegalArgumentException(

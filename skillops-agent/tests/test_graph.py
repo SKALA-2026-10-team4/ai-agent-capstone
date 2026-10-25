@@ -185,18 +185,85 @@ async def test_checks_are_scoped_to_replay_and_all_trials_have_evidence(tools, m
 
 
 @pytest.mark.asyncio
-async def test_broken_contract_cannot_be_valid(tools, monkeypatch):
+@pytest.mark.parametrize(
+    ("field", "violation"),
+    [
+        ("broken_links", {"skill": "payment", "missing_input": "inventory.reserved"}),
+        ("dependency_violations", {"skill": "payment", "missing_dependency": "notify"}),
+    ],
+)
+async def test_broken_contract_cannot_be_valid(tools, monkeypatch, field, violation):
+    """입력 공급 또는 선행 단계만 어겨도 합격 후보와 추천 제안서를 만들지 않는다."""
     original = tools.apply_patch
 
     async def broken(*args):
+        """실행은 통과하는 stub 응답에 지정한 연결 오류만 추가한다."""
         result = await original(*args)
-        result["broken_links"] = [{"skill": "payment", "missing_input": "inventory.reserved"}]
+        result[field] = [violation]
         return result
 
     monkeypatch.setattr(tools, "apply_patch", broken)
     result = await run(initial())
     assert result["error"] is None
     assert not any(c["valid"] for c in result["candidates"])
+    assert all(c["results"]["no_broken_links"] is False for c in result["candidates"])
+    assert result["proposal"]["status"] == "no_valid_fix"
+
+
+@pytest.mark.asyncio
+async def test_metadata_error_cannot_be_recommended(tools, monkeypatch):
+    """필수 정보 오류가 있으면 실행이 통과해도 제안서에 무효와 오류 근거를 남긴다."""
+    original = tools.apply_patch
+    error = {
+        "skill": "payment",
+        "field": "owner",
+        "code": "INVALID_SKILL_FORMAT",
+        "message": "owner는 비어 있지 않은 문자열이어야 합니다",
+    }
+
+    async def missing_owner(*args):
+        """실행이 통과하는 stub 응답에 owner 누락 결과를 추가한다."""
+        response = await original(*args)
+        response["metadata_errors"] = [error]
+        return response
+
+    monkeypatch.setattr(tools, "apply_patch", missing_owner)
+    result = await run(initial())
+
+    assert result["error"] is None
+    assert not any(c["valid"] for c in result["candidates"])
+    assert all(c["results"]["no_broken_links"] for c in result["candidates"])
+    assert all(c["results"]["metadata_valid"] is False for c in result["candidates"])
+    assert all(c["metadata_errors"] == [error] for c in result["proposal"]["candidates"])
+    assert result["proposal"]["status"] == "no_valid_fix"
+
+
+@pytest.mark.asyncio
+async def test_flow_error_is_preserved_and_cannot_be_recommended(tools, monkeypatch):
+    """실행은 통과해도 구조 오류 후보를 추천하지 않고 제안서에 이유를 남긴다."""
+    original = tools.apply_patch
+    error = {
+        "skill": "payment",
+        "code": "INVALID_FLOW",
+        "reason": "DUPLICATE_STEP",
+        "message": "같은 단계를 여러 번 실행할 수 없습니다",
+    }
+
+    async def duplicated_step(*args):
+        """적용 성공 응답에 중복 단계 오류를 추가한다."""
+        response = await original(*args)
+        response["flow_errors"] = [error]
+        return response
+
+    monkeypatch.setattr(tools, "apply_patch", duplicated_step)
+    result = await run(initial())
+
+    assert result["error"] is None
+    assert not any(c["valid"] for c in result["candidates"])
+    assert all(c["results"]["no_broken_links"] for c in result["candidates"])
+    assert all(c["results"]["metadata_valid"] for c in result["candidates"])
+    assert all(c["results"]["flow_valid"] is False for c in result["candidates"])
+    assert all(c["flow_errors"] == [error] for c in result["proposal"]["candidates"])
     assert result["proposal"]["status"] == "no_valid_fix"
 
 

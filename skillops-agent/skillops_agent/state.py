@@ -13,7 +13,7 @@ skillops-agent/tests/test_pipeline_defaults.py 와 skillops-agent/tests/test_flo
 가 그 순서를 고정한다. TypedDict 는 타입 표시일 뿐이라 런타임에 키나 값을 검사하지 않는다.
 """
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class Hypothesis(TypedDict):
@@ -123,9 +123,12 @@ class CandidateResults(TypedDict):
     # 의도 조건을 붙인 재현 실행이 모두 통과했는지다. 조건이 없으면 True 다.
     # v1 계약에서 intent 가 keeps_intent 로 바뀌었다.
     keeps_intent: bool
-    # apply_patch 응답의 broken_links 가 비었는지다. v1 계약에서 contract 가 no_broken_links 로
-    # 바뀌었다.
+    # apply_patch의 broken_links와 dependency_violations가 모두 비었는지다.
     no_broken_links: bool
+    # apply_patch의 필수 정보 오류 목록이 비었는지다. 연결 오류와 별개로 판정한다.
+    metadata_valid: bool
+    # flow_errors가 비어 실행 순서의 구조와 단계 선언 검사가 통과했는지다.
+    flow_valid: bool
     # 후보가 고친 skill 수다. v1 계약에서 footprint 가 changed_skill_count 로 바뀌었다.
     changed_skill_count: int
     # 재현 실행 기록의 TOOL_REQUEST 이벤트에서 뽑은 도구 이름이다(PB-007). 재현 실행마다 모은
@@ -144,6 +147,10 @@ class Candidate(TypedDict):
 
     # patch 형식 오류나 apply_patch 의 INVALID_INPUT 거절 이유다. 값이 있으면 후보는 무효다.
     validation_error: str | None
+    # 저장된 patch에서 발견한 필수 정보 오류다. 적용 실패 사유와 구분해 보존한다.
+    metadata_errors: NotRequired[list[dict]]
+    # 적용된 patch의 flow 구조 오류로 제안서에 그대로 보존한다.
+    flow_errors: NotRequired[list[dict]]
     # 1부터 매기는 후보 번호다. v1 계약에서 문자열 id 가 정수 candidate_no 로 바뀌었다.
     candidate_no: int
     # v1 계약에서 local, contract, flow 가 차례로 same_skill, linked_skills, run_order 로 바뀌었다.
@@ -154,7 +161,7 @@ class Candidate(TypedDict):
     patches: list[Patch]
     # verify_candidates 노드가 채운다. 형식 오류나 apply_patch 거절로 시험하지 못하면 None 이다.
     results: CandidateResults | None
-    # fixes_failure, keeps_old_orders 전부 통과, keeps_intent, no_broken_links 가 모두 참일 때만
+    # 재현·회귀·의도·연결·필수 정보·flow 구조 검사가 모두 통과한 경우에만
     # True 다. 형식 오류나 적용 거절 후보는 False 이고, 검증 전에는 None 이다.
     valid: bool | None
     # 검증 실행 ID 전체다. v1 계약에서 evidence 가 evidence_run_ids 로 바뀌었다. 적용된 후보인데
@@ -211,6 +218,8 @@ class AgentState(TypedDict):
     trace: dict | None
     # diff_skill 결과를 {files: 응답 목록, hunks: changes} 로 묶은 값이다.
     diff: dict | None
+    # partial 목록에서 수집한 원문·목록 오류·manifest다. 자동 수정에는 사용하지 않는다.
+    evidence: dict | None
     # 후보 snapshot 의 list_skills 응답에서 만든 {skill_id: version} 이다.
     skill_versions: dict
     # 진단한 후보 snapshot ID 다. v1 계약에서는 실행이 있으면 실행 당시 snapshot ID 다.
@@ -305,6 +314,7 @@ def empty_run_fields() -> dict:
     return {
         "trace": None,
         "diff": None,
+        "evidence": None,
         "skill_versions": {},
         "snapshot_id": None,
         "baseline_snapshot_id": None,

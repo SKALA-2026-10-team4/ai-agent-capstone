@@ -264,9 +264,17 @@
                   "type": "string"
                 },
                 "description": "재현 실행 기록의 TOOL_REQUEST 도구 이름. 같은 이름이 겹칠 수 있다"
+              },
+              "metadata_valid": {
+                "type": "boolean",
+                "description": "최신 Agent는 반드시 보낸다. false면 후보 무효. 과거 제안서의 누락만 기존 판정으로 호환한다"
+              },
+              "flow_valid": {
+                "type": "boolean",
+                "description": "최신 Agent는 반드시 보낸다. 구조 오류가 있으면 false. 과거 제안서의 누락은 기존 판정으로 호환한다"
               }
             },
-            "description": "시험 결과. 합격은 fixes_failure, keeps_old_orders(passed == total 이고 total >= 1), keeps_intent, no_broken_links 가 모두 true 일 때다(ProposalRules.passes)"
+            "description": "시험 결과. 합격은 fixes_failure, keeps_old_orders(passed == total 이고 total >= 1), keeps_intent, no_broken_links 가 모두 true 일 때다(ProposalRules.passes) 최신 Agent의 metadata_valid와 flow_valid도 true여야 하며, 과거 제안서의 필드 누락은 기존 판정으로 호환한다."
           },
           "valid": {
             "type": [
@@ -301,6 +309,14 @@
               "string",
               "null"
             ]
+          },
+          "metadata_errors": {
+            "$ref": "apply-patch-result.schema.json#/properties/metadata_errors",
+            "description": "patch 저장 이후의 필수 정보 오류. 적용 실패인 validation_error와 구분한다"
+          },
+          "flow_errors": {
+            "$ref": "apply-patch-result.schema.json#/properties/flow_errors",
+            "description": "적용된 후보의 구조 오류를 보존한다"
           }
         },
         "allOf": [

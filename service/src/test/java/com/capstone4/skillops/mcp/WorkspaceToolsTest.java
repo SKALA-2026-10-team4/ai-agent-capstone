@@ -19,6 +19,7 @@ import com.capstone4.skillops.workspace.WorkspaceService;
 import com.capstone4.skillops.workspace.WorkspaceService.BrokenLink;
 import com.capstone4.skillops.workspace.WorkspaceService.ChangedSkill;
 import com.capstone4.skillops.workspace.WorkspaceService.CreatedWorkspace;
+import com.capstone4.skillops.workspace.WorkspaceService.DependencyViolation;
 import com.capstone4.skillops.workspace.WorkspaceService.PatchInput;
 import com.capstone4.skillops.workspace.WorkspaceService.PatchResult;
 
@@ -144,24 +145,77 @@ class WorkspaceToolsTest {
                 "run_id", "r_1", "skill", "payment", "reason", "최종 상태 기대 SHIPPED, 실제 FAILED"));
     }
 
+    /** 기존 입력 누락 형식을 보존하고 선행 단계 오류 필드를 항상 직렬화한다. */
     @Test
     @SuppressWarnings("unchecked")
     void applyPatchReturnsV1Shape() {
         when(workspaces.apply("w_abc", List.of(new PatchInput("inventory-check", 1, "@@ -5 +5 @@\n-a\n+b\n"))))
                 .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("inventory-check", 2)),
-                        List.of(new BrokenLink("payment", "inventory.reserved"))));
+                        List.of(new BrokenLink("payment", "inventory.reserved")), List.of(), List.of(), List.of()));
 
         CallToolResult result = tools.applyPatch("w_abc",
                 List.of(new PatchInput("inventory-check", 1, "@@ -5 +5 @@\n-a\n+b\n")));
 
         assertThat(result.isError()).isFalse();
         Map<String, Object> body = mapOf(textOf(result));
-        assertThat(body.keySet()).containsExactly("workspace_id", "changed_skills", "broken_links");
+        assertThat(body.keySet()).containsExactly("workspace_id", "changed_skills", "broken_links", "dependency_violations", "metadata_errors", "flow_errors");
         assertThat(body.get("workspace_id")).isEqualTo("w_abc");
         assertThat(((List<Map<String, Object>>) body.get("changed_skills")).getFirst())
                 .isEqualTo(Map.of("skill", "inventory-check", "version", 2));
         assertThat(((List<Map<String, Object>>) body.get("broken_links")).getFirst())
                 .isEqualTo(Map.of("skill", "payment", "missing_input", "inventory.reserved"));
+        assertThat(body.get("dependency_violations")).isEqualTo(List.of());
+        assertThat(body.get("metadata_errors")).isEqualTo(List.of());
+        assertThat(body.get("flow_errors")).isEqualTo(List.of());
+    }
+
+    /** Python이 읽는 공통 fixture와 실제 MCP 선행 단계 오류 응답이 같은지 확인한다. */
+    @Test
+    void dependencyViolationMatchesSharedContractFixture() throws Exception {
+        when(workspaces.apply("w_abc", List.of(new PatchInput("payment", 1, "diff"))))
+                .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("payment", 2)), List.of(),
+                        List.of(new DependencyViolation("payment", "notify")), List.of(), List.of()));
+
+        CallToolResult result = tools.applyPatch("w_abc", List.of(new PatchInput("payment", 1, "diff")));
+        String fixture = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "../docs/contracts/examples/apply-patch-dependency-violation.json"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(mapOf(textOf(result))).isEqualTo(mapOf(fixture));
+    }
+
+    /** 필수 정보 오류도 Python과 공유하는 fixture와 같은 MCP JSON으로 반환한다. */
+    @Test
+    void metadataErrorMatchesSharedContractFixture() throws Exception {
+        var error = new com.capstone4.skillops.skill.SkillMetadataValidator.Violation(
+                "payment", "owner", "INVALID_SKILL_FORMAT", "owner는 비어 있지 않은 문자열이어야 합니다");
+        when(workspaces.apply("w_abc", List.of(new PatchInput("payment", 1, "diff"))))
+                .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("payment", 2)), List.of(),
+                        List.of(), List.of(error), List.of()));
+
+        CallToolResult result = tools.applyPatch("w_abc", List.of(new PatchInput("payment", 1, "diff")));
+        String fixture = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "../docs/contracts/examples/apply-patch-metadata-error.json"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(mapOf(textOf(result))).isEqualTo(mapOf(fixture));
+    }
+
+    /** flow 구조 오류의 MCP JSON을 Python과 같은 fixture로 검증한다. */
+    @Test
+    void flowErrorMatchesSharedContractFixture() throws Exception {
+        var error = new com.capstone4.skillops.skill.FlowStructureValidator.Violation(
+                "payment", "INVALID_FLOW", "DUPLICATE_STEP", "같은 단계를 여러 번 실행할 수 없습니다");
+        when(workspaces.apply("w_abc", List.of(new PatchInput("order-flow", 1, "diff"))))
+                .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("order-flow", 2)), List.of(),
+                        List.of(), List.of(), List.of(error)));
+
+        CallToolResult result = tools.applyPatch("w_abc", List.of(new PatchInput("order-flow", 1, "diff")));
+        String fixture = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "../docs/contracts/examples/apply-patch-flow-error.json"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(mapOf(textOf(result))).isEqualTo(mapOf(fixture));
     }
 
     @Test
@@ -194,7 +248,7 @@ class WorkspaceToolsTest {
         assertThat(((Map<String, Object>) patchesItems.get("properties")).keySet())
                 .containsExactlyInAnyOrder("skill", "base_version", "patch");
         when(workspaces.apply("w_abc", List.of(new PatchInput("inventory-check", 1, "diff"))))
-                .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("inventory-check", 2)), List.of()));
+                .thenReturn(new PatchResult("w_abc", List.of(new ChangedSkill("inventory-check", 2)), List.of(), List.of(), List.of(), List.of()));
 
         CallToolResult result = spec.callHandler().apply(null, CallToolRequest.builder().name("apply_patch")
                 .arguments(Map.of("workspace_id", "w_abc",

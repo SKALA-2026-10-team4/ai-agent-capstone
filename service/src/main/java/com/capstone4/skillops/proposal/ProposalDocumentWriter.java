@@ -456,7 +456,7 @@ public final class ProposalDocumentWriter {
 
         /**
          * 시험한 후보의 기준별 결과 문단을 만든다. 실패 해결, 기준 주문, 의도, Skill 사이 연결 순서이며, 기준 주문 문장은 total 을 알 때만 넣는다.
-         * 네 기준은 합격 조건(ProposalRules 의 passes)과 같은 칸을 읽는다.
+         * 필수 정보 결과가 있으면 해당 문장도 덧붙이며 합격 조건(ProposalRules의 passes)과 같은 칸을 읽는다.
          */
         private List<String> trialParagraphs(Map<String, Object> results) {
             List<String> paragraphs = new ArrayList<>();
@@ -467,7 +467,25 @@ public final class ProposalDocumentWriter {
             }
             paragraphs.add(intentSentence(results));
             paragraphs.add(linksSentence(results));
+            if (results.containsKey("metadata_valid")) {
+                paragraphs.add(metadataSentence(results));
+            }
+            if (results.containsKey("flow_valid")) {
+                paragraphs.add(flowSentence(results));
+            }
             return paragraphs;
+        }
+
+        /** 필수 정보 검사 결과를 연결 검사와 별도 문장으로 설명한다. */
+        private static String metadataSentence(Map<String, Object> results) {
+            return bool(results.get("metadata_valid")) ? "Skill의 필수 정보와 본문이 검사 기준을 충족합니다."
+                    : "Skill의 필수 정보 또는 본문에 오류가 있어 이 후보를 사용할 수 없습니다.";
+        }
+
+        /** 운영자가 이해할 수 있는 문장으로 flow 구조 검사 결과를 설명한다. */
+        private static String flowSentence(Map<String, Object> results) {
+            return bool(results.get("flow_valid")) ? "실행 순서의 구조와 단계 선언을 모두 확인했습니다."
+                    : "실행 순서의 구조 또는 단계 선언에 오류가 있어 이 후보를 사용할 수 없습니다.";
         }
 
         /** 실패했던 주문을 다시 돌렸을 때 끝까지 처리됐는지(results.fixes_failure) 쓴다. */

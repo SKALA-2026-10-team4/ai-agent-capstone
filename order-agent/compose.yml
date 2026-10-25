@@ -15,8 +15,8 @@ services:
       retries: 20
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ..
+      dockerfile: order-agent/backend/Dockerfile
     environment:
       SKILLOPS_SERVICE_URL: ${SKILLOPS_SERVICE_URL:-http://host.docker.internal:8080}
       SKILLOPS_SERVICE_TOKEN: ${SKILLOPS_SERVICE_TOKEN:-}

@@ -1,5 +1,7 @@
 # B의 현재 C 계약 적용 (#60)
 
+> **2026-10-23 · #72 apply_patch v1.3:** `broken_links`와 `dependency_violations`는 `no_broken_links`, `metadata_errors`는 `metadata_valid`, 필수 `flow_errors:[{skill,code,reason,message}]`는 `flow_valid`로 판정한다. 세 검사가 모두 참이어야 후보가 합격한다. 네 오류 목록의 누락·null·잘못된 형태는 ContractError다. 후보 오류 상세를 제안서에 보존한다. 원인 실험에서는 오류 목록의 존재와 형식을 확인하되 내용이 비어 있지 않아도 실험을 계속한다. service와 Python을 함께 배포해야 하며 stub과 실제 MCP 판정 스크립트도 같은 계약을 사용한다. [최신 명세](../../docs/contracts/mcp-tools-input-output.md#8-수정-적용하기--apply_patch)
+
 > 후속 구현: 저장 이벤트 자동 전달·중복 방지·진행 조회·화면 연결은 `docs/skill-save-auto-diagnosis.md`에 정리했다. 아래의 자동 연동 미구현·메모리 상태 관련 설명은 해당 후속 구현으로 대체된다.
 
 2026-10-21. 변경 범위는 skillops-agent/이며 C 서비스·주문 Agent 소스는 변경하지 않는다.

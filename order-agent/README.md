@@ -16,6 +16,8 @@
 
 이슈 #39로 구현한 [진단용 조회 API 명세](docs/diagnosis-read-api.md)에 네 조회 기능의 요청·응답과 MCP 담당 두 분석 기능의 경계를 정의했다. `GET /api/executions/failed`, `GET /api/snapshots/{id}/skills`, `GET /api/snapshots/{id}/skills/{skill_id}`를 추가했으며 기존 trace·snapshot·파일 조회 API도 유지한다.
 
+[주문 Agent·Runner 연동 설계안](docs/runner-integration-design.md)은 2026-10-21의 과거 제안이며, 상단에 현재 구현과의 대응을 정리했다. 현행 명세·검증 결과와 과거 분석의 구분은 [백엔드 리뷰 안내](../docs/review/README.md)를 따른다.
+
 ## Docker로 실행
 
 Docker Desktop을 실행한 뒤 저장소 루트에서:

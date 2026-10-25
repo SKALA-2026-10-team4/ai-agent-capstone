@@ -1,0 +1,559 @@
+{
+  "baselineCommit": "447c770c1b000d17f9c99b79f5317f834cdb6f18",
+  "baselineDocuments": [
+    {
+      "id": "baseline-inventory-check",
+      "skill": "inventory-check",
+      "path": "skills/inventory-check/SKILL.md",
+      "sha256": "1db2fdeebf0b79dbc05b96ee888eac6d34a935e854753f461c720dc9440ac8e3",
+      "text": "---\nname: inventory-check\ndescription: 주문 상품의 재고를 확인하고 예약한다.\ninputs:     [order.id, order.items]\noutputs:    [inventory.available, inventory.reserved]\ndepends_on: [order-intake]\nowner: 물류팀\nversion: 1\n---\n# 재고 확인 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성. F1 은 이 skill 의 출력 필드명을 바꾼다 -->\n",
+      "expected": {
+        "name": "inventory-check",
+        "description": "주문 상품의 재고를 확인하고 예약한다.",
+        "owner": "물류팀",
+        "version": 1,
+        "inputs": [
+          "order.id",
+          "order.items"
+        ],
+        "outputs": [
+          "inventory.available",
+          "inventory.reserved"
+        ],
+        "steps": [],
+        "dependsOn": [
+          "order-intake"
+        ],
+        "body": "# 재고 확인 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성. F1 은 이 skill 의 출력 필드명을 바꾼다 -->"
+      }
+    },
+    {
+      "id": "baseline-notify",
+      "skill": "notify",
+      "path": "skills/notify/SKILL.md",
+      "sha256": "f823987c7a396ddd584219484f0698c62c23f7d73bdd169ec81ea4775ab0a27d",
+      "text": "---\nname: notify\ndescription: 고객에게 주문 결과를 알린다.\ninputs:     [order.id, order.customer, payment.status, shipping.id, shipping.eta]\noutputs:    [notify.sent, notify.channel]\ndepends_on: [shipping-reserve]\nowner: CS팀\nversion: 1\n---\n# 알림 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성 -->\n",
+      "expected": {
+        "name": "notify",
+        "description": "고객에게 주문 결과를 알린다.",
+        "owner": "CS팀",
+        "version": 1,
+        "inputs": [
+          "order.id",
+          "order.customer",
+          "payment.status",
+          "shipping.id",
+          "shipping.eta"
+        ],
+        "outputs": [
+          "notify.sent",
+          "notify.channel"
+        ],
+        "steps": [],
+        "dependsOn": [
+          "shipping-reserve"
+        ],
+        "body": "# 알림 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성 -->"
+      }
+    },
+    {
+      "id": "baseline-order-flow",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "7cb15772621116701eb0ca8e17eb73c182724b869985f99908eb7c62b041c146",
+      "text": "---\nname: order-flow\ndescription: 주문 한 건이 거치는 단계와 순서. 순서를 바꾸는 사람은 운영팀.\nsteps: [order-intake, inventory-check, payment, shipping-reserve, notify]\nowner: 운영팀\nversion: 1\n---\n# 주문 처리 순서\n\n들어온 주문은 위 steps 순서대로 처리한다. 앞 단계가 FAILED 면 뒤 단계는 실행하지 않는다.\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성 -->\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "주문 한 건이 거치는 단계와 순서. 순서를 바꾸는 사람은 운영팀.",
+        "owner": "운영팀",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "order-intake",
+          "inventory-check",
+          "payment",
+          "shipping-reserve",
+          "notify"
+        ],
+        "dependsOn": [],
+        "body": "# 주문 처리 순서\n\n들어온 주문은 위 steps 순서대로 처리한다. 앞 단계가 FAILED 면 뒤 단계는 실행하지 않는다.\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성 -->"
+      }
+    },
+    {
+      "id": "baseline-order-intake",
+      "skill": "order-intake",
+      "path": "skills/order-intake/SKILL.md",
+      "sha256": "d4a2fec3d41e11c9cc40fed360d3ed28f0cfaa9b63fb3b1d2a6d051e5a1df524",
+      "text": "---\nname: order-intake\ndescription: 들어온 주문을 검수하고 주문번호를 확정한다.\ninputs:     [order.customer, order.items, order.payment_method, order.shipping]\noutputs:    [order.id, order.total]\ndepends_on: []\nowner: 운영팀\nversion: 1\n---\n# 주문 접수 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성 -->\n",
+      "expected": {
+        "name": "order-intake",
+        "description": "들어온 주문을 검수하고 주문번호를 확정한다.",
+        "owner": "운영팀",
+        "version": 1,
+        "inputs": [
+          "order.customer",
+          "order.items",
+          "order.payment_method",
+          "order.shipping"
+        ],
+        "outputs": [
+          "order.id",
+          "order.total"
+        ],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 주문 접수 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성 -->"
+      }
+    },
+    {
+      "id": "baseline-payment",
+      "skill": "payment",
+      "path": "skills/payment/SKILL.md",
+      "sha256": "212f158fc70f8b3689d71aa3fc4b6e7b3dfe28dd26a18c7c6efc171a819564c3",
+      "text": "---\nname: payment\ndescription: 주문 금액을 결제한다. 결제 정책은 여기서 바꾼다.\ninputs:     [order.id, order.total, order.payment_method, inventory.reserved]\noutputs:    [payment.id, payment.status]\ndepends_on: [inventory-check]\nowner: 재무팀\nversion: 1\n---\n# 결제 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성. F3 은 이 skill 에 \"선입금만 결제, 나머지 보류\" 조건을 추가한다 -->\n",
+      "expected": {
+        "name": "payment",
+        "description": "주문 금액을 결제한다. 결제 정책은 여기서 바꾼다.",
+        "owner": "재무팀",
+        "version": 1,
+        "inputs": [
+          "order.id",
+          "order.total",
+          "order.payment_method",
+          "inventory.reserved"
+        ],
+        "outputs": [
+          "payment.id",
+          "payment.status"
+        ],
+        "steps": [],
+        "dependsOn": [
+          "inventory-check"
+        ],
+        "body": "# 결제 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성. F3 은 이 skill 에 \"선입금만 결제, 나머지 보류\" 조건을 추가한다 -->"
+      }
+    },
+    {
+      "id": "baseline-shipping-reserve",
+      "skill": "shipping-reserve",
+      "path": "skills/shipping-reserve/SKILL.md",
+      "sha256": "d2c75cd9b25f3e8ad76250552178983cbe812b16b9ddf6d8e4a439016064d5f8",
+      "text": "---\nname: shipping-reserve\ndescription: 결제된 주문의 배송을 예약한다.\ninputs:     [order.id, order.shipping, payment.id]\noutputs:    [shipping.id, shipping.eta]\ndepends_on: [payment]\nowner: 물류팀\nversion: 1\n---\n# 배송 예약 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성. F2 는 order-flow 에서 이 단계를 결제 앞으로 옮긴다 -->\n",
+      "expected": {
+        "name": "shipping-reserve",
+        "description": "결제된 주문의 배송을 예약한다.",
+        "owner": "물류팀",
+        "version": 1,
+        "inputs": [
+          "order.id",
+          "order.shipping",
+          "payment.id"
+        ],
+        "outputs": [
+          "shipping.id",
+          "shipping.eta"
+        ],
+        "steps": [],
+        "dependsOn": [
+          "payment"
+        ],
+        "body": "# 배송 예약 절차\n\n<!-- TODO(W5): 업무 담당자 말투로 본문 작성. F2 는 order-flow 에서 이 단계를 결제 앞으로 옮긴다 -->"
+      }
+    }
+  ],
+  "validListVariants": [
+    {
+      "id": "step-required-empty-lists",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "2d3447673a7f69f701c40f8355093b0b643a70f16680b3c643ced26d97745010",
+      "text": "---\nname: compatibility-step\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: []\noutputs: []\ndepends_on: []\n---\n# 단계 본문\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "step-empty-steps",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "d45c49c18e1bf2fe0ea5277987a3f13f561c9f4e847b06a617bf396395966a98",
+      "text": "---\nname: compatibility-step\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: []\noutputs: []\ndepends_on: []\nsteps: []\n---\n# 단계 본문\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "step-null-steps",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "47e4e22449c1c80f4e493ee4af23db94867244625042dcfbaaca0e9dcc66c390",
+      "text": "---\nname: compatibility-step\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: []\noutputs: []\ndepends_on: []\nsteps: null\n---\n# 단계 본문\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "step-tilde-steps",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "29abff88727d932fefe8f76bc36c8cb4e30067b3511b292e029e19ac6101e24c",
+      "text": "---\nname: compatibility-step\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: []\noutputs: []\ndepends_on: []\nsteps: ~\n---\n# 단계 본문\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "step-implicit-null-steps",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "4006202be4506d2b8b7771c5455e7d971a07ed4d2ba763607096e38311c4de7f",
+      "text": "---\nname: compatibility-step\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: []\noutputs: []\ndepends_on: []\nsteps:\n---\n# 단계 본문\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "step-quoted-inline",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "9d46fa67587740e073046bc84043602223ecfb683ad1dae52f3e147c34f9c991",
+      "text": "---\nname: compatibility-step\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: [\"order.id\"]\noutputs: ['payment.status']\ndepends_on: []\n---\n# 단계 본문\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [
+          "order.id"
+        ],
+        "outputs": [
+          "payment.status"
+        ],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "step-block-lists",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "79e1953415672fa578d776252669c1f1a803c26357ece824c596fef96540260e",
+      "text": "---\nname: compatibility-step\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs:\n  - order.id\noutputs:\n  - payment.status\ndepends_on: []\n---\n# 단계 본문\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [
+          "order.id"
+        ],
+        "outputs": [
+          "payment.status"
+        ],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "step-crlf",
+      "skill": "compatibility-step",
+      "path": "skills/compatibility-step/SKILL.md",
+      "sha256": "c1d2911d525e779b4c6c977e720eb234eee482a4b27b69ebc021275b023450e7",
+      "text": "---\r\nname: compatibility-step\r\ndescription: 목록 호환성 검사\r\nowner: backend\r\nversion: 1\r\ninputs: []\r\noutputs: []\r\ndepends_on: []\r\n---\r\n# 단계 본문\r\n",
+      "expected": {
+        "name": "compatibility-step",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [],
+        "dependsOn": [],
+        "body": "# 단계 본문"
+      }
+    },
+    {
+      "id": "flow-optional-lists-omitted",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "8a36805bd33c513df3aa043a4c1cd085b558e383a0952828f77164ae7d5db360",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-inputs-empty",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "2fc1ebeb3787be01d8caf14afab69f71cce77598e77ca4b5a58e9834c5b53ab9",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: []\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-inputs-null",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "8ed8dade04554c819ee1700f86e3b7842ffad53fca801c3ece53d6662e40aeb0",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: null\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-outputs-empty",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "16b1ea9f316a70cbfb303f01db4d8f9be5be77d797c211ff2f268ba7bc343cb8",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\noutputs: []\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-outputs-null",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "03b243378b1d454aab957629b4c02f51061a986195eac94bcb36c3fabb7567b4",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\noutputs: null\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-depends-on-empty",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "c96d66782b4b572112f194c00f3ff7ddc4a05fd2d019c699b315d5c07424d5a1",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ndepends_on: []\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-depends-on-null",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "5eb9135a40224188534d3b5b4c3f6fd16e3fe701d3d5ee06f60054448375a6d2",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ndepends_on: null\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-all-empty",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "fa008ee1ead33c46861f36bb7519c471358c39d1f451c6736b10d6dd40196a72",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: []\noutputs: []\ndepends_on: []\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-all-null",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "be86a110a12b5aa28777268f2a63c7019f3d1fdcf7863cf5cf5e54e1f82f88fd",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\ninputs: null\noutputs: null\ndepends_on: null\nsteps: [compatibility-step]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-crlf",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "4734f23900ef9e8ad984e9b639264652176be46b2999d7a71f9afdf3d71e3926",
+      "text": "---\r\nname: order-flow\r\ndescription: 목록 호환성 검사\r\nowner: backend\r\nversion: 1\r\nsteps: [compatibility-step]\r\n---\r\n# 흐름 본문\r\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-block-steps",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "ebf6caec0ae99302369fbd8b7c8a5cf0fc995671fb22e75dec1bdced7a5f7b85",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\nsteps:\n  - compatibility-step\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    },
+    {
+      "id": "flow-quoted-steps",
+      "skill": "order-flow",
+      "path": "skills/order-flow/SKILL.md",
+      "sha256": "f511de63af37c7e20137a8267af9d7f4010e15b250568b600050ee4bfe105eb9",
+      "text": "---\nname: order-flow\ndescription: 목록 호환성 검사\nowner: backend\nversion: 1\nsteps: [\"compatibility-step\"]\n---\n# 흐름 본문\n",
+      "expected": {
+        "name": "order-flow",
+        "description": "목록 호환성 검사",
+        "owner": "backend",
+        "version": 1,
+        "inputs": [],
+        "outputs": [],
+        "steps": [
+          "compatibility-step"
+        ],
+        "dependsOn": [],
+        "body": "# 흐름 본문"
+      }
+    }
+  ]
+}

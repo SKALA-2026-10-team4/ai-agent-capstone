@@ -105,6 +105,8 @@ service 는 브라우저·주문 Agent 와 SkillOps Agent 사이의 HTTP 중계�
 
 ## API
 
+2026-10-23 · #72: partial Skill 목록은 원문·해시·파싱 오류·가능한 diff를 수집한 뒤 ERROR로 종료한다. 자동 수정이나 실행은 하지 않는다. 새 `evidence`는 진단 상세에만 포함하며 목록에서는 제외한다. 상태·저장 한도·실패 보존 규칙은 [진단 증거 조회 계약](contracts/diagnosis-evidence.md)을 따른다.
+
 - 주문 Agent `POST /api/snapshots/edits`: 201 응답의 `validation_status` 는 QUEUED 다. snapshot metadata 는 저장 당시 값이라 실제 진행은 아래 전달·진단 API 에서 읽는다.
 - 주문 Agent `GET /api/skill-changes/{change_id}`: change_id, snapshot_id, thread_id, attempts, last_error, delivery_status 를 돌려준다. 없는 변경이면 404 `SKILL_CHANGE_NOT_FOUND` 다.
 - service `POST /internal/skill-changes`: 서버 사이 저장 이벤트 중계다. `X-Service-Token` 을 확인하고 본문(type, change_id, baseline_snapshot_id, candidate_snapshot_id, changed_paths)을 고치지 않고 넘긴다.

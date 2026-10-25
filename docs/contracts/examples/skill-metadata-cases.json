@@ -1,0 +1,328 @@
+[
+  {
+    "id": "valid-step",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": true,
+    "fields": []
+  },
+  {
+    "id": "valid-crlf",
+    "skill": "payment",
+    "text": "---\r\nname: payment\r\nversion: 1\r\nowner: finance\r\ndescription: Pay order\r\ninputs: []\r\noutputs: []\r\ndepends_on: []\r\n---\r\n# Payment\r\n",
+    "valid": true,
+    "fields": []
+  },
+  {
+    "id": "valid-block-string",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: |\n  Pay order\n  With policy\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": true,
+    "fields": []
+  },
+  {
+    "id": "valid-quoted-values",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 2\nowner: \"finance\"\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": true,
+    "fields": []
+  },
+  {
+    "id": "name-missing",
+    "skill": "payment",
+    "text": "---\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "name"
+    ]
+  },
+  {
+    "id": "name-null",
+    "skill": "payment",
+    "text": "---\nname: null\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "name"
+    ]
+  },
+  {
+    "id": "name-blank",
+    "skill": "payment",
+    "text": "---\nname: \" \"\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "name"
+    ]
+  },
+  {
+    "id": "name-boolean",
+    "skill": "payment",
+    "text": "---\nname: true\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "name"
+    ]
+  },
+  {
+    "id": "name-list",
+    "skill": "payment",
+    "text": "---\nname: [value]\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "name"
+    ]
+  },
+  {
+    "id": "owner-missing",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "owner"
+    ]
+  },
+  {
+    "id": "owner-null",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: null\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "owner"
+    ]
+  },
+  {
+    "id": "owner-blank",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: \" \"\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "owner"
+    ]
+  },
+  {
+    "id": "owner-boolean",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: true\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "owner"
+    ]
+  },
+  {
+    "id": "owner-list",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: [value]\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "owner"
+    ]
+  },
+  {
+    "id": "description-missing",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "description"
+    ]
+  },
+  {
+    "id": "description-null",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: null\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "description"
+    ]
+  },
+  {
+    "id": "description-blank",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: \" \"\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "description"
+    ]
+  },
+  {
+    "id": "description-boolean",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: true\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "description"
+    ]
+  },
+  {
+    "id": "description-list",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: [value]\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "description"
+    ]
+  },
+  {
+    "id": "version-missing",
+    "skill": "payment",
+    "text": "---\nname: payment\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-null",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: null\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-blank",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: \" \"\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-boolean",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: true\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-list",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: [value]\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "name-mismatch",
+    "skill": "payment",
+    "text": "---\nname: notify\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "name"
+    ]
+  },
+  {
+    "id": "version-zero",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 0\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-negative",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: -1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-quoted",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: \"1\"\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-fraction",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1.5\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "version-long",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 2147483648\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "version"
+    ]
+  },
+  {
+    "id": "empty-body",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n \t\n",
+    "valid": false,
+    "fields": [
+      "body"
+    ]
+  },
+  {
+    "id": "missing-frontmatter",
+    "skill": "payment",
+    "text": "# Payment\n",
+    "valid": false,
+    "fields": [
+      "frontmatter"
+    ]
+  },
+  {
+    "id": "closing-delimiter-at-eof",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---",
+    "valid": false,
+    "fields": [
+      "frontmatter"
+    ]
+  },
+  {
+    "id": "duplicate-key",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: finance\nowner: other\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "frontmatter"
+    ]
+  },
+  {
+    "id": "malformed-yaml",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\nowner: [finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "frontmatter"
+    ]
+  },
+  {
+    "id": "multiple-missing",
+    "skill": "payment",
+    "text": "---\nname: payment\nversion: 1\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "owner",
+      "description"
+    ]
+  },
+  {
+    "id": "invalid-folder-name",
+    "skill": "Payment",
+    "text": "---\nname: Payment\nversion: 1\nowner: finance\ndescription: Pay order\ninputs: []\noutputs: []\ndepends_on: []\n---\n# Payment\n",
+    "valid": false,
+    "fields": [
+      "name"
+    ]
+  }
+]
