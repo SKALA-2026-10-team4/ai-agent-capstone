@@ -16,7 +16,7 @@ import { USE_MOCK } from '@/api/client'
 import { listExecutions, pinFixture, saveSkillEdits } from '@/api/orderAgent'
 import { loadSkillSet } from '@/api/skillSets'
 import { PATCH_FUZZ_FACTOR, PINNED_SNAPSHOT_LIMIT } from '@/config'
-import { shortId } from '@/utils/format'
+import { stampOf } from '@/utils/format'
 import { skillPath, toSkill } from '@/utils/skillSet'
 
 // snapshot metadata 의 fixture 나 source 값을 담당자가 알아보는 세트 이름으로 바꾸는
@@ -27,7 +27,16 @@ export const SET_LABEL = {
   repaired: '수정본',
   'published-bundle': '게시본',
   'user-edit': '내 수정본',
+  candidate: '시험용 수정안',
 }
+// snapshot metadata 로 세트 종류 이름을 구한다. fixture 를 source 보다 먼저 보고, 표에 없으면 원래 값,
+// metadata 가 없으면 null 이다. kindOf 와 frontend/src/components/SnapshotLabel.vue 가 쓴다.
+export const setKindLabel = (metadata) => {
+  const key = metadata?.fixture ?? metadata?.source ?? null
+  return key ? (SET_LABEL[key] ?? key) : null
+}
+// 내용을 모르는 세트를 그 세트로 돌린 실행 결과로 부를 때의 짧은 결과 이름이다. 표에 없으면 원래 값이다.
+const RUN_STATUS_TEXT = { SHIPPED: '배송 완료', HOLD: '보류', REJECTED: '거절', FAILED: '실패', COMPLETED: '완료' }
 // 종류를 알 수 없는 세트의 이름이다. 내용을 아직 읽지 않았고 고정 기록에도 없는 세트가 여기에
 // 든다. knownSnapshots 는 이 접두어로 그런 세트를 알아보고 실행 결과로 이름을 대신 붙인다.
 const UNKNOWN_SET_LABEL = 'Skill 세트'
@@ -212,16 +221,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   // snapshot 선택지다. snapshot 목록 API 가 없으므로 고정 이력과 최근 실행이 쓴 snapshot 을 합친다.
   // 항목은 { id, label } 이고 frontend/src/components/SnapshotPicker.vue 와
-  // frontend/src/views/SnapshotCompareView.vue 가 쓴다.
+  // frontend/src/views/SnapshotCompareView.vue 가 쓴다. 이름에는 id 대신 종류와 시각을 쓴다.
   const knownSnapshots = computed(() => {
     const seen = new Map()
     for (const p of pinned.value) seen.set(p.snapshot_id, labelOf(p.snapshot_id))
     for (const x of executions.value) {
       if (x.snapshot_id && !seen.has(x.snapshot_id)) {
         const known = labelOf(x.snapshot_id)
-        // 내용을 아직 안 읽은 세트는 그 세트로 돌린 실행 결과로 구분한다.
+        // 내용을 아직 안 읽은 세트는 그 세트로 돌린 실행 결과와 실행 시각으로 구분한다.
+        const status = x.final_status ?? x.completion
+        const when = stampOf(x.started_at, { seconds: true })
         const label = known.startsWith(UNKNOWN_SET_LABEL)
-          ? `${x.final_status ?? x.completion} 실행에 쓴 세트 · ${shortId(x.snapshot_id)}`
+          ? `${RUN_STATUS_TEXT[status] ?? status} 실행에 쓴 세트${when ? ` · ${when}` : ''}`
           : known
         seen.set(x.snapshot_id, label)
       }
@@ -236,25 +247,36 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // 표에 있으면 그 라벨을, 표에 없으면 metadata 의 원래 값을, 아무것도 모르면
   // UNKNOWN_SET_LABEL 을 돌려준다. labelOf 가 이 값을 이름 글에 넣는다.
   function kindOf(id) {
-    const meta = sets.value[id]?.snapshot.metadata
-    const key = meta?.fixture ?? meta?.source ?? fixtureOf(id)
-    return SET_LABEL[key] ?? key ?? UNKNOWN_SET_LABEL
+    const fixture = fixtureOf(id)
+    return setKindLabel(sets.value[id]?.snapshot.metadata) ?? (fixture ? (SET_LABEL[fixture] ?? fixture) : UNKNOWN_SET_LABEL)
+  }
+
+  /**
+   * 화면이 이미 아는 세트 정보 { kind, createdAt } 을 돌려준다. kind 는 세트 종류 이름이고 모르면 null,
+   * createdAt 은 만든 시각이고 모르면 null 이다. 불러온 세트의 manifest 를 먼저, 없으면 고정 기록을 본다.
+   * frontend/src/components/SnapshotLabel.vue 가 이 값으로 모자랄 때만 서버에 세트 정보를 묻는다.
+   */
+  function snapshotMeta(id) {
+    const kind = kindOf(id)
+    const createdAt = sets.value[id]?.snapshot.created_at ?? pinned.value.find((p) => p.snapshot_id === id)?.created_at ?? null
+    return { kind: kind === UNKNOWN_SET_LABEL ? null : kind, createdAt }
   }
 
   // 세트 종류 이름(예: 결함본)을 돌려준다. labelOf 가 만든 이름에서 첫 ' · ' 앞부분을 잘라 쓴다.
   // 리팩토링 전 화면이 쓰던 식(labelOf(id).split(' · ')[0])과 같은 결과를 내려고 이렇게 계산한다.
   // metadata 값에 ' · ' 가 들어 있거나 글이 아닌 값이어도 결과가 같다. id 가 없으면
-  // NO_SELECTION_LABEL 이다. frontend/src/components/SnapshotPicker.vue 와
-  // frontend/src/views/ExecutionView.vue 가 쓴다.
+  // NO_SELECTION_LABEL 이다. frontend/src/components/SnapshotPicker.vue 가 쓴다.
   function kindLabelOf(id) {
     return labelOf(id).split(' · ')[0]
   }
 
-  // '결함본 · f47e7062' 처럼 종류 이름과 id 앞 8자를 이은 이름을
-  // 돌려준다. id 가 없으면 NO_SELECTION_LABEL 이다. knownSnapshots, kindLabelOf,
+  // '결함본 · 10월 26일 06:41:05' 처럼 종류 이름과 만든 시각을 이은 이름을 돌려준다. id 는 화면에 쓰지 않는다.
+  // 만든 시각을 모르면 종류 이름만 쓰고, id 가 없으면 NO_SELECTION_LABEL 이다. knownSnapshots, kindLabelOf,
   // frontend/src/views/OrderView.vue, frontend/src/views/ProposalView.vue 가 쓴다.
   function labelOf(id) {
-    return id ? `${kindOf(id)} · ${shortId(id)}` : NO_SELECTION_LABEL
+    if (!id) return NO_SELECTION_LABEL
+    const when = stampOf(snapshotMeta(id).createdAt, { seconds: true })
+    return when ? `${kindOf(id)} · ${when}` : kindOf(id)
   }
 
   // 지금 고른 세트(loadSkillSet 결과)다. 아직 읽지 않았으면 null 이다.
@@ -362,6 +384,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pin,
     fixtureOf,
     kindLabelOf,
+    snapshotMeta,
     labelOf,
     setDraft,
     applyPatchesToDraft,

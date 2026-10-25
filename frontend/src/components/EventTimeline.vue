@@ -10,6 +10,7 @@
 // 항목 목록은 frontend/src/components/FieldList.vue 가 그린다.
 import { computed, ref } from 'vue'
 import { eventLabel, groupBySkill, isNoisy } from '@/utils/eventView'
+import { clockOf } from '@/utils/format'
 import FieldList from './FieldList.vue'
 
 const props = defineProps({
@@ -52,13 +53,13 @@ const pretty = (v) => JSON.stringify(v, null, 2)
     </label>
 
     <section v-for="(g, i) in groups" :key="i" class="group">
-      <h3>{{ g.skill ? `${g.skill} 단계` : '실행 준비 · 마무리' }}</h3>
+      <h3><span class="g-dot" aria-hidden="true" />{{ g.skill ? `${g.skill} 단계` : '실행 준비 · 마무리' }}</h3>
       <div v-for="e in g.events" :key="e.sequence" class="event" :class="{ err: e.error }">
         <div class="line">
           <span class="seq">{{ e.sequence }}</span>
           <span class="kind">{{ eventLabel(e.kind) }}</span>
           <span class="title">{{ e.view.title }}</span>
-          <small class="muted time">{{ e.at.slice(11, 19) }}</small>
+          <small class="time">{{ clockOf(e.at) }}</small>
           <button class="raw-btn" @click="toggleRaw(e.sequence)">{{ raw.has(e.sequence) ? '닫기' : '원본' }}</button>
         </div>
         <p v-if="e.view.note" class="note">{{ e.view.note }}</p>
@@ -66,7 +67,7 @@ const pretty = (v) => JSON.stringify(v, null, 2)
         <pre v-if="raw.has(e.sequence)">{{ pretty(e.data) }}</pre>
       </div>
     </section>
-    <p v-if="!shown.length" class="muted">이벤트가 없다.</p>
+    <p v-if="!shown.length" class="muted">이벤트가 없어요.</p>
   </div>
 </template>
 
@@ -74,83 +75,132 @@ const pretty = (v) => JSON.stringify(v, null, 2)
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
 }
 
 .toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: var(--fs-xs);
+}
+
+.group {
+  position: relative;
+  padding-left: 18px;
+}
+
+/* 묶음마다 가는 세로선 */
+.group::before {
+  content: '';
+  position: absolute;
+  top: 18px;
+  bottom: 4px;
+  left: 4px;
+  width: 1px;
+  background: var(--border-strong);
 }
 
 .group h3 {
-  font-size: 13px;
-  margin: 0 0 6px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--muted);
 }
 
-.event {
-  padding: 8px 10px;
-  margin-bottom: 4px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.g-dot {
+  position: absolute;
+  left: -18px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
   background: var(--surface);
 }
 
+.event {
+  padding: 9px 12px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 2%);
+}
+
 .event.err {
-  border-color: var(--err);
+  border-color: rgb(255 149 132 / 45%);
   background: var(--del-bg);
 }
 
 .line {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .seq {
   min-width: 22px;
-  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
 
 .kind {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   white-space: nowrap;
 }
 
 .title {
+  min-width: 0;
   font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .time {
   margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .raw-btn {
-  padding: 0 8px;
+  padding: 1px 9px;
   font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .note {
-  margin: 4px 0 0 30px;
-  font-size: 13px;
+  margin: 4px 0 0 32px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 
 .event :deep(.fields) {
-  margin: 6px 0 0 30px;
+  margin: 6px 0 0 32px;
 }
 
 pre {
   margin: 8px 0 0;
-  padding: 8px 12px;
-  background: var(--bg);
-  border-radius: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
   overflow-x: auto;
   font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .note,
+  .event :deep(.fields) {
+    margin-left: 0;
+  }
 }
 </style>

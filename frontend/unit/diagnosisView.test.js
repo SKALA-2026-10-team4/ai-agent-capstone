@@ -6,6 +6,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  changedSkillsOf,
+  diagnosisTitleOf,
+  diagnosisTone,
   DIAGNOSIS_LABEL,
   FINDING,
   IN_PROGRESS_STATUSES,
@@ -120,4 +123,25 @@ test('findingLabel·findingNote: NEEDS_TOOL 은 도구 개발 필요(2.11 절)',
   assert.equal(findingLabel('NEEDS_TOOL'), '도구 개발 필요')
   assert.ok(findingNote('NEEDS_TOOL').includes('SKILL.md 수정만으로는 고칠 수 없어요'))
   assert.ok(findingNote('NEEDS_TOOL').includes('개발 요청서'))
+})
+
+test('diagnosisTone: 상태마다 배지 톤, 모르는 상태는 빈 톤', () => {
+  assert.equal(diagnosisTone('VALIDATED'), 'ok')
+  assert.equal(diagnosisTone('RUNNING'), 'info')
+  assert.equal(diagnosisTone('INTENT_VIOLATION'), 'warn')
+  assert.equal(diagnosisTone('BASELINE_FAILED'), 'err')
+  assert.equal(diagnosisTone('NO_SKILL_CHANGES'), '')
+  assert.equal(diagnosisTone(undefined), '')
+})
+
+test('diagnosisTitleOf: 세트 id 대신 바뀐 Skill 과 저장 시각으로 쓴다', () => {
+  const created = new Date(2026, 9, 26, 6, 40, 12).toISOString()
+  const run = { created_at: created, trigger: { changed_paths: ['skills/notify/SKILL.md', 'skills/payment/SKILL.md'] } }
+  assert.deepStrictEqual(changedSkillsOf(run), ['notify', 'payment'])
+  assert.equal(diagnosisTitleOf(run), 'notify, payment 수정 · 10월 26일 06:40 저장')
+  assert.deepStrictEqual(changedSkillsOf({ trigger: { changed_paths: ['skills/notify/resources/policy.md'] } }), ['skills/notify/resources/policy.md'])
+  assert.equal(diagnosisTitleOf({ ...run, created_at: null }), 'notify, payment 수정')
+  assert.equal(diagnosisTitleOf({ created_at: created, trigger: { changed_paths: null } }), '수정본 저장 · 10월 26일 06:40')
+  assert.equal(diagnosisTitleOf({}), '수정본 저장')
+  assert.equal(diagnosisTitleOf(null), '수정본 저장')
 })

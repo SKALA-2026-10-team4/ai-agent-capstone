@@ -10,13 +10,17 @@
 // POST /api/snapshots/edits 와 진단 조회 경로(/service/api/diagnoses, /api/skill-changes)는 흉내
 // 내지 않는다. 그 화면들은 frontend/src/api/client.js 의 USE_MOCK 을 보고 요청을 보내지 않는다.
 //
+// 제안서 mock 세 건이 가리키는 실행 번호(r_a0…, r_e0… 등)와 Skill 세트 번호(1111…, 7777… 등)는 seedPastRuns 가
+// 같은 번호로 미리 만들어 두어, 실행 기록 목록과 실행 화면이 실제 trace 를 보여 준다.
+//
 // 실서버의 이벤트 이름이나 순서가 바뀌면 execute 를, 경로나 응답
 // 모양이 바뀌면 orderAgentRoutes 와 serviceRoutes 를 함께 고친다.
 import { ApiError } from '@/api/error'
 import { holds, readCondition } from '@/utils/condition'
 import { buildGraph } from '@/utils/flowGraph'
+import { executionIdOf } from '@/utils/runRecord'
 import { ENTRY_SKILL, flowRuleProblems, flowSteps, toSkill } from '@/utils/skillSet'
-import { PUBLISHED_FILES, fixtureFiles, prepaidPolicyFiles } from './skillFiles'
+import { PUBLISHED_FILES, fixtureFiles, prepaidPolicyFiles, weatherNotifyFiles, withoutInput } from './skillFiles'
 import proposalB01 from './proposal-b01.json'
 import proposalF1 from './proposal-f1.json'
 import proposalW1 from './proposal-w1.json'
@@ -62,13 +66,13 @@ const proposals = {
 
 // 파일 묶음을 새 snapshot 으로 저장하고 manifest 를 돌려준다. 파일 hash 목록과 metadata 로 묶음
 // hash 를 만든다. publishFixture 와 createOrder(세트를 고르지 않은 주문의 게시본 실행)가 부른다.
-async function publish(files, metadata) {
-  const id = uuid()
+// seedPastRuns 는 제안서가 가리키는 번호와 지난 시각을 맞추려고 id 와 createdAt 을 넘긴다.
+async function publish(files, metadata, { id = uuid(), createdAt = now() } = {}) {
   const entries = {}
   for (const [path, content] of Object.entries(files)) entries[path] = { content, hash: await sha256(content) }
   const hashes = Object.keys(entries).sort().map((p) => entries[p].hash)
   const hash = await sha256(JSON.stringify({ files: hashes, metadata }))
-  snapshots[id] = { snapshot_id: id, hash, created_at: now(), metadata, files: entries }
+  snapshots[id] = { snapshot_id: id, hash, created_at: createdAt, metadata, files: entries }
   return manifest(snapshots[id])
 }
 
@@ -211,8 +215,9 @@ function applyToolEffects(order, tool, context) {
 
 // 실행 한 건의 기록을 GET /api/executions/{id}/trace 응답 모양으로 만든다. run_id 는
 // 서버처럼 r_ 뒤에 하이픈을 뺀 execution_id 를 붙인 별칭이다. 모델을 부르지 않으므로
-// fixed 모드로 적고 토큰 수는 null 로 둔다. execute 의 마지막에 부른다.
-function executionRecord({ executionId, order, snapshot, completion, errorCategory, finalStatus, started, events }) {
+// fixed 모드로 적고 토큰 수는 null 로 둔다. 걸린 시간은 첫 이벤트부터 끝난 시각까지다.
+// execute 의 마지막에 부른다.
+function executionRecord({ executionId, order, snapshot, completion, errorCategory, finalStatus, finishedAt, events }) {
   return {
     execution_id: executionId,
     run_id: `r_${executionId.replaceAll('-', '')}`,
@@ -231,9 +236,9 @@ function executionRecord({ executionId, order, snapshot, completion, errorCatego
     api_calls: 0,
     input_tokens: null,
     output_tokens: null,
-    elapsed_ms: Date.now() - started,
+    elapsed_ms: Date.parse(finishedAt) - Date.parse(events[0].at),
     started_at: events[0].at,
-    finished_at: now(),
+    finished_at: finishedAt,
     events,
   }
 }
@@ -256,19 +261,19 @@ function executionRecord({ executionId, order, snapshot, completion, errorCatego
  * 마지막에 EXECUTION_FINISHED 를 남기고 실행 기록을 executions 에 넣는다.
  *
  * order 객체를 직접 고친다. 서버의 이벤트 이름이나 순서가 바뀌면 이
- * 함수도 함께 고친다. createOrder 가 부른다.
+ * 함수도 함께 고친다. createOrder 가 부른다. executionId 를 주면 그 번호로, clock 을 주면 그 시계의 시각으로
+ * 기록한다. seedPastRuns 가 제안서가 가리키는 실행 번호와 지난 시각을 맞출 때 쓴다.
  */
-async function execute(order, snapshot) {
-  const execution_id = uuid()
+async function execute(order, snapshot, { executionId = uuid(), clock = now } = {}) {
+  const execution_id = executionId
   const events = []
-  const started = Date.now()
   // 이벤트에 sequence 번호와 시각을 붙여 events 에 더한다.
   const ev = (kind, skill_id, data) =>
-    events.push({ sequence: events.length + 1, kind, skill_id, data, at: now() })
+    events.push({ sequence: events.length + 1, kind, skill_id, data, at: clock() })
   // 주문 응답의 처리 단계(order.steps)다. step 이 한 줄씩 더한다.
   const steps = []
   const step = (name, status, result_code, message) =>
-    steps.push({ sequence: steps.length + 1, step: name, status, result_code, message, started_at: now(), completed_at: now() })
+    steps.push({ sequence: steps.length + 1, step: name, status, result_code, message, started_at: clock(), completed_at: clock() })
   // 예약 재고 해제를 inventory.release 요청과 결과 이벤트, RELEASE 처리 단계로 남긴다. 결제
   // 거절과 결제 전 실패 때 부른다. mock 은 기록만 남기고 products 의 재고 수량은 되돌리지 않는다.
   const release = (skillId, reason) => {
@@ -470,7 +475,7 @@ async function execute(order, snapshot) {
     completion,
     errorCategory,
     finalStatus,
-    started,
+    finishedAt: clock(),
     events,
   })
 }
@@ -480,8 +485,9 @@ async function execute(order, snapshot) {
  * snapshot_id 가 있으면 그 세트로, 없으면 게시본(PUBLISHED_FILES)을 새 snapshot 으로 게시해
  * 실행한다. 없는 snapshot 이나 상품이면 404 다. 같은 키로 다시 보내도 새 주문을 만들며, 서버의
  * 멱등 처리는 흉내 내지 않는다. orderAgentRoutes 의 POST /api/orders 처리기와 seed 가 부른다.
+ * past 는 execute 에 넘길 { executionId, clock } 이고 seedPastRuns 만 넘긴다.
  */
-async function createOrder(body, headers) {
+async function createOrder(body, headers, past = {}) {
   if (!headers['Idempotency-Key']) {
     throw new ApiError(400, '주문 입력을 확인해주세요.', { code: 'VALIDATION_ERROR' })
   }
@@ -512,11 +518,11 @@ async function createOrder(body, headers) {
     payment: { status: 'NOT_ATTEMPTED', reference: null },
     shipment: null,
     notification: { status: 'NOT_ATTEMPTED' },
-    created_at: now(),
-    updated_at: now(),
+    created_at: (past.clock ?? now)(),
+    updated_at: (past.clock ?? now)(),
   }
   orders[order.order_id] = order
-  await execute(order, snapshot)
+  await execute(order, snapshot, past)
   if (order.status === 'FAILED') {
     // order-agent 와 같이 Agent 실행 실패는 상태 500 과 order_id 로 알린다.
     // frontend/src/api/orderAgent.js 의 createOrder 가 이 order_id 로 주문을 다시 읽는다.
@@ -821,8 +827,116 @@ const serviceRoutes = [
 // handleMock 이 찾는 전체 경로 표다.
 const routes = [...orderAgentRoutes, ...serviceRoutes]
 
-// 처음 열었을 때 볼 거리가 있도록 정상본과 결함본, 실행 규칙 예시 세트로 주문을 한 건씩 미리
-// 실행해 둔다. seeded 는 그 작업의 Promise 이고 첫 요청 때 한 번만 만든다.
+// ── 제안서가 가리키는 지난 실행 ───────────────────────────────────────────
+// 제안서 mock(proposal-f1, proposal-b01, proposal-w1)의 사실 칸과 원인·후보·개발 요청서가 가리키는 실행 번호를
+// 실제 실행으로 만들어 두는 표다. 세트와 주문을 실제 execute 로 돌리므로 trace 모양은 다른 mock 실행과 같다.
+
+// 지난 실행에 쓰는 주문이다. card 는 국내 카드 주문, cardUs 는 해외 카드 주문, prepaid 는 선입금 빠른 배송이다.
+const PAST_ORDERS = {
+  card: { customer: 'c_1001', items: [{ sku: 'CAMP-LANTERN-LED', qty: 1 }], payment_method: 'card', shipping: { country: 'KR', express: false } },
+  cardUs: { customer: 'c_1002', items: [{ sku: 'CAMP-CHAIR-FOLD', qty: 1 }], payment_method: 'card', shipping: { country: 'US', express: false } },
+  prepaid: { customer: 'c_2040', items: [{ sku: 'CAMP-CHAIR-FOLD', qty: 1 }], payment_method: 'prepaid', shipping: { country: 'US', express: true } },
+}
+
+// 지난 실행에 쓰는 Skill 세트다. id 가 있는 세트는 제안서의 '수정 전·후 Skill 세트' 번호와 같고, 없는 세트는
+// SkillOps 가 후보를 시험한 세트(source candidate)라 새 번호를 붙인다. 담당자 수정본의 metadata 는 서버의
+// SnapshotService 처럼 source user-edit 와 change_id 이고, 의도를 적었으면 intent 도 담는다.
+const userEdit = (changeId, intentText = null) => ({
+  source: 'user-edit',
+  change_id: changeId,
+  ...(intentText ? { intent: { text: intentText, expectations: [] } } : {}),
+})
+const PUBLISHED_META = { source: 'published-bundle', release: 'camping-v1' }
+const CANDIDATE_META = { source: 'candidate' }
+const PAST_SETS = {
+  'f1-base': { id: '11111111-1111-4111-8111-111111111111', at: '2026-10-21T04:50:00Z', meta: PUBLISHED_META, files: () => PUBLISHED_FILES },
+  'f1-edit': {
+    id: '22222222-2222-4222-8222-222222222222',
+    at: '2026-10-21T05:02:00Z',
+    meta: userEdit('c_20261021_01'),
+    files: () => fixtureFiles('broken-contract'),
+  },
+  'f1-c1': { at: '2026-10-21T05:07:30Z', meta: CANDIDATE_META, files: () => fixtureFiles('repaired') },
+  'f1-c2': {
+    at: '2026-10-21T05:08:50Z',
+    meta: CANDIDATE_META,
+    files: () => withoutInput(fixtureFiles('broken-contract'), 'payment', 'inventory.reserved'),
+  },
+  'b1-base': { id: '44444444-4444-4444-8444-444444444444', at: '2026-10-26T02:55:00Z', meta: PUBLISHED_META, files: () => PUBLISHED_FILES },
+  'b1-edit': {
+    id: '55555555-5555-4555-8555-555555555555',
+    at: '2026-10-26T03:04:00Z',
+    meta: userEdit('c_20261026_01', proposalB01.proposal.intent.text),
+    files: () => prepaidPolicyFiles({ withRule: false }),
+  },
+  'b1-d1': { at: '2026-10-26T03:07:40Z', meta: CANDIDATE_META, files: () => prepaidPolicyFiles({ withRule: true }) },
+  'b1-d2': { at: '2026-10-26T03:08:50Z', meta: CANDIDATE_META, files: () => PUBLISHED_FILES },
+  'b1-d3': {
+    at: '2026-10-26T03:09:50Z',
+    meta: CANDIDATE_META,
+    files: () => withoutInput(prepaidPolicyFiles({ withRule: false }), 'payment', 'order.payment_method'),
+  },
+  'w1-base': { id: '66666666-6666-4666-8666-666666666666', at: '2026-10-26T05:20:00Z', meta: PUBLISHED_META, files: () => PUBLISHED_FILES },
+  'w1-edit': {
+    id: '77777777-7777-4777-8777-777777777777',
+    at: '2026-10-26T05:31:00Z',
+    meta: userEdit('c_20261026_02', proposalW1.proposal.intent.text),
+    files: () => weatherNotifyFiles(),
+  },
+}
+
+// 지난 실행 표다. 줄마다 [실행 번호(run_id 나 execution_id), 세트, 주문, 시작 시각] 이다.
+// f1: 결함본의 실패, 변경을 되돌린 원인 확인(r_a), 후보 1·2 의 근거(r_c1, r_c2).
+// b01: 정책 문장만 넣은 수정본의 확인 실행(r_b0), 후보 1~3 의 근거(r_d1~r_d3).
+// w1: 날씨 값을 요구한 수정본의 실패(r_e0), 변경을 되돌린 원인 확인·임시 대안 증명(r_e1).
+const PAST_RUNS = [
+  ['33333333-3333-4333-8333-333333333333', 'f1-edit', 'card', '2026-10-21T05:03:00Z'],
+  ['r_a0000000000000000000000000000001', 'f1-base', 'card', '2026-10-21T05:06:10Z'],
+  ['r_a0000000000000000000000000000002', 'f1-base', 'prepaid', '2026-10-21T05:06:40Z'],
+  ['r_c1000000000000000000000000000001', 'f1-c1', 'card', '2026-10-21T05:08:00Z'],
+  ['r_c1000000000000000000000000000002', 'f1-c1', 'prepaid', '2026-10-21T05:08:30Z'],
+  ['r_c2000000000000000000000000000001', 'f1-c2', 'card', '2026-10-21T05:09:00Z'],
+  ['r_c2000000000000000000000000000002', 'f1-c2', 'prepaid', '2026-10-21T05:09:30Z'],
+  ['r_b0000000000000000000000000000001', 'b1-edit', 'card', '2026-10-26T03:05:00Z'],
+  ['r_b0000000000000000000000000000002', 'b1-edit', 'cardUs', '2026-10-26T03:05:30Z'],
+  ['r_d1000000000000000000000000000001', 'b1-d1', 'card', '2026-10-26T03:08:00Z'],
+  ['r_d1000000000000000000000000000002', 'b1-d1', 'prepaid', '2026-10-26T03:08:30Z'],
+  ['r_d2000000000000000000000000000001', 'b1-d2', 'card', '2026-10-26T03:09:00Z'],
+  ['r_d2000000000000000000000000000002', 'b1-d2', 'prepaid', '2026-10-26T03:09:30Z'],
+  ['r_d3000000000000000000000000000001', 'b1-d3', 'card', '2026-10-26T03:10:00Z'],
+  ['r_d3000000000000000000000000000002', 'b1-d3', 'cardUs', '2026-10-26T03:10:30Z'],
+  ['r_e0000000000000000000000000000001', 'w1-edit', 'card', '2026-10-26T05:32:00Z'],
+  ['r_e0000000000000000000000000000002', 'w1-edit', 'prepaid', '2026-10-26T05:32:30Z'],
+  ['r_e1000000000000000000000000000001', 'w1-base', 'card', '2026-10-26T05:35:00Z'],
+  ['r_e1000000000000000000000000000002', 'w1-base', 'prepaid', '2026-10-26T05:35:30Z'],
+]
+
+// 지난 시각에서 시작해 부를 때마다 9ms 씩 늘어나는 시계다. 지난 실행의 이벤트 시각에 쓴다.
+const pastClock = (iso) => {
+  let t = Date.parse(iso)
+  return () => new Date((t += 9)).toISOString()
+}
+
+/**
+ * PAST_SETS 를 게시하고 PAST_RUNS 를 차례로 실행한다. 지난 기록이라 실행이 줄인 재고는 실행마다 되돌리고,
+ * 실패한 실행(계약 위반)의 오류는 무시한다. seed 가 다른 seed 실행보다 먼저 불러 최근 실행 목록의 뒤쪽에 둔다.
+ */
+async function seedPastRuns() {
+  const setIds = {}
+  for (const [key, set] of Object.entries(PAST_SETS)) {
+    const published = await publish(set.files(), set.meta, { id: set.id, createdAt: new Date(set.at).toISOString() })
+    setIds[key] = published.snapshot_id
+  }
+  for (const [ref, setKey, orderKey, at] of PAST_RUNS) {
+    const stock = products.map((p) => p.stock_quantity)
+    const body = { ...clone(PAST_ORDERS[orderKey]), snapshot_id: setIds[setKey] }
+    await createOrder(body, { 'Idempotency-Key': uuid() }, { executionId: executionIdOf(ref), clock: pastClock(at) }).catch(() => {})
+    products.forEach((p, i) => (p.stock_quantity = stock[i]))
+  }
+}
+
+// 처음 열었을 때 볼 거리가 있도록 제안서가 가리키는 지난 실행을 만들고, 정상본과 결함본, 실행 규칙 예시
+// 세트로 주문을 한 건씩 미리 실행해 둔다. seeded 는 그 작업의 Promise 이고 첫 요청 때 한 번만 만든다.
 let seeded = null
 // 정상본(baseline)과 결함본(broken-contract) snapshot 을 차례로 게시하고 각 세트로
 // 같은 주문을 실행한다. 결함본 주문은 계약 위반으로 실패하므로 그 오류는 무시한다.
@@ -831,6 +945,7 @@ let seeded = null
 // 실제 서버에서는 이런 세트를 POST /api/snapshots/edits 로 저장하며, metadata 의 intent 는 그때 담당자가
 // 적은 의도다.
 async function seed() {
+  await seedPastRuns()
   const order = {
     customer: 'c_1001',
     items: [{ sku: 'CAMP-LANTERN-LED', qty: 1 }],

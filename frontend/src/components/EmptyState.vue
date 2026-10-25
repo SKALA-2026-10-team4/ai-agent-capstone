@@ -18,29 +18,38 @@ defineProps({
 
 <style scoped>
 .empty {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 8px;
-  padding: 40px 20px;
+  gap: 10px;
+  padding: 56px 24px;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: radial-gradient(420px 220px at 50% 0%, rgb(250 255 220 / 4%), transparent 70%), rgb(255 255 255 / 1.5%);
 }
 
 .icon {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--border-strong);
   border-radius: 50%;
-  background: var(--surface-2);
   color: var(--muted);
+  box-shadow: 0 0 0 10px rgb(255 255 255 / 2%), 0 0 0 22px rgb(255 255 255 / 1.5%);
+  margin-bottom: 10px;
+}
+
+strong {
+  font-family: var(--display);
+  font-size: 18px;
+  letter-spacing: -0.01em;
 }
 
 .body {
-  color: var(--text-2);
+  color: var(--muted);
   font-size: var(--fs-sm);
   max-width: 460px;
 }

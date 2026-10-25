@@ -3,12 +3,14 @@
 // 없을 때, SkillOps 가 제안서에 담은 development_request 를 보여 준다. 모양은
 // docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11 절과 docs/contracts/proposal.schema.json 이다.
 // 필요한 값(gaps), 제안 방법(options), 바꿀 곳(change_points), 임시 대안(interim), 근거 실행을 차례로 그리고,
+// 증명·근거 실행은 번호 대신 frontend/src/components/RunRecordList.vue 의 실행 기록 타임라인으로 보여 준다.
 // '마크다운으로 복사' 버튼은 개발팀에 그대로 보낼 한국어 마크다운을 클립보드에 넣는다. 이름표와 마크다운은
 // frontend/src/utils/developmentRequest.js 가 만든다. 글은 모두 텍스트 보간으로만 넣는다.
 // frontend/src/views/ProposalView.vue 와 frontend/src/views/DiagnosisView.vue 가 쓴다.
 import { computed } from 'vue'
 import { ClipboardCopy, Wrench } from 'lucide-vue-next'
 import { useToastStore } from '@/stores/toast'
+import { copyText } from '@/utils/clipboard'
 import {
   developmentRequestMarkdown,
   gapFieldLabel,
@@ -17,7 +19,7 @@ import {
   optionText,
   optionTypeLabel,
 } from '@/utils/developmentRequest'
-import { executionPath } from '@/utils/traceRun'
+import RunRecordList from './RunRecordList.vue'
 
 // request 는 development_request 칸이고, context 는 마크다운의 배경 절에 넣을 맥락
 // (frontend/src/utils/developmentRequest.js 의 markdownContextOf 모양)이다.
@@ -31,28 +33,9 @@ const options = computed(() => props.request.options ?? [])
 const changePoints = computed(() => props.request.change_points ?? [])
 const interim = computed(() => props.request.interim ?? null)
 const evidence = computed(() => props.request.evidence_run_ids ?? [])
-// 실행 번호를 실행 화면 주소로 바꾼다. 알아보지 못하는 모양이면 /executions/ 뒤에 그대로 붙인다.
-const runLink = (id) => executionPath(id) ?? `/executions/${id}`
 
-/**
- * 글을 클립보드에 넣는다. Clipboard API 가 없으면(보안 연결이 아닌 주소 등) 숨긴 textarea 를 골라
- * 복사 명령을 쓰고, 그것도 안 되면 오류를 던진다. copy 가 부른다.
- */
-async function copyText(text) {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text)
-  const area = document.createElement('textarea')
-  area.value = text
-  area.setAttribute('readonly', '')
-  area.style.position = 'fixed'
-  area.style.opacity = '0'
-  document.body.appendChild(area)
-  area.select()
-  const ok = document.execCommand('copy')
-  area.remove()
-  if (!ok) throw new Error('copy failed')
-}
-
-// '마크다운으로 복사' 버튼이 부른다. 결과는 토스트로 알린다.
+// '마크다운으로 복사' 버튼이 부른다. 클립보드는 frontend/src/utils/clipboard.js 의 copyText 가 다룬다.
+// 마크다운에는 개발팀이 서버 기록을 찾을 수 있도록 원래 id 를 그대로 넣는다. 결과는 토스트로 알린다.
 async function copy() {
   try {
     await copyText(developmentRequestMarkdown(props.request, props.context))
@@ -116,24 +99,22 @@ async function copy() {
       <h3>임시 대안</h3>
       <p v-if="interim.summary" class="para">{{ interim.summary }}</p>
       <pre v-if="interim.patch" class="patch">{{ interim.patch }}</pre>
-      <p v-if="interim.proof_run_ids?.length" class="small runs">
-        <span class="muted">증명 실행(이 변경을 되돌리면 통과)</span>
-        <RouterLink v-for="id in interim.proof_run_ids" :key="id" :to="runLink(id)">{{ id }}</RouterLink>
-      </p>
+      <template v-if="interim.proof_run_ids?.length">
+        <p class="small muted runs-title">증명 실행 · 이 변경을 되돌리면 통과</p>
+        <RunRecordList :refs="interim.proof_run_ids" />
+      </template>
     </template>
 
     <template v-if="evidence.length">
       <h3>근거 실행</h3>
-      <p class="small runs">
-        <RouterLink v-for="id in evidence" :key="id" :to="runLink(id)">{{ id }}</RouterLink>
-      </p>
+      <RunRecordList :refs="evidence" />
     </template>
   </section>
 </template>
 
 <style scoped>
 .dev {
-  border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
+  border-color: rgb(246 207 122 / 28%);
 }
 
 .head {
@@ -152,13 +133,16 @@ async function copy() {
 }
 
 .title {
-  margin: 10px 0 4px;
-  font-size: var(--fs-lg);
+  margin: 14px 0 4px;
+  font-family: var(--display);
+  font-size: 18px;
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 h3 {
-  margin: 18px 0 8px;
+  margin: 22px 0 10px;
+  color: var(--text-2);
 }
 
 .para {
@@ -187,10 +171,12 @@ th {
 
 .tag {
   display: inline-block;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--surface-2);
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 6%);
+  color: var(--text-2);
   font-size: var(--fs-xs);
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -226,18 +212,16 @@ th {
 
 .patch {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-deep);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.runs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin: 8px 0 0;
+.runs-title {
+  margin: 14px 0 4px;
 }
 
 code {

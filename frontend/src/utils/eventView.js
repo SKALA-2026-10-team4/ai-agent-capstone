@@ -11,7 +11,9 @@
 // 확장 지점은 EVENT_KINDS 표다. 이벤트 종류를 더하거나 라벨, 숨김, 문장을 바꿀 때는 이 표만
 // 고친다. 그 종류가 단계 상태에도 영향을 주면 frontend/src/utils/traceRun.js 의 applyEvent 에
 // case 를 더한다. 새 컨텍스트 키나 도구의 화면 이름은 KEY_LABELS 와 TOOL_LABELS 에 더한다.
-import { shortUuid, shortenUuidsIn, won } from './format.js'
+// 담당자에게 뜻이 없는 내부 번호(주문 번호, snapshot id, 파일 hash)는 문장과 항목에 넣지 않는다. 원본 data 는
+// 화면의 '원본' 펼침에 그대로 남는다.
+import { shortenUuidsIn, won } from './format.js'
 
 // 컨텍스트 키와 도구 인자 이름을 화면 이름으로 바꾸는 표다. 표에 없는 키는 원래 이름으로 보인다.
 const KEY_LABELS = {
@@ -79,10 +81,16 @@ export function formatValue(key, value) {
   return String(value)
 }
 
-// { 키: 값 } 객체를 화면 항목 [{ label, value }] 목록으로 바꾼다. 비었거나 null 이면 빈 목록이다.
-// describe 의 fields 를 만들고, frontend/src/components/FieldList.vue 가 그 목록을 그린다.
+// 화면 항목에서 빼는 내부 번호 키다. 한 실행의 모든 이벤트에 같은 주문 번호가 붙으므로 담당자에게 정보가 없다.
+// 결제 번호와 배송 번호처럼 바깥 업무에서 찾아볼 참조 번호는 남긴다.
+const HIDDEN_KEYS = new Set(['order.id', 'order_id'])
+
+// { 키: 값 } 객체를 화면 항목 [{ label, value }] 목록으로 바꾼다. 비었거나 null 이면 빈 목록이고, HIDDEN_KEYS 는
+// 뺀다. describe 의 fields 를 만들고, frontend/src/components/FieldList.vue 가 그 목록을 그린다.
 export const fieldsOf = (obj) =>
-  Object.entries(obj ?? {}).map(([k, v]) => ({ label: keyLabel(k), value: formatValue(k, v) }))
+  Object.entries(obj ?? {})
+    .filter(([k]) => !HIDDEN_KEYS.has(k))
+    .map(([k, v]) => ({ label: keyLabel(k), value: formatValue(k, v) }))
 
 // 실행 규칙의 결정(then)을 문장 끝말로 바꾼다. reject 는 거절, hold 와 그 밖의 값은 보류다.
 // 주문 Agent 는 hold 면 주문을 HOLD, reject 면 REJECTED 로 끝낸다.
@@ -110,14 +118,11 @@ function parseModel(raw) {
 const EVENT_KINDS = {
   EXECUTION_STARTED: {
     label: '실행 시작',
-    describe: (d) => ({ title: `주문 ${shortUuid(d.order_id)} 처리를 시작했다`, note: `${d.mode} 모드`, fields: [] }),
+    describe: (d) => ({ title: '주문 처리를 시작했다', note: `${d.mode} 모드`, fields: [] }),
   },
   SNAPSHOT_FIXED: {
     label: '실행 파일 고정',
-    describe: (d) => ({
-      title: `Skill 파일 세트 ${shortUuid(d.snapshot_id)} 를 고정했다`,
-      fields: [{ label: '해시', value: `${d.hash?.slice(0, 16)}…` }],
-    }),
+    describe: () => ({ title: '실행에 쓸 Skill 파일 세트를 고정했다', fields: [] }),
   },
   CANDIDATES_OFFERED: {
     label: '실제 제공한 후보',
@@ -176,10 +181,7 @@ const EVENT_KINDS = {
   },
   SKILL_LOADED: {
     label: '실제 파일 로드',
-    describe: (d) => ({
-      title: `${d.path} (v${d.version}) 를 불러왔다`,
-      fields: [{ label: '파일 해시', value: `${d.hash?.slice(0, 16)}…` }],
-    }),
+    describe: (d) => ({ title: `${d.path} (v${d.version}) 를 불러왔다`, fields: [] }),
   },
   SKILL_STARTED: {
     label: '단계 시작',

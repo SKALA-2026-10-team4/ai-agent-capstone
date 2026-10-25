@@ -27,18 +27,21 @@
 // frontend/src/utils/proposalView.js 에 있다.
 // 제안서에 개발 요청서(development_request, 2.11 절)가 있으면 맨 위에 '도구 개발 필요' 안내를 띄우고,
 // 본문 아래에 frontend/src/components/DevelopmentRequestCard.vue 로 요청서 카드('마크다운으로 복사')를 그린다.
+// 제안서·진단·변경 번호와 Skill 세트 id, 실패한 실행 번호 같은 원래 id 는 본문에서 빼고 맨 아래
+// frontend/src/components/DevInfo.vue 의 '개발자용 정보' 에 접어 둔다(복사 가능).
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CircleAlert, CircleCheck, FilePen, Scale, ShieldCheck, Sparkles } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, FilePen, Scale, ShieldCheck } from 'lucide-vue-next'
 import { approveProposal, getProposal, rejectProposal } from '@/api/proposals'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { developmentRequestOf, markdownContextOf } from '@/utils/developmentRequest'
 import { findingLabel, findingNote } from '@/utils/diagnosisView'
-import { overrideRows, rootCauseKind } from '@/utils/proposalView'
+import { idFactsOf, overrideRows, rootCauseKind } from '@/utils/proposalView'
 import CandidateTags from '@/components/CandidateTags.vue'
 import DevelopmentRequestCard from '@/components/DevelopmentRequestCard.vue'
+import DevInfo from '@/components/DevInfo.vue'
 import DiffView from '@/components/DiffView.vue'
 import IntentExpectations from '@/components/IntentExpectations.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -92,6 +95,22 @@ const overrides = computed(() => overrideRows(detail.value))
 // 마크다운의 배경 절에 넣을 제안서 번호·의도·원인·세트 id 는 devContext 다.
 const devRequest = computed(() => developmentRequestOf(detail.value))
 const devContext = computed(() => markdownContextOf(detail.value))
+// 개발자용 정보에 접어 둘 원래 id 들이다. 본문의 번호 칸(참고 정보 절)도 함께 모은다.
+const devRows = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  const p = d.proposal ?? {}
+  return [
+    { label: '제안서 번호', value: d.proposal_id },
+    { label: '진단 번호', value: d.thread_id ?? p.thread_id },
+    { label: '변경 번호', value: p.trigger?.change_id },
+    { label: '수정 전 Skill 세트', value: devContext.value.baselineSnapshotId },
+    { label: '수정 후 Skill 세트', value: devContext.value.snapshotId },
+    { label: '실패한 실행', value: p.failure?.execution_id },
+    { label: '원인 확인 실행', value: p.root_cause?.proof_run_ids },
+    ...idFactsOf(d.document).filter((f) => !['제안서 번호', '진단 번호', '변경 번호'].includes(f.label)),
+  ]
+})
 
 /**
  * 제안서 상세를 읽고 처음 보여 줄 후보를 고른다. 추천 후보(recommended_candidate_no)가 있으면
@@ -182,8 +201,7 @@ function applyToDraft() {
     v-if="detail"
     :title="detail.document.title"
     description="SkillOps가 실제 주문 흐름에서 시험한 결과예요. 개요부터 차례로 읽고 결정해 주세요."
-    :icon="Sparkles"
-    :back="{ to: '/proposals', label: '받은 제안서' }"
+    :back="{ to: '/proposals', label: '받은 개선안' }"
   >
     <template #badges>
       <ProposalStatusBadge :status="status" />
@@ -237,6 +255,7 @@ function applyToDraft() {
         </p>
         <ServerOverrides :rows="overrides" />
       </section>
+      <DevInfo :rows="devRows" />
     </div>
 
     <!-- 결정 패널 -->
@@ -281,7 +300,7 @@ function applyToDraft() {
         <hr />
         <h3><FilePen :size="16" /> 내가 직접 다듬기</h3>
         <p class="small muted">고른 후보의 내용을 Skill 편집 화면의 초안으로 가져와요. 서버에는 저장되지 않아요.</p>
-        <p class="small">적용할 Skill 세트: <code>{{ setLabel }}</code></p>
+        <p class="small set-line"><span class="muted">적용할 Skill 세트</span> <strong>{{ setLabel }}</strong></p>
         <button class="primary block" :disabled="!candidate?.patches.length" @click="applyToDraft">
           <FilePen :size="16" /> 초안으로 가져와 고치기
         </button>
@@ -294,8 +313,8 @@ function applyToDraft() {
 <style scoped>
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -309,12 +328,18 @@ function applyToDraft() {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1.5px solid var(--border-strong);
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
+  transition:
+    border-color 0.15s var(--ease),
+    background 0.15s var(--ease);
+}
+
+.confirm:hover {
+  border-color: rgb(255 255 255 / 28%);
 }
 
 .confirm.on {
@@ -363,13 +388,19 @@ function applyToDraft() {
 
 .side {
   position: sticky;
-  top: 20px;
+  top: calc(var(--topbar-h) + 20px);
 }
 
 .decide {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 22px;
+}
+
+.decide h3 {
+  font-family: var(--display);
+  font-size: 15px;
 }
 
 .decide p {
@@ -377,7 +408,16 @@ function applyToDraft() {
 }
 
 .pick {
-  font-size: var(--fs-lg);
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.set-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 hr {
@@ -392,8 +432,8 @@ hr {
   grid-template-columns: max-content 1fr;
   gap: 4px 12px;
   margin: 8px 0 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  border-radius: var(--radius);
   background: var(--surface-2);
   font-size: var(--fs-sm);
 }

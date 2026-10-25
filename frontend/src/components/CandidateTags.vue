@@ -35,12 +35,13 @@ const flags = computed(() => candidateFlags(props.candidate))
 }
 
 .tag {
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 6%);
+  color: var(--text-2);
   font-size: 11px;
   font-weight: 700;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-2);
+  line-height: 1.7;
   white-space: nowrap;
 }
 

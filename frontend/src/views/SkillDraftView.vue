@@ -26,12 +26,15 @@
 // frontend/tests/diagnosis.spec.js 가 편집기(textarea), '전체 수정본 저장' 버튼,
 // '자동 검증·진단 진행 확인' 링크로 저장부터 진단 화면 이동까지 확인한다. 그 테스트가 textarea 를
 // 하나로 찾으므로 고급 입력 칸은 펼쳤을 때만 그린다.
+// 저장 결과 줄은 새 세트의 id 대신 '수정본 저장 완료 · 06:41' 처럼 저장 시각으로 알리고, 원본 파일 hash 는
+// 보여 주지 않는다.
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CircleAlert, CircleCheck, FilePen, GitCompareArrows, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { flowGraphOf, problemCount } from '@/utils/flowGraph'
+import { clockOf } from '@/utils/format'
 import { INTENT_TEXT_MAX, buildIntent, intentHasProblems } from '@/utils/intentInput'
 import {
   ENTRY_SKILL,
@@ -57,6 +60,8 @@ const saveError = ref(null)
 const saved = ref(null)
 // 마지막 저장에 함께 보낸 intent 다. 보내지 않았으면 null 이다. 결과 줄에 쓴다.
 const savedIntent = ref(null)
+// 마지막 저장 시각('06:41')이다. 응답의 created_at 을 쓰고, 없으면 저장을 마친 때의 시각이다.
+const savedAt = computed(() => (saved.value ? clockOf(saved.value.created_at ?? saved.value.savedLocally)?.slice(0, 5) : null))
 
 // 변경 의도 입력(workspace store 의 currentIntent)을 저장 요청의 intent 로 바꾼 결과
 // { intent, textError, lineErrors } 와, 문제가 있어 저장을 막아야 하는지다.
@@ -89,7 +94,7 @@ async function save() {
   }
   const intent = intentBuilt.value.intent
   try {
-    saved.value = await ws.saveDrafts(intent)
+    saved.value = { ...(await ws.saveDrafts(intent)), savedLocally: new Date() }
     savedIntent.value = intent
     toast.show(
       intent ? '수정본과 변경 의도를 저장했어요. 자동 검증 요청이 전달됩니다.' : '수정본을 저장했어요. 자동 검증 요청이 전달됩니다.',
@@ -217,7 +222,6 @@ function create() {
   <PageHeader
     title="Skill 편집"
     description="초안을 새 Skill 세트로 저장하고 주문 실행에서 확인해요. 오른쪽에서 입력·출력 연결을 점검할 수 있어요."
-    :icon="FilePen"
   />
   <div class="card toolbar">
     <SnapshotPicker />
@@ -264,13 +268,13 @@ function create() {
         </li>
       </ul>
     </div>
-    <button :disabled="USE_MOCK || ws.saving || intentBlocked || !Object.keys(ws.currentDrafts).length" @click="save">
+    <button class="primary" :disabled="USE_MOCK || ws.saving || intentBlocked || !Object.keys(ws.currentDrafts).length" @click="save">
       {{ ws.saving ? '저장 중…' : '전체 수정본 저장' }}
     </button>
     <p v-if="USE_MOCK" class="muted small">수정본 저장은 실제 서버 모드에서 사용할 수 있어요.</p>
     <p v-if="saveError" role="alert" class="error-text">{{ saveError }}</p>
-    <p v-if="saved" role="status" class="small">
-      수정본 저장 완료 · {{ saved.snapshot_id }} · {{ saved.changed_paths.length }}개 파일 변경<template v-if="savedIntent">
+    <p v-if="saved" role="status" class="small saved" :title="`새 Skill 세트 ID ${saved.snapshot_id}`">
+      <strong>수정본 저장 완료 · {{ savedAt }}</strong> · {{ saved.changed_paths.length }}개 파일 변경<template v-if="savedIntent">
         · 변경 의도 함께 전달(기대 결과 {{ savedIntent.expectations.length ? `${savedIntent.expectations.length}개` : '자동 생성' }})</template>.
       <RouterLink :to="`/diagnoses?change_id=${saved.change_id}`">자동 검증·진단 진행 확인</RouterLink>
       · <RouterLink to="/orders">이 수정본으로 주문 실행</RouterLink>
@@ -313,7 +317,6 @@ function create() {
           </h2>
           <p class="muted small">
             {{ skill.description || '설명 없음' }}
-            <template v-if="original"> · 원본 <code>{{ original.file_hash?.slice(0, 10) }}</code></template>
           </p>
         </div>
         <div class="row">
@@ -433,9 +436,13 @@ function create() {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 16px 20px;
   margin-bottom: 16px;
+}
+
+.saved strong {
+  color: var(--ok);
 }
 
 .toolbar > p {
@@ -445,9 +452,9 @@ function create() {
 .intent {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding-top: 10px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
 }
 
@@ -456,7 +463,9 @@ function create() {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 10px;
+  font-size: var(--fs-sm);
   font-weight: 600;
+  color: var(--text);
 }
 
 .intent label small {
@@ -472,7 +481,7 @@ function create() {
 
 .intent-row input {
   flex: 1;
-  min-width: 240px;
+  min-width: min(240px, 100%);
 }
 
 .count {
@@ -530,7 +539,7 @@ function create() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 12px;
+  padding: 14px 12px;
 }
 
 .list-title {
@@ -557,6 +566,7 @@ function create() {
 
 .item.active {
   background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .name {
@@ -641,9 +651,11 @@ function create() {
 .ed-head h2 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 2px;
-  font-size: var(--fs-xl);
+  gap: 10px;
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .ed-head p {
@@ -652,12 +664,13 @@ function create() {
 
 .io {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 14px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 16px;
   margin: 0;
-  padding: 12px 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface-2);
+  background: rgb(0 0 0 / 12%);
   font-size: var(--fs-sm);
 }
 
@@ -697,8 +710,9 @@ function create() {
 textarea {
   width: 100%;
   min-height: 420px;
-  padding: 14px 16px;
-  background: var(--surface-2);
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--bg-deep);
   resize: vertical;
 }
 
@@ -718,8 +732,9 @@ textarea {
 
 .problems li {
   padding: 10px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   border: 1px solid var(--border);
+  background: rgb(255 255 255 / 2%);
 }
 
 .problems small {

@@ -39,32 +39,55 @@ const tone = computed(() => TONE[props.status] ?? 'muted')
 
 <style scoped>
 .badge {
-  display: inline-block;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--mono);
+  font-size: 11px;
   font-weight: 600;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid currentColor;
+  letter-spacing: 0.02em;
+  line-height: 1.6;
   white-space: nowrap;
 }
 
+.badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .ok {
+  background: var(--ok-soft);
   color: var(--ok);
 }
 
 .warn {
+  background: var(--warn-soft);
   color: var(--warn);
 }
 
 .err {
+  background: var(--err-soft);
   color: var(--err);
 }
 
 .info {
-  color: var(--accent);
+  background: var(--info-soft);
+  color: var(--info);
 }
 
 .muted {
+  background: rgb(255 255 255 / 6%);
   color: var(--muted);
+}
+
+/* 화면 제목(PageHeader 의 h1) 안에 넣은 배지 */
+h1 .badge {
+  font-size: 12px;
+  padding: 3px 12px;
 }
 </style>

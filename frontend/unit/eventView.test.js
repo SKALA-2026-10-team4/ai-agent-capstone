@@ -66,8 +66,8 @@ test('formatValue: 값 종류별 짧은 글', () => {
 test('fieldsOf: { key: value } → [{ label, value }]', () => {
   assert.deepStrictEqual(fieldsOf(null), [])
   assert.deepStrictEqual(fieldsOf(undefined), [])
-  assert.deepStrictEqual(fieldsOf({ 'order.id': ORDER, 'payment.status': 'PAID', extra: 1 }), [
-    { label: '주문 번호', value: '3f2a9c1e…' },
+  // 내부 주문 번호(order.id, order_id)는 화면 항목에서 뺀다.
+  assert.deepStrictEqual(fieldsOf({ 'order.id': ORDER, order_id: ORDER, 'payment.status': 'PAID', extra: 1 }), [
     { label: '결제 상태', value: 'PAID' },
     { label: 'extra', value: '1' },
   ])
@@ -75,22 +75,23 @@ test('fieldsOf: { key: value } → [{ label, value }]', () => {
 
 test('describe: 실행 시작·snapshot 고정·후보', () => {
   assert.deepStrictEqual(describeEvent(ev('EXECUTION_STARTED', { order_id: ORDER, mode: 'fixed' })), {
-    title: '주문 3f2a9c1e… 처리를 시작했다',
+    title: '주문 처리를 시작했다',
     note: 'fixed 모드',
     fields: [],
   })
   assert.deepStrictEqual(describeEvent(ev('EXECUTION_STARTED', { order_id: 'o-1' })), {
-    title: '주문 o-1 처리를 시작했다',
+    title: '주문 처리를 시작했다',
     note: 'undefined 모드',
     fields: [],
   })
+  // snapshot id 와 hash 는 문장에 넣지 않는다(원본 data 에만 남는다).
   assert.deepStrictEqual(describeEvent(ev('SNAPSHOT_FIXED', { snapshot_id: SNAP, hash: 'abcdef0123456789abcdef' })), {
-    title: 'Skill 파일 세트 f47e7062… 를 고정했다',
-    fields: [{ label: '해시', value: 'abcdef0123456789…' }],
+    title: '실행에 쓸 Skill 파일 세트를 고정했다',
+    fields: [],
   })
   assert.deepStrictEqual(describeEvent(ev('SNAPSHOT_FIXED', {})), {
-    title: 'Skill 파일 세트 undefined 를 고정했다',
-    fields: [{ label: '해시', value: 'undefined…' }],
+    title: '실행에 쓸 Skill 파일 세트를 고정했다',
+    fields: [],
   })
   assert.deepStrictEqual(
     describeEvent(
@@ -121,7 +122,6 @@ test('describe: 모델 입력·호출·응답·오류', () => {
     'order.shipping': { country: 'KR', express: false },
   }
   const fields = [
-    { label: '주문 번호', value: '3f2a9c1e…' },
     { label: '고객', value: 'c_1001' },
     { label: '상품', value: 'CAMP-LANTERN-LED × 1' },
     { label: '결제 방식', value: 'card' },
@@ -150,7 +150,6 @@ test('describe: 모델 입력·호출·응답·오류', () => {
     title: '모델이 결제 (payment.charge) 호출을 정했다',
     note: '토큰 10/5',
     fields: [
-      { label: '주문 번호', value: '3f2a9c1e…' },
       { label: '금액', value: won(30000) },
       { label: '결제 방식', value: 'card' },
     ],
@@ -197,7 +196,7 @@ test('describe: Skill 선택·해석·로드', () => {
   })
   assert.deepStrictEqual(
     describeEvent(ev('SKILL_LOADED', { path: 'skills/payment/SKILL.md', version: 1, hash: '0123456789abcdef0123' })),
-    { title: 'skills/payment/SKILL.md (v1) 를 불러왔다', fields: [{ label: '파일 해시', value: '0123456789abcdef…' }] },
+    { title: 'skills/payment/SKILL.md (v1) 를 불러왔다', fields: [] },
   )
 })
 
@@ -207,10 +206,7 @@ test('describe: 단계 시작·끝', () => {
     {
       title: '2단계를 시작했다 (v1)',
       note: '이 단계가 받은 입력',
-      fields: [
-        { label: '주문 번호', value: 'o-1' },
-        { label: '주문 금액', value: won(5000) },
-      ],
+      fields: [{ label: '주문 금액', value: won(5000) }],
     },
   )
   assert.deepStrictEqual(describeEvent(ev('SKILL_STARTED', { step_no: 1, version: 3 })), {
@@ -262,16 +258,13 @@ test('describe: 흐름 검사·도구 요청·결과·오류·재사용', () => 
   })
   assert.deepStrictEqual(describeEvent(ev('FLOW_VALIDATED', {})), { title: '흐름 계약 검사를 통과했다', note: '', fields: [] })
   const args = { order_id: ORDER, items: [{ sku: 'A', qty: 1 }] }
-  const argFields = [
-    { label: '주문 번호', value: '3f2a9c1e…' },
-    { label: '상품', value: 'A × 1' },
-  ]
+  const argFields = [{ label: '상품', value: 'A × 1' }]
   assert.deepStrictEqual(
     describeEvent(ev('TOOL_REQUEST', { tool: 'inventory.release', arguments: { order_id: ORDER }, reason: 'PAYMENT_DECLINED' })),
     {
       title: '재고 예약 해제 (inventory.release) 요청',
       note: '사유: PAYMENT_DECLINED',
-      fields: [{ label: '주문 번호', value: '3f2a9c1e…' }],
+      fields: [],
     },
   )
   assert.deepStrictEqual(describeEvent(ev('TOOL_REQUEST', { tool: 'inventory.reserve', arguments: args })), {
@@ -326,10 +319,7 @@ test('describe: 흐름 검사·도구 요청·결과·오류·재사용', () => 
 test('describe: 단계 결과 전달·업무 종료·실행 오류·중단·끝', () => {
   assert.deepStrictEqual(describeEvent(ev('SKILL_COMPLETED', { declared_output: { 'order.total': 30000, 'order.id': 'o-1' } })), {
     title: '다음 단계로 넘긴 값',
-    fields: [
-      { label: '주문 금액', value: won(30000) },
-      { label: '주문 번호', value: 'o-1' },
-    ],
+    fields: [{ label: '주문 금액', value: won(30000) }],
   })
   assert.deepStrictEqual(describeEvent(ev('BUSINESS_STOP', { final_status: 'REJECTED' })), {
     title: '업무 규칙대로 멈췄다: REJECTED',

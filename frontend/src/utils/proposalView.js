@@ -1,5 +1,7 @@
 // 제안서 상태를 담당자 말로 보여 주는 이름표와 검토 대기 판정이다. 상태 문자열은
 // service/src/main/java/com/capstone4/skillops/proposal/ProposalStatus.java 의 값과 같다.
+// 제안서 사실 값이 실행 번호·세트 번호·진단 번호일 때 어떻게 보일지(factView)도 여기서 정한다.
+import { runIdsIn, uuidsIn } from './runRecord.js'
 
 // 상태마다 화면 라벨과 배지 색을 정하는 톤이다. frontend/src/components/ProposalStatusBadge.vue 가
 // 그리고, 표에 없는 상태는 원래 이름으로 보인다.
@@ -12,7 +14,7 @@ export const STATUS = {
 
 // 운영자가 아직 결정하지 않은 제안서인지 본다. 승인할 안이 없는 제안서(no_valid_fix)도
 // 운영자가 확인하고 거절로 닫아야 하므로 넣는다. frontend/src/views/ProposalListView.vue 의
-// 검토 대기 탭과 frontend/src/components/AppSidebar.vue 의 검토 대기 숫자가 함께 쓴다.
+// 검토 대기 탭과 frontend/src/components/AppTopBar.vue 의 검토 대기 숫자가 함께 쓴다.
 export const awaitsDecision = (p) => p.status === 'proposed' || p.status === 'no_valid_fix'
 
 // 후보 종류(candidates[].kind)의 화면 이름이다. 앞의 셋은
@@ -102,4 +104,52 @@ export function overrideRows(detail) {
       server: verdictText(o.server_value),
     }
   })
+}
+
+// 사실 이름이 이것이면 번호 칸이다. 담당자에게 뜻이 없는 번호라 본문에서 빼고 개발자용 정보로 옮긴다.
+// 이름은 service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 의 참고 정보 절과 같다.
+export const ID_FACT_LABELS = ['제안서 번호', '진단 번호', '변경 번호']
+
+/**
+ * 제안서 사실 하나를 어떻게 보일지 정한다. 돌려주는 kind 는 넷이다.
+ * - runs: 값이 run_id 목록이거나, 이름에 '실행' 이 든 UUID 목록이다. ids 를 실행 기록 타임라인으로 그린다.
+ * - snapshots: 이름에 '세트' 가 든 UUID 목록이다. ids 를 세트 이름으로 그리고, role 은 '수정 전' 이면
+ *   baseline, '수정 후' 면 candidate, 아니면 null 이다.
+ * - id: ID_FACT_LABELS 의 번호이거나 그 밖의 UUID 다. 본문에서 빼고 개발자용 정보로 옮긴다.
+ * - text: 그 밖의 글이다. 그대로 보여 준다.
+ * frontend/src/components/ProposalFacts.vue 가 사실마다 부른다.
+ */
+export function factView(fact) {
+  const label = String(fact?.label ?? '')
+  const value = String(fact?.value ?? '')
+  if (ID_FACT_LABELS.includes(label)) return { kind: 'id' }
+  const runs = runIdsIn(value)
+  if (runs) return { kind: 'runs', ids: runs }
+  const uuids = uuidsIn(value)
+  if (!uuids) return { kind: 'text' }
+  if (label.includes('세트')) {
+    const role = label.includes('수정 전') ? 'baseline' : label.includes('수정 후') ? 'candidate' : null
+    return { kind: 'snapshots', ids: uuids, role }
+  }
+  if (label.includes('실행')) return { kind: 'runs', ids: uuids }
+  return { kind: 'id' }
+}
+
+/**
+ * 제안서 본문(document)의 절과 후보 카드에서 번호 칸(factView 가 id 인 사실)만 모아 [{ label, value }] 로
+ * 돌려준다. 같은 이름과 값은 한 번만 넣는다. frontend/src/views/ProposalView.vue 가 개발자용 정보에 쓴다.
+ */
+export function idFactsOf(document) {
+  const seen = new Set()
+  const out = []
+  for (const s of document?.sections ?? []) {
+    for (const f of [...(s.facts ?? []), ...(s.parts ?? []).flatMap((p) => p.facts ?? [])]) {
+      const key = `${f.label}|${f.value}`
+      if (factView(f).kind === 'id' && !seen.has(key)) {
+        seen.add(key)
+        out.push({ label: f.label, value: f.value })
+      }
+    }
+  }
+  return out
 }

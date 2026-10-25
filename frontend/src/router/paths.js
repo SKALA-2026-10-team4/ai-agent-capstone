@@ -1,7 +1,7 @@
 // 첫 화면과 로그인 화면의 경로 규칙이다. 첫 화면이나 로그인 흐름을 바꿀 때 이 파일만 고친다.
 // frontend/src/router/index.js(라우트 표와 로그인 가드), frontend/src/main.js(401 처리),
 // frontend/src/views/LoginView.vue(로그인 뒤 이동),
-// frontend/src/components/AppSidebar.vue(로고 링크와 로그아웃)가 쓴다.
+// frontend/src/components/AppTopBar.vue(로고 링크와 로그아웃)가 쓴다.
 // vue 와 router 를 import 하지 않으므로 frontend/unit/paths.test.js 가 Node 에서 바로 불러
 // 이 규칙을 고정한다.
 

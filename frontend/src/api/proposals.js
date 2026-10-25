@@ -12,7 +12,7 @@ import { apiPath, get, post } from './client'
 // 받는다. 응답은 { items: [{ proposal_id, status, created_at, title, summary,
 // root_cause_skill, recommended_candidate_no, valid_candidate_nos,
 // candidate_count }] } 다. frontend/src/views/ProposalListView.vue 와
-// frontend/src/components/AppSidebar.vue(검토 대기 수)가 부른다.
+// frontend/src/components/AppTopBar.vue(검토 대기 수)가 부른다.
 export const listProposals = () => get('/service/api/proposals')
 
 // 제안서 한 건의 상세를 읽는다. GET /service/api/proposals/{id} 는

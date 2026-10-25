@@ -9,11 +9,12 @@
 // 위쪽 도구 막대에 둔다. fixture 버튼 목록은 frontend/src/api/orderAgent.js 의 FIXTURES 이고,
 // 버튼 이름은 workspace.js 의 SET_LABEL 이다.
 // frontend/tests/diagnosis.spec.js 가 '정상본 고정' 버튼 이름으로 이 버튼을 찾으므로,
-// 이름을 바꾸면 e2e 도 함께 고친다.
+// 이름을 바꾸면 e2e 도 함께 고친다. 세트는 id 나 hash 대신 종류와 시각(workspace store 의 labelOf)으로
+// 부르고, id 직접 입력 칸만 원래 id 를 받는다.
 import { onMounted, ref } from 'vue'
 import { FIXTURES } from '@/api/orderAgent'
 import { SET_LABEL, useWorkspaceStore } from '@/stores/workspace'
-import { shortId } from '@/utils/format'
+import { stampOf } from '@/utils/format'
 
 const ws = useWorkspaceStore()
 // 직접 입력 칸의 snapshot_id 다.
@@ -64,20 +65,20 @@ onMounted(() => ws.init())
       <select :value="ws.snapshotId ?? ''" @change="pick($event.target.value)">
         <option value="" disabled>snapshot 선택</option>
         <option v-if="ws.snapshotId && !ws.knownSnapshots.some((s) => s.id === ws.snapshotId)" :value="ws.snapshotId">
-          {{ shortId(ws.snapshotId) }}
+          {{ ws.labelOf(ws.snapshotId) }} (직접 고른 세트)
         </option>
         <option v-for="s in ws.knownSnapshots" :key="s.id" :value="s.id">{{ s.label }}</option>
       </select>
     </label>
-    <input v-model.trim="manual" placeholder="snapshot_id 직접 입력" @keyup.enter="pick(manual)" />
+    <input v-model.trim="manual" class="manual" placeholder="세트 ID 직접 입력" aria-label="Skill 세트 ID 직접 입력" @keyup.enter="pick(manual)" />
     <span class="fixtures">
-      <button v-for="f in FIXTURES" :key="f" :disabled="busy" :title="`준비된 ${f} 후보를 새 snapshot 으로 고정`" @click="pin(f)">
+      <button v-for="f in FIXTURES" :key="f" class="sm" :disabled="busy" :title="`준비된 ${f} 후보를 새 snapshot 으로 고정`" @click="pin(f)">
         {{ SET_LABEL[f] }} 고정
       </button>
     </span>
     <span v-if="ws.current" class="meta muted">
-      {{ ws.kindLabelOf(ws.snapshotId) }} · hash
-      <code>{{ ws.current.snapshot.hash.slice(0, 12) }}</code>
+      {{ ws.kindLabelOf(ws.snapshotId) }} · Skill {{ ws.current.skills.length }}개
+      <template v-if="ws.current.snapshot.created_at"> · {{ stampOf(ws.current.snapshot.created_at) }} 고정</template>
     </span>
     <span v-if="error || ws.error" class="error-text">{{ error || ws.error }}</span>
   </div>
@@ -88,41 +89,51 @@ onMounted(() => ws.init())
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  font-size: var(--fs-sm);
   font-weight: 600;
+  color: var(--text-2);
 }
 
 select {
-  max-width: 320px;
+  max-width: 340px;
+  font-size: var(--fs-sm);
 }
 
-input {
-  font: inherit;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  width: 200px;
+.manual {
+  width: 180px;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
 }
 
 .fixtures {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
-.fixtures button {
-  padding: 4px 10px;
-  font-size: 13px;
+.meta {
+  font-size: var(--fs-xs);
 }
 
-.meta {
-  font-size: 12px;
+@media (max-width: 760px) {
+  label {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    width: 100%;
+  }
+
+  select,
+  .manual {
+    width: 100%;
+    max-width: none;
+  }
 }
 </style>

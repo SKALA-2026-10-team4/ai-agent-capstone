@@ -4,7 +4,8 @@
 // frontend/unit/skillSet.test.js, frontend/unit/snapshotDiff.test.js 가
 // 실제와 같은 Skill 세트로 쓴다. import 가 없어 Node 테스트에서 바로 불러올
 // 수 있다. order-agent/skills 의 파일을 고치면 이 파일도 함께 고친다. 맨 아래의
-// prepaidPolicyFiles 는 게시본이 아니라 실행 규칙(rules) 예시를 만드는 mock 전용 세트다.
+// prepaidPolicyFiles, weatherNotifyFiles, withoutInput 은 게시본이 아니라 실행 규칙(rules) 예시와 제안서
+// 근거 실행을 만드는 mock 전용 세트다.
 
 // 게시본 묶음의 경로마다 파일 원문이다. resources/policy.md 처럼
 // SKILL.md 가 아닌 관련 파일도 들어 있다.
@@ -57,5 +58,36 @@ export function prepaidPolicyFiles({ withRule }) {
   let text = `${files[path]}\n${PREPAID_POLICY}\n`
   if (withRule) text = text.replace('version: 1\n---\n', `version: 1\n${PREPAID_RULE}---\n`)
   files[path] = text
+  return files
+}
+
+/**
+ * files 의 skill SKILL.md frontmatter inputs 에서 key 하나를 뺀 사본을 돌려준다. 원본은 고치지 않는다.
+ * frontend/src/mocks/index.js 의 seedPastRuns 가 제안서 후보 세트(받는 값을 줄인 수정안)를 만들 때 부른다.
+ */
+export function withoutInput(files, skill, key) {
+  const path = `skills/${skill}/SKILL.md`
+  const text = files[path]
+    .split('\n')
+    .map((line) => (line.startsWith('inputs: [') ? `inputs: [${line.slice(9, -1).split(', ').filter((k) => k !== key).join(', ')}]` : line))
+    .join('\n')
+  return { ...files, [path]: text }
+}
+
+// notify 에 '배송지에 태풍 경보가 있으면 알림 전에 보류' 정책을 실행 규칙으로 넣은 모양이다.
+// frontend/src/mocks/proposal-w1.json 의 수정 후 세트와 같다.
+export const WEATHER_RULE = "rules:\n  - when: \"shipping.weather == 'storm'\"\n    then: hold\n    reason: WEATHER_HOLD\n"
+
+/**
+ * 게시본 notify 의 inputs 에 shipping.weather 를 더하고 WEATHER_RULE 을 넣어 version 2 로 올린 세트 파일을
+ * 만든다. 어떤 업무 도구도 shipping.weather 를 만들지 않으므로 이 세트로 주문하면 notify 에서 실행 전 계약
+ * 검사(CONTRACT_VIOLATION)에 걸린다. frontend/src/mocks/index.js 의 seedPastRuns 가 부른다.
+ */
+export function weatherNotifyFiles() {
+  const files = { ...PUBLISHED_FILES }
+  const path = 'skills/notify/SKILL.md'
+  files[path] = files[path]
+    .replace('shipping.eta]', 'shipping.eta, shipping.weather]')
+    .replace('version: 1\n---\n', `version: 2\n${WEATHER_RULE}---\n`)
   return files
 }

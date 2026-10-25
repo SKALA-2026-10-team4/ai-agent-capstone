@@ -8,11 +8,12 @@
 // GET /service/api/proposals 는
 // service/src/main/java/com/capstone4/skillops/api/ProposalController.java 의 list() 가 받는다.
 // 검토 대기 판정은 frontend/src/utils/proposalView.js 의 awaitsDecision 이며,
-// 사이드바(frontend/src/components/AppSidebar.vue)의 숫자도 같은 규칙으로 센다.
+// 위쪽 막대(frontend/src/components/AppTopBar.vue)의 숫자도 같은 규칙으로 센다.
 // 항목을 누르면 제안서 상세 화면(/proposals/:id, frontend/src/views/ProposalView.vue)으로 간다.
 import { computed, onMounted, ref } from 'vue'
-import { ChevronRight, Inbox, Star } from 'lucide-vue-next'
+import { ArrowUpRight, Inbox, Star } from 'lucide-vue-next'
 import { listProposals } from '@/api/proposals'
+import { stampOf } from '@/utils/format'
 import { awaitsDecision } from '@/utils/proposalView'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -43,14 +44,13 @@ onMounted(async () => {
   <PageHeader
     title="받은 제안서"
     description="SkillOps가 실제로 시험한 수정 제안서예요. 내용을 읽고 승인하거나 거절해 주세요."
-    :icon="Inbox"
   >
     <template #actions>
-      <div class="tabs" role="tablist">
-        <button class="ghost sm" :class="{ on: filter === 'pending' }" @click="filter = 'pending'">
+      <div class="seg" role="tablist">
+        <button role="tab" :aria-selected="filter === 'pending'" :class="{ on: filter === 'pending' }" @click="filter = 'pending'">
           검토 대기 <span class="n">{{ pendingCount }}</span>
         </button>
-        <button class="ghost sm" :class="{ on: filter === 'all' }" @click="filter = 'all'">
+        <button role="tab" :aria-selected="filter === 'all'" :class="{ on: filter === 'all' }" @click="filter = 'all'">
           전체 <span class="n">{{ proposals.length }}</span>
         </button>
       </div>
@@ -63,45 +63,42 @@ onMounted(async () => {
   </EmptyState>
 
   <div class="list">
-    <RouterLink v-for="p in shown" :key="p.proposal_id" :to="`/proposals/${p.proposal_id}`" class="item card">
-      <div class="head">
-        <ProposalStatusBadge :status="p.status" />
+    <RouterLink v-for="(p, i) in shown" :key="p.proposal_id" :to="`/proposals/${p.proposal_id}`" class="item card">
+      <span class="no" aria-hidden="true">{{ String(i + 1).padStart(2, '0') }}</span>
+      <div class="main">
+        <div class="head">
+          <ProposalStatusBadge :status="p.status" />
+          <span class="when">{{ stampOf(p.created_at) }}</span>
+        </div>
         <strong class="title">{{ p.title }}</strong>
-      </div>
-      <p class="summary">{{ p.summary }}</p>
-      <div class="foot">
-        <span v-if="p.recommended_candidate_no" class="rec">
-          <Star :size="14" /> 추천 후보 {{ p.recommended_candidate_no }}번
-        </span>
-        <span class="muted small">합격 {{ p.valid_candidate_nos.length }} / 후보 {{ p.candidate_count }}</span>
-        <span class="spacer" />
-        <span class="go">검토하기 <ChevronRight :size="16" /></span>
+        <p class="summary">{{ p.summary }}</p>
+        <div class="foot">
+          <span v-if="p.recommended_candidate_no" class="rec">
+            <Star :size="13" /> 추천 후보 {{ p.recommended_candidate_no }}번
+          </span>
+          <span class="muted small">합격 {{ p.valid_candidate_nos.length }} / 후보 {{ p.candidate_count }}</span>
+          <span class="spacer" />
+          <span class="go">검토하기 <ArrowUpRight :size="16" /></span>
+        </div>
       </div>
     </RouterLink>
   </div>
 </template>
 
 <style scoped>
-.tabs {
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-
-.tabs .on {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: var(--shadow-sm);
-}
-
 .n {
+  display: inline-grid;
+  place-items: center;
   min-width: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--border);
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 10%);
   font-size: 11px;
+}
+
+.seg button.on .n {
+  background: rgb(23 37 50 / 15%);
 }
 
 .list {
@@ -111,47 +108,78 @@ onMounted(async () => {
 }
 
 .item {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
   gap: 8px;
+  padding: 24px 26px 22px 18px;
   color: var(--text);
   text-decoration: none;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition:
+    border-color 0.2s var(--ease),
+    background 0.2s var(--ease),
+    transform 0.2s var(--ease);
 }
 
 .item:hover {
-  border-color: var(--accent);
-  box-shadow: var(--shadow);
+  border-color: rgb(250 255 220 / 35%);
+  background: var(--surface-2);
   text-decoration: none;
 }
 
-.head {
+.no {
+  padding-top: 3px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  text-align: center;
+}
+
+.main {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
-.title {
-  font-size: var(--fs-lg);
-}
-
-.summary {
-  margin: 0;
-  color: var(--text-2);
-}
-
-.foot {
+.head {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
 }
 
+.when {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.title {
+  font-family: var(--display);
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+
+.summary {
+  margin: 0;
+  max-width: 900px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .rec {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--accent);
@@ -160,8 +188,36 @@ onMounted(async () => {
 .go {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-sm);
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
+  transition:
+    background 0.2s var(--ease),
+    color 0.2s var(--ease);
+}
+
+.item:hover .go {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+@media (max-width: 760px) {
+  .item {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px 16px;
+  }
+
+  .no {
+    display: none;
+  }
+
+  .title {
+    font-size: 18px;
+  }
 }
 </style>

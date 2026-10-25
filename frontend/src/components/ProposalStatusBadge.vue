@@ -17,22 +17,38 @@ defineProps({ status: { type: String, default: null } })
 
 <style scoped>
 .status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 11px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 7%);
+  color: var(--text-2);
+  font-family: var(--font);
   font-size: var(--fs-xs);
   font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-2);
+  letter-spacing: 0;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 /* 화면 제목(PageHeader 의 h1) 안에 넣은 배지는 조금 더 크게 */
 h1 .status {
-  padding: 3px 10px;
+  padding: 4px 13px;
+  font-size: var(--fs-sm);
 }
 
 .status.info {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .status.ok {

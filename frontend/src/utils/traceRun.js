@@ -1,15 +1,16 @@
 // order-agent trace 의 events 를 Skill 별 실행 상태로 계산한다.
-// frontend/src/views/ExecutionView.vue 의 단계별 결과가 traceRun 과 RUN_LABEL 을 쓴다.
-// 실행 목록 한 줄 라벨(executionLabel)은 frontend/src/views/OrderView.vue 가, 실행 번호를
-// 실행 화면 주소로 바꾸는 executionPath 는 frontend/src/components/ProposalFacts.vue 와
-// frontend/src/views/DiagnosisView.vue 가 쓴다. 이벤트 종류와 data 모양은
+// frontend/src/views/ExecutionView.vue 의 단계별 결과와 frontend/src/utils/runRecord.js 의 실패 단계 판정이
+// traceRun 을, ExecutionView 가 RUN_LABEL 을 쓴다. 실행 번호를 실행 화면 주소로 바꾸는 executionPath 는
+// frontend/src/utils/runRecord.js, frontend/src/components/RunRecordList.vue,
+// frontend/src/views/DiagnosisView.vue 가 쓴다. 실행 목록 한 줄은 실행 번호 대신 runRecord.js 의 요약
+// (시각·결과·주문)으로 그리므로 여기에는 목록 라벨이 없다. 이벤트 종류와 data 모양은
 // order-agent/backend/src/main/java/com/capstone4/orderagent/trace/TraceService.java,
 // order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java,
 // order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java 가
 // 남기는 모양을 따른다. 이벤트 종류를 더할 때 화면 문장은 frontend/src/utils/eventView.js 의
 // EVENT_KINDS 에, 단계 상태에 주는 영향은 applyEvent 에 더한다.
 // frontend/unit/traceRun.test.js 가 지금 동작을 고정한다.
-import { UUID_RE, shortId } from './format.js'
+import { UUID_RE } from './format.js'
 
 // 단계 상태를 담당자가 읽는 말로 바꾸는 표다. 상태마다 쓰는 아이콘은
 // frontend/src/views/ExecutionView.vue 의 STEP_ICON 에 있다.
@@ -164,13 +165,6 @@ export function traceRun(trace, steps) {
   settleUnfinished(ensure, steps, trace, error)
   return { bySkill, error }
 }
-
-// 실행 목록 한 줄 라벨을 만든다. 시작 시각(월-일 시:분), 최종 상태,
-// 오류 분류, 실행 번호 앞 8자를 가운뎃점으로 잇고 오류 분류는 있을
-// 때만 넣는다. frontend/src/views/OrderView.vue 의 runLabel 이 쓴다.
-export const executionLabel = (x) =>
-  `${x.started_at?.slice(5, 16).replace('T', ' ')} · ${x.final_status ?? x.completion}` +
-  `${x.error_category ? ` · ${x.error_category}` : ''} · ${shortId(x.execution_id)}`
 
 // run_id 모양이다. order-agent 는 r_ 뒤에 하이픈을 뺀 execution_id 를 붙여 만들고, 그 규칙은
 // order-agent/backend/src/main/java/com/capstone4/orderagent/trace/RunId.java 에 있다.

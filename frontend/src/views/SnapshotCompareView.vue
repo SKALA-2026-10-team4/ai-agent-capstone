@@ -17,10 +17,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { getSnapshotFile } from '@/api/orderAgent'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { flowGraphOf } from '@/utils/flowGraph'
-import { shortId } from '@/utils/format'
 import { fieldChanges, pairFiles } from '@/utils/snapshotDiff'
-import { GitCompareArrows } from 'lucide-vue-next'
+import { ArrowRight, GitCompareArrows } from 'lucide-vue-next'
 import DiffView from '@/components/DiffView.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 
 const ws = useWorkspaceStore()
@@ -106,42 +106,42 @@ onMounted(() => ws.refreshExecutions())
 // 본문 비교를 보여 줄 바뀐 파일들이다.
 const changed = computed(() => files.value.filter((f) => f.status !== 'unchanged'))
 /**
- * 선택지에 있는 snapshot 이면 그 이름을, 없으면 id 앞 8자를 돌려준다.
- * 기준과 비교의 계약 위반 칸 제목이 쓴다.
+ * 선택지에 있는 snapshot 이면 그 이름을, 없으면 workspace store 의 labelOf 이름(종류와 시각)을 돌려준다.
+ * id 는 쓰지 않는다. 기준과 비교의 계약 위반 칸 제목이 쓴다.
  */
-const label = (id) => ws.knownSnapshots.find((s) => s.id === id)?.label ?? shortId(id)
+const label = (id) => ws.knownSnapshots.find((s) => s.id === id)?.label ?? ws.labelOf(id)
 </script>
 
 <template>
   <PageHeader
     title="버전 비교"
     description="두 Skill 세트에서 어떤 파일이 어떻게 달라졌는지, 그 때문에 어디 연결이 끊겼는지 나란히 봐요."
-    :icon="GitCompareArrows"
   />
   <div class="card toolbar">
     <label>
       기준
       <select v-model="before">
-        <option value="" disabled>snapshot</option>
+        <option value="" disabled>세트 고르기</option>
         <option v-for="s in ws.knownSnapshots" :key="s.id" :value="s.id">{{ s.label }}</option>
       </select>
     </label>
-    <span>→</span>
+    <ArrowRight class="arrow" :size="16" aria-hidden="true" />
     <label>
       비교
       <select v-model="after">
-        <option value="" disabled>snapshot</option>
+        <option value="" disabled>세트 고르기</option>
         <option v-for="s in ws.knownSnapshots" :key="s.id" :value="s.id">{{ s.label }}</option>
       </select>
     </label>
-    <button :disabled="busy" @click="prepareDemo">정상본 ↔ 결함본 준비</button>
+    <button class="sm" :disabled="busy" @click="prepareDemo">정상본 ↔ 결함본 준비</button>
     <span v-if="error" class="error-text">{{ error }}</span>
   </div>
 
   <template v-if="files.length">
     <div class="sides">
       <section v-for="(g, i) in graphs" :key="i" class="card" :class="g?.missing.length ? 'bad' : 'good'">
-        <h2>{{ i === 0 ? '기준' : '비교' }} · {{ label(i === 0 ? before : after) }}</h2>
+        <p class="side-tag">{{ i === 0 ? '기준' : '비교' }}</p>
+        <h2>{{ label(i === 0 ? before : after) }}</h2>
         <p v-if="!g?.missing.length" class="ok-text">계약 위반 없음</p>
         <ul v-else>
           <li v-for="m in g.missing" :key="m.skill_id" class="error-text">
@@ -152,8 +152,8 @@ const label = (id) => ws.knownSnapshots.find((s) => s.id === id)?.label ?? short
       </section>
     </div>
 
-    <p class="muted">
-      파일 {{ files.length }}개 중 {{ changed.length }}개가 다르다. 오류가 난 Skill 과 바뀐 파일이 다를 수 있다
+    <p class="muted summary">
+      파일 {{ files.length }}개 중 {{ changed.length }}개가 달라요. 오류가 난 Skill 과 바뀐 파일이 다를 수 있어요
       (예: <code>payment</code> 가 실패했지만 바뀐 건 <code>inventory-check</code>).
     </p>
     <section v-for="f in changed" :key="f.path" class="card file">
@@ -175,7 +175,9 @@ const label = (id) => ws.knownSnapshots.find((s) => s.id === id)?.label ?? short
     </section>
   </template>
   <p v-else-if="busy" class="muted">비교 중…</p>
-  <p v-else class="muted">두 snapshot 을 고르거나 "정상본 ↔ 결함본 준비" 를 누른다.</p>
+  <EmptyState v-else title="비교할 두 세트를 골라 주세요" :icon="GitCompareArrows">
+    위에서 기준과 비교 세트를 고르거나 '정상본 ↔ 결함본 준비' 를 누르면 파일 차이와 끊긴 연결을 나란히 보여 줘요.
+  </EmptyState>
 </template>
 
 <style scoped>
@@ -183,31 +185,46 @@ const label = (id) => ws.knownSnapshots.find((s) => s.id === id)?.label ?? short
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  margin-bottom: 12px;
+  gap: 12px;
+  padding: 14px 20px;
+  margin-bottom: 16px;
 }
 
 label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  font-size: var(--fs-sm);
   font-weight: 600;
+  color: var(--text-2);
 }
 
 select {
-  max-width: 300px;
+  max-width: 320px;
+  font-size: var(--fs-sm);
+}
+
+.arrow {
+  color: var(--faint);
 }
 
 .sides {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.side-tag {
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
 }
 
 .sides h2 {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .sides ul {
@@ -216,46 +233,57 @@ select {
 }
 
 .bad {
-  border-left: 3px solid var(--err);
+  border-color: rgb(255 149 132 / 35%);
+  box-shadow: inset 3px 0 0 var(--err);
 }
 
 .good {
-  border-left: 3px solid var(--ok);
+  border-color: rgb(142 227 181 / 30%);
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
+.summary {
+  margin: 4px 0 0;
 }
 
 .file {
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .tag {
-  font-size: 12px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid currentColor;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 6%);
 }
 
 .modified {
   color: var(--warn);
+  background: var(--warn-soft);
 }
 
 .added {
   color: var(--ok);
+  background: var(--ok-soft);
 }
 
 .removed {
   color: var(--err);
+  background: var(--err-soft);
 }
 
 .changes {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   padding-left: 18px;
+  font-size: var(--fs-sm);
 }
 
 .add {
@@ -270,5 +298,21 @@ select {
 
 .ok-text {
   color: var(--ok);
+}
+
+@media (max-width: 760px) {
+  label {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  select {
+    max-width: none;
+  }
+
+  .arrow {
+    display: none;
+  }
 }
 </style>

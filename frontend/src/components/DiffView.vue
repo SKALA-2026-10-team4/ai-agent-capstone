@@ -21,8 +21,7 @@ const props = defineProps({
   afterLabel: { type: String, default: '변경 후' },
 })
 
-// 기본 보기를 정하는 폭 기준 900px 는 frontend/src/App.vue 와
-// frontend/src/components/AppSidebar.vue 의 media query 와 같은 값이다.
+// 기본 보기를 정하는 폭 기준은 900px 다. 이보다 좁으면 두 칸을 나란히 두기에 글이 너무 좁아진다.
 // 처음 그릴 때 한 번만 보므로 창 크기를 바꿔도 보기 방식은 그대로다.
 // window 가 없는 환경에서는 넓은 화면으로 본다.
 const wide = typeof window === 'undefined' || window.innerWidth > 900

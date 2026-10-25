@@ -1,80 +1,75 @@
-/* SkillOps 디자인 시스템 — 색·글꼴·간격 토큰과 공용 요소(버튼·입력·카드·배지·알림).
-   기존 변수 이름(--bg, --surface, --accent, --ok, --err, --add-bg …)은 그대로 두고 확장했다. */
+/* SkillOps 디자인 시스템 "Midnight Orbit" — 색·글꼴·간격 토큰과 공용 요소(버튼·입력·카드·배지·표·알림).
+   깊은 남색 바탕, 옅은 크림 라임 강조색, 굵은 한글 디스플레이 제목, 낮은 대비의 가는 궤도 선을 쓴다.
+   어두운 테마 하나만 둔다. 기존 변수 이름(--bg, --surface, --accent, --ok, --err, --add-bg …)은 그대로
+   두었으므로 컴포넌트는 같은 이름을 계속 쓴다. 글꼴은 frontend/index.html 의 <link> 가 불러온다. */
 
 :root {
+  color-scheme: dark;
+
   /* 바탕과 면 */
-  --bg: #f5f6f8;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #e2e5ea;
-  --border-strong: #c9ced6;
+  --bg: #111c27;
+  --bg-deep: #0d1721;
+  --surface: #172532;
+  --surface-2: #1d2d3c;
+  --surface-3: #233546;
+  --border: rgb(255 255 255 / 8%);
+  --border-strong: rgb(255 255 255 / 16%);
+  /* 궤도 장식 선. 본문보다 훨씬 옅게 그린다. */
+  --orbit-line: rgb(255 255 255 / 7%);
 
-  /* 글자 */
-  --text: #171a1f;
-  --text-2: #424955;
-  --muted: #737b88;
+  /* 글자. --muted 까지는 본문 대비 AA(4.5:1)를 넘고, --faint 는 장식용 번호에만 쓴다. */
+  --text: #f1f4f7;
+  --text-2: #c3ccd6;
+  --muted: #8c99a8;
+  --faint: #56636f;
 
-  /* 의미 색: 진한 색(글자·테두리) + 옅은 색(배경) */
-  --accent: #3b5bdb;
-  --accent-strong: #2f4ac0;
-  --accent-soft: #eef1fd;
-  --ok: #1e7d4f;
-  --ok-soft: #e6f5ed;
-  --warn: #a35f00;
-  --warn-soft: #fff3df;
-  --err: #c2332d;
-  --err-soft: #fdecea;
-  --add-bg: #e3f5e9;
-  --del-bg: #fde8e6;
+  /* 강조색: 크림 라임. 강조색 위 글자는 --accent-ink(남색)다. */
+  --accent: #faffdc;
+  --accent-strong: #ffffff;
+  --accent-ink: #172532;
+  --accent-soft: rgb(250 255 220 / 10%);
 
-  /* 글꼴 */
-  --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR',
+  /* 의미 색: 밝은 색(글자·테두리) + 12% 옅은 색(배경) */
+  --ok: #8ee3b5;
+  --ok-soft: rgb(142 227 181 / 12%);
+  --warn: #f6cf7a;
+  --warn-soft: rgb(246 207 122 / 12%);
+  --err: #ff9584;
+  --err-soft: rgb(255 149 132 / 12%);
+  --info: #9cc9ff;
+  --info-soft: rgb(156 201 255 / 12%);
+  --add-bg: rgb(142 227 181 / 10%);
+  --del-bg: rgb(255 149 132 / 10%);
+
+  /* 글꼴. 본문은 Pretendard, 제목은 Wanted Sans, 코드는 JetBrains Mono 이고 못 받으면 시스템 글꼴로 내려간다. */
+  --font: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
+  --display: 'Wanted Sans Variable', 'Wanted Sans', 'Pretendard Variable', Pretendard, 'Apple SD Gothic Neo',
     'Malgun Gothic', system-ui, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, 'D2Coding', Menlo, Consolas, monospace;
+  /* 코드 글꼴에 한글이 없으므로 한글은 D2Coding, 없으면 Pretendard 로 그린다. */
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'D2Coding', Menlo, Consolas, 'Pretendard Variable',
+    Pretendard, monospace;
   --fs-xs: 12px;
   --fs-sm: 13px;
   --fs-md: 14px;
   --fs-lg: 16px;
   --fs-xl: 20px;
   --fs-2xl: 24px;
+  --fs-display: 40px;
 
-  /* 모양 */
-  --radius-sm: 6px;
-  --radius: 10px;
-  --radius-lg: 14px;
-  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%);
-  --shadow: 0 1px 3px rgb(16 24 40 / 8%), 0 4px 12px rgb(16 24 40 / 5%);
-  --shadow-lg: 0 12px 32px rgb(16 24 40 / 14%);
-  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  /* 모양. 카드는 18px 모서리에 1px 선만 두고 그림자는 거의 쓰지 않는다. */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+  --shadow-sm: none;
+  --shadow: 0 10px 30px rgb(3 9 15 / 35%);
+  --shadow-lg: 0 24px 60px rgb(3 9 15 / 55%);
+  --focus: 0 0 0 3px rgb(250 255 220 / 22%);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
-  --sidebar-w: 232px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121418;
-    --surface: #1b1e24;
-    --surface-2: #23272e;
-    --border: #2e333b;
-    --border-strong: #414854;
-    --text: #e8eaee;
-    --text-2: #c2c7d0;
-    --muted: #8d95a3;
-    --accent: #7c95ff;
-    --accent-strong: #98abff;
-    --accent-soft: #232b4a;
-    --ok: #4cc386;
-    --ok-soft: #173327;
-    --warn: #f0a94a;
-    --warn-soft: #3a2a12;
-    --err: #ff746c;
-    --err-soft: #3d1d1b;
-    --add-bg: #173327;
-    --del-bg: #3d1d1b;
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
-    --shadow: 0 1px 3px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 25%);
-    --shadow-lg: 0 12px 32px rgb(0 0 0 / 45%);
-  }
+  /* 위쪽 막대 높이다. frontend/src/components/AppTopBar.vue 와 고정 위치를 쓰는 화면이 함께 쓴다. */
+  --topbar-h: 64px;
 }
 
 * {
@@ -83,16 +78,26 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  background: var(--bg);
 }
 
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 520px at 85% -8%, rgb(250 255 220 / 3.5%), transparent 65%),
+    var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: var(--fs-md);
-  line-height: 1.55;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgb(250 255 220 / 28%);
+  color: var(--text);
 }
 
 h1,
@@ -101,16 +106,18 @@ h3,
 h4 {
   margin: 0 0 12px;
   line-height: 1.3;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 h1 {
+  font-family: var(--display);
   font-size: var(--fs-2xl);
-  font-weight: 700;
+  font-weight: 800;
 }
 
 h2 {
-  font-size: var(--fs-lg);
+  font-family: var(--display);
+  font-size: 17px;
   font-weight: 700;
 }
 
@@ -132,23 +139,43 @@ p {
 a {
   color: var(--accent);
   text-decoration: none;
+  text-underline-offset: 3px;
 }
 
 a:hover {
   text-decoration: underline;
 }
 
+/* 코드 글꼴의 합자(!= 를 ≠ 로 그리기 등)는 끈다. 담당자가 보는 글자와 실제 글자가 같아야 한다. */
 code,
 pre,
-textarea {
+textarea,
+.mono {
   font-family: var(--mono);
   font-size: var(--fs-sm);
+  font-variant-ligatures: none;
+  font-feature-settings: 'calt' 0, 'liga' 0;
 }
 
 code {
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 6%);
+  color: var(--text-2);
+  font-size: 0.92em;
+}
+
+pre {
+  color: var(--text-2);
+}
+
+blockquote {
+  border-left: 2px solid var(--accent);
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
 }
 
 :focus-visible {
@@ -156,7 +183,7 @@ code {
   box-shadow: var(--focus);
 }
 
-/* ── 버튼 ─────────────────────────────────────────── */
+/* ── 버튼: 주 버튼은 크림 알약, 보조 버튼은 테두리만 있는 알약 ──────────── */
 
 button {
   display: inline-flex;
@@ -167,17 +194,22 @@ button {
   font-weight: 600;
   font-size: var(--fs-sm);
   line-height: 1.2;
-  padding: 8px 14px;
+  padding: 8px 16px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
+  border-radius: var(--radius-pill);
+  background: transparent;
   color: var(--text);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.05s;
+  transition:
+    background 0.15s var(--ease),
+    border-color 0.15s var(--ease),
+    color 0.15s var(--ease),
+    transform 0.05s;
 }
 
 button:hover:not(:disabled) {
-  background: var(--surface-2);
+  background: rgb(255 255 255 / 6%);
+  border-color: rgb(255 255 255 / 26%);
 }
 
 button:active:not(:disabled) {
@@ -187,7 +219,7 @@ button:active:not(:disabled) {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 button.primary:hover:not(:disabled) {
@@ -202,25 +234,28 @@ button.ghost {
 }
 
 button.ghost:hover:not(:disabled) {
-  background: var(--surface-2);
+  background: rgb(255 255 255 / 6%);
+  border-color: transparent;
+  color: var(--text);
 }
 
 button.danger {
   color: var(--err);
-  border-color: color-mix(in srgb, var(--err) 40%, var(--border));
+  border-color: rgb(255 149 132 / 40%);
 }
 
 button.danger:hover:not(:disabled) {
   background: var(--err-soft);
+  border-color: var(--err);
 }
 
 button.sm {
-  padding: 4px 10px;
+  padding: 5px 12px;
   font-size: var(--fs-xs);
 }
 
 button.lg {
-  padding: 11px 18px;
+  padding: 12px 22px;
   font-size: var(--fs-md);
 }
 
@@ -229,8 +264,29 @@ button.block {
 }
 
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* 꺼진 주 버튼은 흐린 크림 대신 옅은 면과 흐린 글자로 그려 읽을 수 있게 한다. */
+button.primary:disabled {
+  opacity: 1;
+  background: rgb(255 255 255 / 7%);
+  border-color: transparent;
+  color: var(--muted);
+}
+
+/* 아이콘만 있는 작은 원형 버튼(복사·닫기 등) */
+button.icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+button.icon-btn:hover:not(:disabled) {
+  color: var(--text);
 }
 
 /* ── 입력 ─────────────────────────────────────────── */
@@ -240,25 +296,39 @@ select,
 textarea {
   font: inherit;
   font-size: var(--fs-md);
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition:
+    border-color 0.15s var(--ease),
+    box-shadow 0.15s var(--ease),
+    background 0.15s var(--ease);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--faint);
+}
+
+select option {
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 textarea {
   font-family: var(--mono);
   font-size: var(--fs-sm);
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: rgb(250 255 220 / 55%);
+  background: var(--surface-3);
   box-shadow: var(--focus);
 }
 
@@ -274,9 +344,8 @@ input[type='radio'] {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
 }
 
 .stack {
@@ -296,19 +365,80 @@ input[type='radio'] {
   flex: 1;
 }
 
+/* 화면 맨 위 줄에 바로 놓인 안내 상자 아래 여백 */
+.page > .callout {
+  margin: 0 0 16px;
+}
+
 .page {
   max-width: 1320px;
   margin: 0 auto;
-  padding: 24px 28px 64px;
+  padding: 36px 32px 96px;
+  /* 머리의 궤도 장식이 오른쪽으로 넘쳐도 가로 스크롤이 생기지 않게 자른다. clip 은 sticky 를 막지 않는다. */
+  overflow-x: clip;
 }
 
-@media (max-width: 720px) {
+/* 화면을 열 때 맨 위 덩어리들이 차례로 살짝 떠오른다. 움직임 줄이기 설정이면 끈다. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page > * {
+  animation: rise 0.55s var(--ease) both;
+}
+
+.page > :nth-child(2) {
+  animation-delay: 50ms;
+}
+
+.page > :nth-child(3) {
+  animation-delay: 100ms;
+}
+
+.page > :nth-child(4) {
+  animation-delay: 150ms;
+}
+
+.page > :nth-child(5) {
+  animation-delay: 200ms;
+}
+
+.page > :nth-child(n + 6) {
+  animation-delay: 250ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page > * {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 760px) {
+  :root {
+    --fs-display: 28px;
+  }
+
   .page {
-    padding: 16px 16px 48px;
+    padding: 20px 16px 64px;
   }
 
   .card {
-    padding: 14px 16px;
+    padding: 16px 16px;
+    border-radius: 16px;
   }
 }
 
@@ -316,6 +446,10 @@ input[type='radio'] {
 
 .muted {
   color: var(--muted);
+}
+
+.faint {
+  color: var(--faint);
 }
 
 .small {
@@ -338,41 +472,59 @@ input[type='radio'] {
   font-family: var(--mono);
 }
 
+/* 카드 안 소제목 앞에 붙는 '01' 같은 작은 번호 */
+.sec-no,
+.step-no {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+
 /* ── 알림 상자 ─────────────────────────────────────── */
 
 .callout {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 12px 14px;
+  padding: 12px 16px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: rgb(255 255 255 / 3%);
+  color: var(--text-2);
   font-size: var(--fs-sm);
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .callout > svg {
   flex: none;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .callout p:last-child {
   margin: 0;
 }
 
+.callout strong {
+  color: var(--text);
+}
+
 .callout.info {
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--info-soft);
+  border-color: rgb(156 201 255 / 22%);
 }
 
 .callout.info > svg {
-  color: var(--accent);
+  color: var(--info);
 }
 
 .callout.ok {
   background: var(--ok-soft);
-  border-color: color-mix(in srgb, var(--ok) 25%, transparent);
+  border-color: rgb(142 227 181 / 22%);
 }
 
 .callout.ok > svg {
@@ -381,7 +533,7 @@ input[type='radio'] {
 
 .callout.warn {
   background: var(--warn-soft);
-  border-color: color-mix(in srgb, var(--warn) 25%, transparent);
+  border-color: rgb(246 207 122 / 24%);
 }
 
 .callout.warn > svg {
@@ -390,24 +542,24 @@ input[type='radio'] {
 
 .callout.err {
   background: var(--err-soft);
-  border-color: color-mix(in srgb, var(--err) 25%, transparent);
+  border-color: rgb(255 149 132 / 24%);
 }
 
 .callout.err > svg {
   color: var(--err);
 }
 
-/* ── 칩(키 이름·번호) ──────────────────────────────── */
+/* ── 칩(키 이름) ───────────────────────────────────── */
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   margin: 2px 4px 2px 0;
-  padding: 1px 8px;
-  border-radius: 999px;
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: rgb(255 255 255 / 4%);
   font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--text-2);
@@ -416,28 +568,121 @@ input[type='radio'] {
 
 .chip.add {
   background: var(--ok-soft);
-  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+  border-color: rgb(142 227 181 / 30%);
   color: var(--ok);
 }
 
 .chip.del {
   background: var(--err-soft);
-  border-color: color-mix(in srgb, var(--err) 30%, transparent);
+  border-color: rgb(255 149 132 / 30%);
   color: var(--err);
   text-decoration: line-through;
 }
 
-/* ── 단계 번호 ─────────────────────────────────────── */
+/* 없는 값(못 받은 입력 등): 빨간 칩이지만 지운 줄은 긋지 않는다 */
+.chip.miss {
+  background: var(--err-soft);
+  border-color: rgb(255 149 132 / 30%);
+  color: var(--err);
+}
 
-.step-no {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
+/* ── 배지: 옅은 배경의 알약 ─────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 6%);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.pill.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.pill.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.pill.err {
+  background: var(--err-soft);
+  color: var(--err);
+}
+
+.pill.info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.pill.accent {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* ── 표: 가는 줄만 ─────────────────────────────────── */
+
+table {
+  border-collapse: collapse;
+}
+
+th {
+  color: var(--muted);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  flex: none;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── 알약 탭(검토 대기/전체, 최근/실패 등) ─────────── */
+
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 3%);
+}
+
+.seg button {
+  border: none;
+  padding: 5px 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.seg button.on,
+.seg button.on:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ── 개발자용 정보(접힌 원시 id 묶음) ───────────────── */
+
+details.tech {
+  margin-top: 28px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: rgb(0 0 0 / 12%);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+details.tech > summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+  list-style-position: inside;
+}
+
+details.tech[open] > summary {
+  border-bottom: 1px dashed var(--border);
 }

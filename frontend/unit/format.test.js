@@ -4,7 +4,7 @@
 // 흩어져 있던 식과 같은 결과를 내는지 확인한다.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { UUID_RE, isUuid, shortId, shortUuid, shortenUuidsIn, won } from '../src/utils/format.js'
+import { UUID_RE, clockOf, dayOf, isUuid, sameDay, shortId, shortUuid, shortenUuidsIn, stampOf, won } from '../src/utils/format.js'
 
 // 옮기기 전 코드를 그대로 복사한 비교 기준이다.
 const OLD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -61,4 +61,21 @@ test('shortId: 앞 8자', () => {
 test('won: 실행 환경 locale 의 자릿수 구분 + 원', () => {
   for (const n of [0, 12000, 30000, 1234567, -500, 1.5]) assert.equal(won(n), oldWon(n))
   assert.equal(won(30000), `${(30000).toLocaleString()}원`)
+})
+
+test('clockOf · dayOf · stampOf · sameDay: 지역 시간으로 시각을 쓴다', () => {
+  const at = new Date(2026, 9, 26, 6, 41, 5)
+  assert.equal(clockOf(at.toISOString()), '06:41:05')
+  assert.equal(clockOf(at), '06:41:05')
+  assert.equal(dayOf(at.toISOString()), '10월 26일')
+  assert.equal(stampOf(at.toISOString()), '10월 26일 06:41')
+  assert.equal(stampOf(at.toISOString(), { seconds: true }), '10월 26일 06:41:05')
+  assert.equal(sameDay(at, new Date(2026, 9, 26, 23, 59)), true)
+  assert.equal(sameDay(at, new Date(2026, 9, 27, 0, 0)), false)
+  for (const bad of [null, undefined, '', 'not-a-date']) {
+    assert.equal(clockOf(bad), null)
+    assert.equal(dayOf(bad), null)
+    assert.equal(stampOf(bad), null)
+    assert.equal(sameDay(bad, at), false)
+  }
 })

@@ -2,7 +2,7 @@
 // 닫으면 로그인이 사라지도록 sessionStorage 에 둔다. 토큰은 service 의
 // service/src/main/java/com/capstone4/skillops/auth/TokenService.java 가 발급한다. 연결부는
 // frontend/src/main.js(토큰 공급과 401 로그아웃), frontend/src/router/index.js(beforeEach 의
-// loggedIn), frontend/src/views/LoginView.vue(login), frontend/src/components/AppSidebar.vue(user,
+// loggedIn), frontend/src/views/LoginView.vue(login), frontend/src/components/AppTopBar.vue(user,
 // loggedIn, logout), frontend/src/views/ProposalView.vue(hasRole)다.
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -74,7 +74,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // 세션을 지운다. frontend/src/main.js 의 401 처리기, token() 의 만료
-  // 처리, frontend/src/components/AppSidebar.vue 의 로그아웃 버튼이 부른다.
+  // 처리, frontend/src/components/AppTopBar.vue 의 로그아웃 버튼이 부른다.
   function logout() {
     session.value = null
     persist(null)

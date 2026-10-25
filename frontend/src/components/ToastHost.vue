@@ -42,11 +42,12 @@ const ICON = { ok: CircleCheck, err: CircleAlert, info: Info }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 8px 10px 14px;
+  padding: 10px 8px 10px 16px;
   border-radius: var(--radius);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-lg);
+  color: var(--text);
   font-size: var(--fs-sm);
 }
 
@@ -68,7 +69,9 @@ const ICON = { ok: CircleCheck, err: CircleAlert, info: Info }
 
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
+  transition:
+    opacity 0.2s var(--ease),
+    transform 0.2s var(--ease);
 }
 
 .toast-enter-from,

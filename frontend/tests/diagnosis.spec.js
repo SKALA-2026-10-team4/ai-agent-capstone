@@ -5,7 +5,9 @@
 // frontend/src/views/SkillDraftView.vue 에 있다. 저장 요청은 frontend/src/api/orderAgent.js 의
 // saveSkillEdits 가 POST /api/snapshots/edits 로 보내며 201 과 validation_status QUEUED 를 받아야
 // 한다. 상태 제목은 frontend/src/views/DiagnosisView.vue 가
-// frontend/src/utils/diagnosisView.js 의 DIAGNOSIS_LABEL 로 보여 준다.
+// frontend/src/utils/diagnosisView.js 의 DIAGNOSIS_LABEL 로 보여 준다. 화면은 Skill 세트 id 를 글로 찍지 않고
+// frontend/src/components/SnapshotLabel.vue 의 이름('수정본 · 10월 26일 06:41')으로 보여 주므로, 저장한 세트는
+// 그 이름표의 data-snapshot-id 로 찾는다.
 //
 // order-agent, service, skillops-agent 와 개발 서버(npm run dev)가 모두 떠 있어야 한다. mock
 // 모드에서는 저장 버튼이 꺼져 있어 돌릴 수 없다. 화면에 페이지 오류가 하나라도 나면 실패한다.
@@ -43,7 +45,8 @@ test('save actual edit, auto-validate, and retain progress after reload', async 
   await page.getByRole('link', { name: '자동 검증·진단 진행 확인' }).click()
   await expect(page).toHaveURL(/\/diagnoses\//, { timeout: 30000 })
   await expect(page.getByRole('heading', { name: /기본 회귀 검증 통과|기준 주문 검증 불가/ })).toBeVisible({ timeout: 30000 })
-  await expect(page.getByText(saved.snapshot_id, { exact: true })).toBeVisible()
+  const savedSet = page.locator(`[data-snapshot-id="${saved.snapshot_id}"]`).first()
+  await expect(savedSet).toBeVisible()
   await expect(page.getByRole('heading', { name: '진행 로그' })).toBeVisible()
   // 새로고침해도 같은 진단 주소와 상태 제목이 남는지 본다.
   const detailUrl = page.url()
@@ -52,6 +55,6 @@ test('save actual edit, auto-validate, and retain progress after reload', async 
   expect(page.url()).toBe(detailUrl)
   // 전체 기록 목록에 방금 저장한 snapshot 이 보이는지 본다.
   await page.getByRole('link', { name: '전체 기록', exact: true }).click()
-  await expect(page.getByText(new RegExp(saved.snapshot_id))).toBeVisible()
+  await expect(page.locator(`[data-snapshot-id="${saved.snapshot_id}"]`).first()).toBeVisible()
   expect(errors).toEqual([])
 })

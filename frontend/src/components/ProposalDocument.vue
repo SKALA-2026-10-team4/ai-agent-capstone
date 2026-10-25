@@ -5,7 +5,8 @@
 // 글은 모두 텍스트 보간으로만 넣으므로 글 속의 HTML 태그도 글자 그대로 보인다.
 // 제목(document.title)은 화면 머리(PageHeader)가 보여 주므로 여기서는 sections 만 그린다.
 // 사실 목록은 frontend/src/components/ProposalFacts.vue 가 그린다. 사실 칸의 값이 실행 번호
-// 목록이면 번호마다 실행 화면 링크로 보여 주어 담당자가 근거 실행을 직접 열어 확인할 수 있게 한다.
+// 목록이면 실행 기록 타임라인(시각·결과·주문 요약)으로, Skill 세트 번호면 세트 이름으로 바꿔 보여 주어
+// 담당자가 id 대신 무슨 실행이었는지 읽고 직접 열어 확인할 수 있게 한다. 절 번호는 '01' 처럼 두 자리로 쓴다.
 // frontend/src/views/ProposalView.vue 가 쓴다. key 가 intent 인 절 아래에는
 // intent slot(의도 확인 체크)을, candidates 인 절 아래에는
 // candidates slot(고른 후보의 patch 비교)을 연다.
@@ -37,7 +38,7 @@ defineEmits(['select'])
 <template>
   <div class="doc stack">
     <section v-for="(section, i) in document.sections" :key="section.key" class="card">
-      <h2 class="sec"><span class="step-no">{{ i + 1 }}</span> {{ section.heading }}</h2>
+      <h2 class="sec"><span class="step-no">{{ String(i + 1).padStart(2, '0') }}</span> {{ section.heading }}</h2>
       <p v-for="(text, j) in section.paragraphs" :key="`p${j}`" class="para">{{ text }}</p>
       <blockquote v-if="section.quote">“{{ section.quote }}”</blockquote>
       <ul v-if="section.items.length" class="items">
@@ -75,22 +76,29 @@ defineEmits(['select'])
 <style scoped>
 .sec {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 19px;
 }
 
 .para {
   margin: 8px 0 0;
-  line-height: 1.6;
+  color: var(--text-2);
+  line-height: 1.75;
 }
 
 blockquote {
-  margin: 12px 0 0;
-  padding: 12px 16px;
-  border-radius: var(--radius);
+  margin: 16px 0 0;
+  padding: 14px 20px;
+  border-radius: 0 var(--radius) var(--radius) 0;
   background: var(--accent-soft);
-  font-size: var(--fs-lg);
-  line-height: 1.5;
+  color: var(--text);
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
 }
 
 .items {
@@ -100,36 +108,51 @@ blockquote {
 
 .parts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 14px;
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 .part {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  min-width: 0;
   text-align: left;
-  padding: 14px 16px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  padding: 18px 18px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--surface-2);
   color: var(--text);
   font: inherit;
   cursor: pointer;
+  transition:
+    border-color 0.15s var(--ease),
+    box-shadow 0.15s var(--ease);
+}
+
+.part:hover {
+  border-color: rgb(255 255 255 / 28%);
 }
 
 .pick {
   align-self: flex-start;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .part.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.part.selected .pick {
+  color: var(--accent);
+  opacity: 1;
 }
 
 .part h3 {
-  margin: 0 0 4px;
+  margin: 0 0 6px;
+  font-family: var(--display);
+  font-size: 16px;
 }
 </style>

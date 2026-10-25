@@ -10,7 +10,7 @@ import { HTTP_TIMEOUT_FALLBACK_MS, HTTP_TIMEOUT_MS } from '@/config'
 
 // mock 모드인지 나타낸다. vite --mode mock 으로 띄웠거나 VITE_USE_MOCK 이 true 이면 참이다.
 // frontend/src/stores/workspace.js(저장 막기와 저장소 키),
-// frontend/src/components/AppSidebar.vue(mock 표시), frontend/src/views/SkillDraftView.vue(저장
+// frontend/src/components/AppTopBar.vue(mock 표시), frontend/src/views/SkillDraftView.vue(저장
 // 버튼), frontend/src/views/DiagnosisView.vue(조회 생략)가 이 값으로 분기한다.
 export const USE_MOCK =
   import.meta.env.MODE === 'mock' || import.meta.env.VITE_USE_MOCK === 'true'

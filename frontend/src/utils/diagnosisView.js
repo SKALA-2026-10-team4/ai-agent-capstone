@@ -2,6 +2,7 @@
 // 규칙이다. skillops-agent 가 진단 상태를 늘리면 여기만 고친다. 상태 값의 원본은
 // skillops-agent/skillops_agent/state.py 의 DiagnosisStatus 다. 화면 컴포넌트
 // 밖에 두어 frontend/unit/diagnosisView.test.js 가 Node 에서 바로 검사한다.
+import { stampOf } from './format.js'
 
 // 진단 상태(diagnosis_status)마다 화면 제목이다.
 // frontend/tests/diagnosis.spec.js 가 '기본 회귀 검증 통과' 와 '기준 주문
@@ -69,3 +70,32 @@ export const candidateSnapshotOf = (run) => run.snapshot_id ?? run.trigger.candi
 // 후보의 검증 결과(valid)를 문구로 바꾼다. true 는 통과, false 는
 // 미통과이고, 그 밖의 값은 아직 검증을 마치지 않은 후보로 본다.
 export const candidateVerdict = (valid) => (valid === true ? '검증 통과' : valid === false ? '검증 미통과' : '검증 미완료')
+
+// 진단 상태마다 배지 색 톤이다. 통과는 ok, 진행 중은 info, 의도 위반과 기대 불일치는 warn, 검증 불가와 오류는 err
+// 이고, 표에 없는 상태는 빈 톤(흐린 배지)이다. 진단 목록과 상세의 상태 배지가 쓴다.
+export const DIAGNOSIS_TONE = {
+  VALIDATED: 'ok',
+  EVALUATED: 'ok',
+  QUEUED: 'info',
+  RUNNING: 'info',
+  VALIDATION_FAILED: 'warn',
+  INTENT_VIOLATION: 'warn',
+  BASELINE_FAILED: 'err',
+  ERROR: 'err',
+}
+export const diagnosisTone = (status) => DIAGNOSIS_TONE[status] ?? ''
+
+// 바뀐 파일 경로(skills/<id>/SKILL.md)에서 Skill 이름만 뽑는다. Skill 파일이 아니면 경로 그대로 쓴다.
+export const changedSkillsOf = (run) =>
+  (run?.trigger?.changed_paths ?? []).map((p) => p.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1] ?? p)
+
+/**
+ * 진단 목록 한 줄의 제목이다. 저장한 Skill 이름과 저장 시각으로 'notify 수정 · 10월 26일 06:40 저장' 처럼 쓴다.
+ * 바뀐 파일을 모르면 '수정본 저장 · 10월 26일 06:40', 시각도 모르면 '수정본 저장' 이다. 세트 id 는 쓰지 않는다.
+ */
+export function diagnosisTitleOf(run) {
+  const skills = changedSkillsOf(run)
+  const stamp = stampOf(run?.created_at)
+  if (skills.length) return `${skills.join(', ')} 수정${stamp ? ` · ${stamp} 저장` : ''}`
+  return stamp ? `수정본 저장 · ${stamp}` : '수정본 저장'
+}

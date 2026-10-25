@@ -17,17 +17,19 @@
 // frontend/src/stores/workspace.js 의 executions 에 들어 있다. '실행 실패만' 탭은 orderAgent.js 의
 // listFailedExecutions 로 읽는 GET /api/executions/failed 목록이고,
 // order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
-// failed() 가 돌려준다. 줄을 누르면 frontend/src/views/ExecutionView.vue 의 실행 상세 화면으로
-// 간다.
+// failed() 가 돌려준다. 목록은 frontend/src/components/RunRecordList.vue 가 실행 번호 대신 시각, 결과,
+// 주문 요약, Skill 세트로 그리고, 줄을 누르면 frontend/src/views/ExecutionView.vue 의 실행 상세 화면으로
+// 간다. 주문 결과도 주문 번호 대신 주문 요약(frontend/src/utils/runRecord.js 의 orderSummary)으로 보여 준다.
 // 프리셋은 order-agent/docs/team-scenarios.md 의 시나리오 1과 2이며, 기본 폼(form)과 함께
 // 이 파일 위쪽의 PRESETS 에서 고친다.
 import { computed, onMounted, reactive, ref } from 'vue'
 import { createOrder, listFailedExecutions, listProducts } from '@/api/orderAgent'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { won } from '@/utils/format'
-import { executionLabel } from '@/utils/traceRun'
-import { PlayCircle } from 'lucide-vue-next'
+import { orderSummary } from '@/utils/runRecord'
+import { ArrowRight } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
+import RunRecordList from '@/components/RunRecordList.vue'
 import SnapshotPicker from '@/components/SnapshotPicker.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 
@@ -73,6 +75,10 @@ const snapshotForOrder = computed(() => (usePinned.value ? ws.snapshotId : null)
 const listMode = ref('recent')
 const failed = ref([])
 const shownRuns = computed(() => (listMode.value === 'failed' ? failed.value : ws.executions))
+// 실행 기록 목록에 넘길 실행 번호들이다.
+const shownRefs = computed(() => shownRuns.value.map((x) => x.execution_id))
+// 마지막 주문 결과의 요약('LED 캠핑 랜턴 1개 · 카드 · 국내 일반 배송')이다. 주문 번호 대신 보여 준다.
+const resultSummary = computed(() => (result.value ? orderSummary(result.value) : null))
 
 /**
  * '실행 실패만' 탭으로 바꾸고 frontend/src/api/orderAgent.js 의 listFailedExecutions 로
@@ -86,15 +92,6 @@ async function showFailed() {
     error.value = e.message
   }
 }
-
-/**
- * 실행 기록 한 줄의 글이다. template 의 실행 기록 목록이 줄마다 부른다.
- * 줄 모양은 frontend/src/utils/traceRun.js 의 executionLabel 이 정한다.
- * 실행 실패 목록의 항목은 오류를 error 객체로 주므로, 그 category 를 error_category 자리에 넣고
- * 실패한 skill_id 를 뒤에 붙인다.
- */
-const runLabel = (x) =>
-  x.error ? `${executionLabel({ ...x, error_category: x.error.category })} · ${x.error.skill_id ?? ''}` : executionLabel(x)
 
 /**
  * 입력 예시 하나를 폼에 채우고 이전 결과를 지운다. 입력 예시 버튼이 부른다.
@@ -173,7 +170,6 @@ onMounted(() => {
   <PageHeader
     title="주문 실행 · 기록"
     description="고른 Skill 세트로 실제 주문 Agent 를 돌려 보고, 실행 기록에서 단계별 결과를 확인해요."
-    :icon="PlayCircle"
   />
   <div class="card toolbar">
     <SnapshotPicker />
@@ -181,10 +177,10 @@ onMounted(() => {
 
   <div class="grid">
     <section class="card">
-      <h2>새 주문</h2>
-      <p class="muted small">외부 결제·배송이 발생하지 않는 데모 주문이다. 재고는 실제로 줄어든다.</p>
+      <h2><span class="sec-no">01</span> 새 주문</h2>
+      <p class="muted small">외부 결제·배송이 발생하지 않는 데모 주문이에요. 재고는 실제로 줄어들어요.</p>
       <div class="presets">
-        <button v-for="p in PRESETS" :key="p.label" @click="preset(p)">{{ p.label }}</button>
+        <button v-for="p in PRESETS" :key="p.label" class="sm" @click="preset(p)">{{ p.label }}</button>
       </div>
 
       <div class="form">
@@ -220,7 +216,7 @@ onMounted(() => {
         <label class="check">
           <input v-model="usePinned" type="radio" :value="true" :disabled="!ws.snapshotId" />
           위에서 고른 Skill 세트로 실행
-          <code v-if="ws.snapshotId">{{ ws.labelOf(ws.snapshotId) }}</code>
+          <strong v-if="ws.snapshotId" class="set">{{ ws.labelOf(ws.snapshotId) }}</strong>
         </label>
         <label class="check">
           <input v-model="usePinned" type="radio" :value="false" />
@@ -229,23 +225,23 @@ onMounted(() => {
       </div>
 
       <p v-if="product && form.qty > product.stock_quantity" class="warn-text">
-        재고({{ product.stock_quantity }})보다 많다 — 정상적인 REJECTED 가 나온다.
+        재고({{ product.stock_quantity }})보다 많아요 — 정상적인 REJECTED 가 나와요.
       </p>
       <p v-if="error" class="error-text">{{ error }}</p>
-      <button class="primary" :disabled="busy" @click="submit">{{ busy ? '실행 중…' : '주문 실행' }}</button>
+      <button class="primary lg" :disabled="busy" @click="submit">{{ busy ? '실행 중…' : '주문 실행' }}</button>
     </section>
 
     <section class="card">
       <template v-if="result">
         <div class="head">
-          <h2>결과</h2>
+          <h2><span class="sec-no">02</span> 결과</h2>
           <StatusBadge :status="result.status" />
           <code v-if="result.result_code">{{ result.result_code }}</code>
         </div>
-        <p>{{ result.message }}</p>
+        <p class="message">{{ result.message }}</p>
         <dl>
           <dt>주문</dt>
-          <dd><code>{{ result.order_id }}</code> · {{ won(result.total_amount) }}</dd>
+          <dd :title="`주문 ID ${result.order_id}`">{{ resultSummary ?? '주문' }} · {{ won(result.total_amount) }}</dd>
           <dt>결제</dt>
           <dd><StatusBadge :status="result.payment.status" /></dd>
           <dt>배송</dt>
@@ -261,33 +257,29 @@ onMounted(() => {
           </li>
         </ol>
         <RouterLink v-if="result.execution_id" :to="`/executions/${result.execution_id}`" class="go">
-          실행 trace 보기 →
+          실행 기록 자세히 보기 <ArrowRight :size="14" />
         </RouterLink>
       </template>
 
       <div class="list-head" :class="{ spaced: result }">
-        <h2>실행 기록</h2>
-        <div class="tabs">
-          <button class="ghost sm" :class="{ on: listMode === 'recent' }" @click="listMode = 'recent'">최근</button>
-          <button class="ghost sm" :class="{ on: listMode === 'failed' }" @click="showFailed">실행 실패만</button>
+        <h2><span class="sec-no">{{ result ? '03' : '02' }}</span> 실행 기록</h2>
+        <div class="seg" role="tablist">
+          <button role="tab" :aria-selected="listMode === 'recent'" :class="{ on: listMode === 'recent' }" @click="listMode = 'recent'">최근</button>
+          <button role="tab" :aria-selected="listMode === 'failed'" :class="{ on: listMode === 'failed' }" @click="showFailed">실행 실패만</button>
         </div>
       </div>
-      <p v-if="!shownRuns.length" class="muted">
+      <p v-if="!shownRuns.length" class="muted small">
         {{ listMode === 'failed' ? '실행이 실패한 주문이 없어요. (재고 부족·결제 거절은 정상 업무 결과라 여기 없어요)' : '아직 실행 기록이 없어요.' }}
       </p>
-      <ul class="recent">
-        <li v-for="x in shownRuns" :key="x.execution_id">
-          <RouterLink :to="`/executions/${x.execution_id}`">{{ runLabel(x) }}</RouterLink>
-        </li>
-      </ul>
+      <RunRecordList v-else :key="listMode" :refs="shownRefs" :limit="6" highlight="first" />
     </section>
   </div>
 </template>
 
 <style scoped>
 .toolbar {
-  padding: 10px 16px;
-  margin-bottom: 12px;
+  padding: 14px 20px;
+  margin-bottom: 16px;
 }
 
 .grid {
@@ -297,61 +289,69 @@ onMounted(() => {
   align-items: start;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
+}
+
+h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
 }
 
 .presets {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 12px;
+  margin: 14px 0 16px;
 }
 
 .form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  font-size: var(--fs-sm);
   font-weight: 600;
+  color: var(--text-2);
 }
 
 label.check {
   flex-direction: row;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   font-weight: 400;
-}
-
-input:not([type='checkbox'], [type='radio']) {
-  font: inherit;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
 }
 
 .snap {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px;
-  margin-bottom: 12px;
-  background: var(--bg);
-  border-radius: 6px;
+  gap: 6px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgb(0 0 0 / 12%);
+}
+
+.snap .set {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -359,13 +359,26 @@ input:not([type='checkbox'], [type='radio']) {
   margin: 0;
 }
 
+.message {
+  margin: 10px 0 12px;
+  color: var(--text-2);
+}
+
 dl {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 4px 12px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0 0 12px;
+  border-top: 1px solid var(--border);
+}
+
+dt,
+dd {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 dt {
+  padding-right: 24px;
   color: var(--muted);
 }
 
@@ -376,61 +389,50 @@ dd {
 }
 
 .steps {
-  margin: 8px 0;
-  padding-left: 20px;
+  margin: 8px 0 12px;
+  padding-left: 0;
+  list-style: none;
 }
 
 .steps li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: var(--fs-sm);
+}
+
+.steps li > span:first-child {
+  min-width: 96px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
 }
 
 .go {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 600;
 }
 
 .spaced {
-  margin-top: 20px;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
 }
 
 .list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
 .list-head h2 {
   margin: 0;
-}
-
-.tabs {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-}
-
-.tabs .on {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: var(--shadow-sm);
-}
-
-.recent {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.recent li {
-  padding: 4px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
 }
 </style>

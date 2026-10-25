@@ -1,10 +1,10 @@
 // 특성 테스트다. frontend/src/utils/traceRun.js 가 trace 이벤트로 Skill 별 실행 상태를
-// 계산하는 traceRun, 단계 상태 이름표(RUN_LABEL), 실행 라벨(executionLabel), 실행 화면
+// 계산하는 traceRun, 단계 상태 이름표(RUN_LABEL), 실행 화면
 // 경로(executionPath)의 지금 동작을 고정한다. frontend/src/views/ExecutionView.vue 의 단계별
 // 결과가 이 계산을 그대로 보여 준다.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { RUN_LABEL, executionLabel, executionPath, traceRun } from '../src/utils/traceRun.js'
+import { RUN_LABEL, executionPath, traceRun } from '../src/utils/traceRun.js'
 
 // sequence 를 하나씩 올리며 이벤트를 만든다.
 let seq = 0
@@ -302,23 +302,6 @@ test('trace 가 없으면 모든 단계가 skipped', () => {
   assert.deepStrictEqual(traceRun(null, ['a']), { bySkill: { a: entry({ status: 'skipped' }) }, error: null })
   assert.deepStrictEqual(traceRun(undefined, []), { bySkill: {}, error: null })
   assert.deepStrictEqual(traceRun({}, ['a']), { bySkill: { a: entry({ status: 'skipped' }) }, error: null })
-})
-
-test('executionLabel: 시각 · 상태 · 오류 분류 · 실행 번호 앞 8자', () => {
-  const base = {
-    started_at: '2026-10-22T10:05:09.123Z',
-    final_status: 'SHIPPED',
-    completion: 'COMPLETED',
-    execution_id: 'abcdef12-3456-4789-8abc-def012345678',
-  }
-  assert.equal(executionLabel(base), '10-22 10:05 · SHIPPED · abcdef12')
-  assert.equal(
-    executionLabel({ ...base, final_status: 'FAILED', completion: 'FAILED', error_category: 'CONTRACT_VIOLATION' }),
-    '10-22 10:05 · FAILED · CONTRACT_VIOLATION · abcdef12',
-  )
-  assert.equal(executionLabel({ ...base, final_status: null, completion: 'RUNNING' }), '10-22 10:05 · RUNNING · abcdef12')
-  assert.equal(executionLabel({ ...base, started_at: undefined }), 'undefined · SHIPPED · abcdef12')
-  assert.equal(executionLabel({ ...base, execution_id: 'short' }), '10-22 10:05 · SHIPPED · short')
 })
 
 test('executionPath: r_ + 32자리 16진수와 UUID 만 실행 화면 주소로 바꾼다', () => {
