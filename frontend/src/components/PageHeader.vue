@@ -5,7 +5,8 @@
 // ProposalView, SkillDraftView, SnapshotCompareView)가 모두 이 컴포넌트로 머리를 그린다.
 // badges 는 ProposalView 의 상태 배지가 쓰고, actions 와 crumbs 를 쓰는 화면은 지금 없다.
 // descriptionTip 을 켜면 설명을 제목 아래 글 대신 제목 옆 ● 의 툴팁으로 보여 준다.
-// 지금은 ProposalListView 가 켜고, 다른 화면도 같은 prop 하나로 바꿀 수 있다.
+// 지금은 ProposalListView, SkillDraftView, DiagnosisView, OrderView 가 켠다. 나머지 화면
+// (ProposalView, ExecutionView, SnapshotCompareView)은 설명 줄을 그대로 보여 준다.
 import { ArrowLeft } from 'lucide-vue-next'
 
 defineProps({
@@ -14,7 +15,7 @@ defineProps({
   // lucide-vue-next 아이콘 컴포넌트다.
   icon: { type: [Object, Function], default: null },
   // 제목 위에 왼쪽 화살표와 함께 보이는 이전 화면 링크다. { to, label } 모양이고
-  // ExecutionView(주문 실행 · 기록으로)와 ProposalView(수정안 목록으로)가 넘긴다.
+  // ExecutionView(테스트 목록으로)와 ProposalView(수정안 목록으로)가 넘긴다.
   back: { type: Object, default: null },
   // true 면 description 을 마우스를 올리거나 키보드로 고를 때만 보이는 툴팁으로 그린다.
   descriptionTip: { type: Boolean, default: false },

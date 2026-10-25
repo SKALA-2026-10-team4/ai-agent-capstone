@@ -162,9 +162,10 @@ function create() {
 
 <template>
   <PageHeader
-    title="Skill 편집"
+    title="skill 목록"
     description="초안을 새 Skill 세트로 저장하고 주문 실행에서 확인해요. 오른쪽에서 입력·출력 연결을 점검할 수 있어요."
     :icon="FilePen"
+    description-tip
   />
   <div class="card toolbar">
     <SnapshotPicker />

@@ -96,7 +96,7 @@ const statusOf = (id) => run.value?.bySkill[id]?.status ?? 'skipped'
     :title="trace ? `실행 ${shortId(trace.execution_id)}` : '실행 기록'"
     description="주문 Agent 가 어떤 Skill 파일로 무엇을 했는지, 어디서 왜 멈췄는지 남긴 기록이에요."
     :icon="ScrollText"
-    :back="{ to: '/orders', label: '주문 실행 · 기록' }"
+    :back="{ to: '/orders#history', label: '테스트 목록' }"
   />
   <p v-if="error" class="error-text">{{ error }}</p>
 

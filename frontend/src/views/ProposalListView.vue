@@ -51,6 +51,7 @@ onMounted(async () => {
   <PageHeader
     title="수정안 목록"
     description="SkillOps가 실제로 시험한 수정 제안서예요. 내용을 읽고 승인하거나 거절해 주세요."
+    :icon="Inbox"
     description-tip
   />
 

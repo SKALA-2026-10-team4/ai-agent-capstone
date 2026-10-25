@@ -22,16 +22,23 @@
 // 프리셋은 order-agent/docs/team-scenarios.md 의 시나리오 1과 2이며, 기본 폼(form)과 함께
 // 이 파일 위쪽의 PRESETS 에서 고친다.
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { createOrder, listFailedExecutions, listProducts } from '@/api/orderAgent'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { won } from '@/utils/format'
 import { executionLabel } from '@/utils/traceRun'
-import { PlayCircle } from 'lucide-vue-next'
+import { ListChecks, PlayCircle } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import SnapshotPicker from '@/components/SnapshotPicker.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 const ws = useWorkspaceStore()
+const route = useRoute()
+// 화면 제목과 아이콘이다. 사이드바의 '테스트 실행'(/orders)과 '테스트 목록'(/orders#history)이 같은 화면을
+// 열므로, 사이드바(frontend/src/components/AppSidebar.vue)의 선택 표시와 같은 기준인 #history 유무로 고른다.
+const header = computed(() =>
+  route.hash === '#history' ? { title: '테스트 목록', icon: ListChecks } : { title: '테스트 실행', icon: PlayCircle },
+)
 
 // 상품 선택지다. ProductController 의 list() 가 주는 이름, 단가, 재고를 보여 준다.
 const products = ref([])
@@ -171,9 +178,10 @@ onMounted(() => {
 
 <template>
   <PageHeader
-    title="주문 실행 · 기록"
+    :title="header.title"
     description="고른 Skill 세트로 실제 주문 Agent 를 돌려 보고, 실행 기록에서 단계별 결과를 확인해요."
-    :icon="PlayCircle"
+    :icon="header.icon"
+    description-tip
   />
   <div class="card toolbar">
     <SnapshotPicker />
