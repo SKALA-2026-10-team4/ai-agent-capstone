@@ -1,8 +1,10 @@
 # MCP 도구 입출력 안내
 
-계약 5 · 현재 코드 기준 · 2026-10-23 갱신 · 기준 코드 `service/src/main/java/com/capstone4/skillops/mcp/`
+계약 5 · 현재 코드 기준 · 2026-10-26 갱신 · 기준 코드 `service/src/main/java/com/capstone4/skillops/mcp/`
 
-SkillOps 서비스(`service/`)는 MCP 서버로 도구 7개를 내놓습니다. SkillOps Agent(`skillops-agent/`)는 이 도구에 값을 보내고 돌려받은 결과만 보고 판단합니다. 이 문서는 도구마다 **무엇을 보내고, 무엇을 돌려받고, 그 사이에 서비스가 어떤 저장 공간을 읽고 쓰는지**를 정리한 것입니다.
+SkillOps 서비스(`service/`)는 MCP 서버로 기존 도구 7개와 #88 평가 도구 4개, 총 11개를 내놓습니다. 기존 SkillOps Agent(`skillops-agent/`)는 기존 도구를 계속 사용합니다. 이 문서는 도구마다 **무엇을 보내고, 무엇을 돌려받고, 그 사이에 서비스가 어떤 저장 공간을 읽고 쓰는지**를 정리한 것입니다.
+
+2026-10-26 · #88: `submit_evaluation`, `get_evaluation`, `get_evaluation_report`, `save_proposal_v2`를 추가했습니다. 새 도구의 JWT 권한·입출력·실행 범위는 [평가 계약 v1.0](evaluation-backend.md#mcp)을 따릅니다. 기존 도구와 apply_patch v1.3은 유지하며 Python은 아직 새 도구를 호출하지 않습니다.
 
 2026-10-23 · #72 공용 파서: service와 주문 Agent가 동일한 skill-parser 모듈을 사용합니다. 분석·workspace·실행 모두 YAML frontmatter 100,000 코드 포인트 제한과 같은 안전 옵션을 적용합니다. 초과 시 기존 파싱 오류 필드·코드로 처리하고 diff 원문 hunks는 보존합니다. 입력·응답 필드와 apply_patch v1.3은 변경하지 않습니다. [현재 SKILL 해석 계약](skill-frontmatter.md#72-최종-갱신--서버-공용-파싱-모듈-2026-10-23).
 
@@ -62,6 +64,10 @@ SkillOps 서비스(`service/`)는 MCP 서버로 도구 7개를 내놓습니다. 
 | `run_scenarios` | 연습 공간의 skill로 시험 주문을 모의 실행하고 채점합니다 | C-2 | 같은 파일 | `nodes.py`의 `_run_scenarios` |
 | `save_proposal` | 수정 제안서를 검사하고 저장합니다 | C-2 | `service/src/main/java/com/capstone4/skillops/mcp/ProposalTools.java` | `nodes.py`의 `save_proposal` 노드 |
 | `ping` | MCP 연결을 확인합니다 | 공통 | `service/src/main/java/com/capstone4/skillops/mcp/PingTools.java` | 노드는 부르지 않습니다. `scripts/mcp_smoke.py`와 테스트가 부릅니다 |
+| `submit_evaluation` | 고정 입력의 비동기 평가를 접수합니다 | 백엔드 | `mcp/EvaluationTools.java` | Python 미연결 |
+| `get_evaluation` | 평가 상태를 조회합니다 | 백엔드 | 같은 파일 | Python 미연결 |
+| `get_evaluation_report` | 전후 비교 보고서를 조회합니다 | 백엔드 | 같은 파일 | Python 미연결 |
+| `save_proposal_v2` | 서버 검증 평가로 snapshot 제안서를 저장합니다 | 백엔드 | 같은 파일 | Python 미연결 |
 
 Agent를 `SKILLOPS_USE_STUB_MCP=true`로 띄우면 이 서버 대신 `skillops-agent/skillops_agent/stub_tools.py`의 `StubMCPTools`가 같은 이름의 도구를 흉내 냅니다.
 
@@ -755,12 +761,16 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `proposal.candidates[].results` | 기준별 결과 | 묶음 | 적용한 후보면 예 | `{fixes_failure, keeps_old_orders{passed, total}, keeps_intent, no_broken_links, metadata_valid, flow_valid, changed_skill_count}`입니다. |
 | `proposal.candidates[].valid` | Agent가 본 합격 여부 | 참·거짓 | 아니오 | 서비스가 다시 계산한 값과 다르면 저장하지 않습니다. |
 | `proposal.candidates[].validation_error` | 적용하지 못한 이유 | 글자 | 아니오 | 원문에 적용하지 못해 시험하지 않은 후보에 적습니다. 이 후보는 근거 실행이 없어도 됩니다. |
-| `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 적용한 후보면 예 | 이 후보를 시험한 모의 실행 번호입니다. 모두 그 후보의 연습 공간에서 돌린 실행이어야 합니다. |
+| `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 적용한 후보면 예 | 이 후보를 시험한 모의 실행 번호입니다. 모두 그 후보의 연습 공간에서 돌린 실행이어야 합니다. 합격 후보라면 인용한 실행의 서버 채점도 모두 통과해야 합니다. |
 | `proposal.candidates[].rank` · `explanation` | 순위·설명 | 정수·글자 | 아니오 | 설명은 본문의 "AI 설명" 칸에 그대로 나옵니다. |
 | `proposal.recommended_candidate_no` | 추천 후보 번호 | 정수 | `proposed`면 예 | 합격 후보 가운데 하나여야 합니다. |
 | `proposal.status` | 상태 | 글자 | 예 | 합격 후보가 있으면 `proposed`, 없으면 `no_valid_fix`입니다. |
 
 **합격 조건(서비스가 다시 계산):** 적용에 실패하지 않았고, `fixes_failure`가 참이고, `keeps_old_orders`의 `passed`와 `total`이 같고 `total`이 1 이상이고, `keeps_intent`가 참이고, `no_broken_links`가 참이며, 최신 Agent가 보낸 `metadata_valid`와 `flow_valid`가 모두 참입니다. 과거 제안서와 구버전 생산자 호환을 위해 `metadata_valid` 또는 `flow_valid` 필드가 없으면 해당 항목은 기존 판정을 유지하고, 명시한 결과는 Boolean true만 통과합니다. 최신 Agent의 apply_patch 응답 검증은 별도로 엄격하므로 `metadata_errors`와 `flow_errors` 누락을 허용하지 않습니다.
+
+**실제 실행 대조 보강(2026-10-26):** 합격으로 계산된 후보가 인용한 실행은 `scenario_runs.passed`도 모두 true여야 합니다. 하나라도 false이면 저장하지 않고 기존 오류 형식인 `INVALID_INPUT`, `retryable=false`를 반환합니다. 메시지는 `후보 <번호> 의 근거 실행 <run_id> 은 실제 채점에서 실패했습니다 (시나리오 <scenario_id>)`입니다. 불합격 후보와 원인 근거의 실패 기록은 허용합니다. 요청·응답 필드, 승인 API, DB 스키마는 바뀌지 않습니다.
+
+**검증 범위:** 이 보강은 인용한 실행의 성공 주장과 실제 실패 간 불일치를 차단합니다. 기존 장부는 평가 역할·추가 의도 조건·고정 실행 계획을 저장하지 않으므로, 빠진 실행이나 필수 suite·반복 수·회귀 집계·특정 의도 조건의 검증 여부를 재구성하지는 못합니다. 기존 `thread_id`의 재저장은 처음 저장한 결과를 그대로 반환하며 과거 제안서를 재검증하지 않습니다. 새 평가 계약의 `SERVER_VERIFIED`와 같은 보증은 아닙니다.
 
 ### 돌려받는 값
 
@@ -773,7 +783,7 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 **저장을 거부하는 경우(`INVALID_INPUT`).** 아래 순서로 검사하고 처음 걸린 것을 돌려줍니다.
 
 1. `status`가 `proposed`나 `no_valid_fix`가 아닐 때
-2. 후보마다 `candidate_no`가 목록 순서와 다를 때, 적용한 후보에 `workspace_id`·`results`·`evidence_run_ids`가 없거나 근거 실행이 그 후보의 연습 공간에서 돌린 것이 아닐 때, `valid`가 다시 계산한 값과 다를 때
+2. 후보마다 `candidate_no`가 목록 순서와 다를 때, 적용한 후보에 `workspace_id`·`results`·`evidence_run_ids`가 없거나 근거 실행이 그 후보의 연습 공간에서 돌린 것이 아닐 때, `valid`가 다시 계산한 값과 다를 때, 합격 후보의 인용 실행 중 서버 장부의 `passed`가 false인 실행이 있을 때
 3. `status`가 합격 후보 유무와 맞지 않을 때
 4. `proposed`인데 `root_cause.proof_run_ids`가 비었거나 돌린 적 없는 실행일 때
 5. `proposed`인데 `recommended_candidate_no`가 합격 후보가 아닐 때
@@ -810,7 +820,7 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
 | `proposals` | 읽기·쓰기 | 같은 `thread_id`의 제안서가 있는지 찾고, 없으면 한 줄을 씁니다(`proposal_id`, `thread_id`, `status`, 받은 제안서 `payload`, 본문 `document`, `valid_candidate_nos`, `created_at`) |
-| `scenario_runs` | 읽기 | `run_scenarios`가 남긴 실행 번호와 연습 공간. 근거 실행을 대조합니다 |
+| `scenario_runs` | 읽기 | `run_scenarios`가 남긴 실행 번호·연습 공간·시나리오·실제 passed. 근거 실행과 합격 후보의 실제 통과를 대조합니다 |
 
 ---
 
@@ -828,7 +838,7 @@ MCP 연결이 살아 있는지만 확인합니다. 다른 서비스나 저장 �
 
 ## 저장 공간 목록
 
-MCP 도구가 읽고 쓰는 서비스 데이터베이스(PostgreSQL) 표는 아래 세 개입니다. 표와 칸은 `service/src/main/resources/application.yml`의 `ddl-auto: update`가 JPA 엔티티를 보고 만듭니다. 승인 기록 표 `approvals`는 MCP 도구가 쓰지 않지만 제안서와 이어지므로 함께 적었습니다.
+기존 MCP 도구가 읽고 쓰는 서비스 데이터베이스(PostgreSQL) 표는 아래에 있습니다. #88 평가·검증의 추가 6개 표는 [평가 계약](evaluation-backend.md#상태저장재시작)을 따릅니다. 표와 칸은 `service/src/main/resources/application.yml`의 `ddl-auto: update`가 JPA 엔티티를 보고 만듭니다. 승인 기록 표 `approvals`는 MCP 도구가 쓰지 않지만 제안서와 이어지므로 함께 적었습니다.
 
 | 저장 공간 | 한글 이름 | 들어 있는 것 | 엔티티 | 쓰는 도구 | 읽는 도구 |
 |---|---|---|---|---|---|

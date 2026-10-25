@@ -1,6 +1,6 @@
 # 계약 5 · MCP 도구 · REST · 저장 이벤트
 
-2026-10-23 현재 코드 기준. 프로세스 사이를 오가는 경로를 한곳에 모은 개요다. 도구별 입출력 JSON 은 `docs/contracts/mcp-tools-input-output.md` 에 있다.
+2026-10-26 현재 코드 기준. 프로세스 사이를 오가는 경로를 한곳에 모은 개요다. 도구별 입출력 JSON 은 `docs/contracts/mcp-tools-input-output.md` 에 있다.
 
 변경 기록: 2026-10-23 · #72 apply_patch v1.3 — 최신 요청·응답은 아래 apply_patch 행과 [상세 명세 8절](mcp-tools-input-output.md#8-수정-적용하기--apply_patch)을 따른다. 다른 행의 v0 설계와 구분한다. [성공 응답 Schema](apply-patch-result.schema.json)
 
@@ -19,7 +19,7 @@
 
 ## MCP (service, SkillOps Agent 가 부른다)
 
-전송은 Streamable HTTP `POST http://localhost:8080/mcp` 이고 인증은 없다. 도구는 7개다.
+전송은 Streamable HTTP `POST http://localhost:8080/mcp`이다. 기존 도구 7개는 인증 방식을 유지하며, #88 새 도구 4개에는 Bearer JWT 권한 검사를 적용한다. 총 11개이며 새 REST/MCP 입출력·상태·저장 계약은 [백엔드 평가·비교 v1.0](evaluation-backend.md)을 따른다. Python 기존 호출은 변경하지 않았다.
 
 | 도구 | 인자 | 구현 |
 |---|---|---|
