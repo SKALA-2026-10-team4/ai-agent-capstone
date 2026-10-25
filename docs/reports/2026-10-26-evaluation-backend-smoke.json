@@ -1,0 +1,131 @@
+{
+  "success": {
+    "evaluation_id": "32d36227-56bb-487b-945f-41f655fc615a",
+    "attempt_id": "e010bb84-1470-400e-96b3-f0cc8cccd6cd",
+    "status": "QUEUED",
+    "status_url": "/api/evaluations/32d36227-56bb-487b-945f-41f655fc615a"
+  },
+  "report": {
+    "evaluation_id": "32d36227-56bb-487b-945f-41f655fc615a",
+    "attempt_id": "e010bb84-1470-400e-96b3-f0cc8cccd6cd",
+    "status": "SUCCEEDED",
+    "verdict": "PASS",
+    "verification_status": "SERVER_VERIFIED",
+    "planned": 6,
+    "completed": 6,
+    "paired": 3,
+    "regression_trials": 0,
+    "regression_case_ids": [],
+    "baseline": {
+      "task_success": {
+        "numerator": 0,
+        "denominator": 3,
+        "value": 0.0
+      },
+      "selection_accuracy": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "recall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "precision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "elapsed_ms": 478,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": "0",
+      "usage_complete": false,
+      "success_by_round": [
+        0.0
+      ],
+      "success_variance": null
+    },
+    "candidate": {
+      "task_success": {
+        "numerator": 3,
+        "denominator": 3,
+        "value": 1.0
+      },
+      "selection_accuracy": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "recall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "precision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "elapsed_ms": 297,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": "0",
+      "usage_complete": false,
+      "success_by_round": [
+        1.0
+      ],
+      "success_variance": null
+    },
+    "reasons": [],
+    "policy_version": "order-functional-v1+fixed-policy-v1",
+    "grader_version": "scenario-grader-v1",
+    "safety": "UNMEASURABLE",
+    "input": {
+      "baseline_snapshot_id": "4cc2fb25-50b4-47f4-84c4-ee578d794428",
+      "baseline_hash": "fb29343a83ed303cfff12470435d74b2f344094ed82e968f68ae37278b08b259",
+      "candidate_snapshot_id": "4924ca0b-7530-4971-9d68-863d56a8a31b",
+      "candidate_hash": "199152c7964ccfcae38541194a563b6c962779385a57f1f67ff802ade508a41a",
+      "evaluation_set_id": "ef98363e-181d-457c-81db-d9a83989d10e",
+      "evaluation_set_version": 1,
+      "evaluation_set_hash": "508d96f7c8af1e8b6467d3831b6d779a27c533d79e2408779f5dac53ff25c4f5",
+      "environment_ref": "eval-88-isolated-v1",
+      "runner_kind": "ORDER_HARNESS",
+      "model_mode": "FIXED",
+      "repeat": 1
+    }
+  },
+  "failure": {
+    "evaluation_id": "84f05a98-7983-49ed-bc1c-a8f07b1c2e40",
+    "attempt_id": "bf7625bc-6d54-42fe-9b5e-59936dbfb835",
+    "status": "QUEUED",
+    "status_url": "/api/evaluations/84f05a98-7983-49ed-bc1c-a8f07b1c2e40"
+  },
+  "failure_verdict": "FAIL",
+  "proposal_id": "p_413d9f24821e47f380b39711649eeb71",
+  "approval": "approved",
+  "mcp_tools": [
+    "apply_patch",
+    "create_workspace",
+    "diff_skill",
+    "get_dependency_graph",
+    "get_evaluation",
+    "get_evaluation_report",
+    "ping",
+    "run_scenarios",
+    "save_proposal",
+    "save_proposal_v2",
+    "submit_evaluation"
+  ],
+  "inventory_restored": true,
+  "live_failures_unchanged": true,
+  "llm_api_calls": 0,
+  "restart_verified": true,
+  "case_pagination_verified": true,
+  "set_definition_schema_verified": true,
+  "aggregate_isolated_executions": 49,
+  "aggregate_isolated_llm_api_calls": 0,
+  "mcp_upstream_error_preserved": true,
+  "mcp_unauthenticated_access_denied": true
+}
