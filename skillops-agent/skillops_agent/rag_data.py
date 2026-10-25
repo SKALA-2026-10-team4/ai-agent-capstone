@@ -13,8 +13,9 @@ skillops-agent/rag/ 의 문서를 읽는다. 항목 모양은 팀 RAG 실험(TSG
 - policy: policy-flow 는 게시본 steps·depends_on 과 OrderFlowPolicy 에서 자동, 나머지는
   skillops-agent/rag/policies/*.md
 - guideline: skillops-agent/rag/guides/*.md 마다 1건
-- case: skillops-agent/rag/cases.json 의 사례마다 1건. 처음에는 order-agent/docs/scenarios 의
-  S2·S3·S4·S6 으로 만들었다
+- case: skillops-agent/rag/cases.json 의 사례마다 1건(order-agent/docs/scenarios 의 S2·S3·S4·S6),
+  그리고 운영자가 승인·반려한 제안서마다 1건(cases_from_proposals). 신뢰도(confidence)로
+  출처를 구분한다
 
 항목마다 skills, fields, error_categories 메타데이터를 붙여 조회 함수가 skill 이름과 오류 종류로
 정확히 꺼낼 수 있게 한다. 이 모듈은 주문 Agent 를 부르지 않는 순수 함수만 둔다. 조회와 저장은
@@ -33,6 +34,9 @@ RAG_DIR = REPO_ROOT / "skillops-agent" / "rag"
 GUIDES_DIR = RAG_DIR / "guides"
 POLICIES_DIR = RAG_DIR / "policies"
 CASES_PATH = RAG_DIR / "cases.json"
+# 승인·반려된 제안서에서 만든 사례를 쌓아 두는 파일이다. 환경마다 운영 데이터라 저장소에 올리지
+# 않는다(.gitignore).
+PROPOSAL_CASES_PATH = RAG_DIR / "proposal_cases.json"
 DATA_PATH = RAG_DIR / "rag_data.json"
 # 사실 데이터를 읽는 주문 Agent 코드다.
 _HARNESS = REPO_ROOT / "order-agent/backend/src/main/java/com/capstone4/orderagent/harness"
@@ -326,26 +330,147 @@ def load_cases(path: Path = CASES_PATH) -> list[dict]:
     correct_fix, anti_patterns, outcome, source 를 둔다. 조회 함수가 오류 종류와 skill 로 거른 뒤
     최대 1~2건만 넣으므로, 메타데이터에 원인 skill 과 실패 skill 을 함께 둔다.
     """
-    items = []
-    for case in json.loads(path.read_text(encoding="utf-8")):
-        symptom, change = case["symptom"], case["change"]
-        skills = sorted({case["root_skill"], symptom["failed_skill"]})
-        text = (
-            f"[사례 {case['id']}] 증상: {symptom['failed_skill']} 에서 {symptom['error_category']}"
-            f"({symptom.get('phase')}), 누락 입력 {symptom.get('missing_inputs') or '없음'}. "
-            f"변경: {change['skill']} 의 {change['field']} {change['before']} → {change['after']}. "
-            f"원인 skill: {case['root_skill']}. 올바른 수정: {case['correct_fix']}. "
-            f"피해야 할 수정: {'; '.join(case['anti_patterns'])}."
-        )
-        items.append({
-            **case,
-            "kind": "case",
-            "skills": skills,
-            "fields": sorted(set(symptom.get("missing_inputs") or [])),
-            "error_categories": [symptom["error_category"]],
-            "text": text,
+    return [case_item({"confidence": SCENARIO_CONFIDENCE, **case})
+            for case in json.loads(path.read_text(encoding="utf-8"))]
+
+
+# 사례의 신뢰도 표시다. AI 가 잘못 추측한 원인을 사실처럼 쌓지 않으려고 출처마다 구분한다.
+SCENARIO_CONFIDENCE = "확인됨(시나리오 문서)"
+CONFIRMED = "확인됨(원인 실험·운영자 승인)"
+ESTIMATED = "추정"
+
+
+def case_item(case: dict) -> dict:
+    """사례 하나에 조회용 메타데이터(skills, fields, error_categories)와 프롬프트용 text 를 붙인다.
+
+    load_cases 와 cases_from_proposals 가 같은 모양으로 만들도록 함께 쓴다. correct_fix 가 없는
+    사례(반려된 제안서)는 '올바른 수정' 을 적지 않는다.
+    """
+    symptom, change = case["symptom"], case["change"]
+    fix = f" 올바른 수정: {case['correct_fix']}." if case.get("correct_fix") else ""
+    patterns = case.get("anti_patterns") or []
+    avoid = f" 피해야 할 수정: {'; '.join(patterns)}." if patterns else ""
+    text = (
+        f"[사례 {case['id']}, {case.get('confidence')}] 증상: {symptom['failed_skill']} 에서 "
+        f"{symptom['error_category']}({symptom.get('phase')}), 누락 입력 "
+        f"{symptom.get('missing_inputs') or '없음'}. 변경: {change['skill']} 의 {change['field']} "
+        f"{change['before']} → {change['after']}. 원인 skill: {case['root_skill']}.{fix}{avoid}"
+    )
+    return {
+        **case,
+        "kind": "case",
+        "skills": sorted({case["root_skill"], symptom["failed_skill"]}),
+        "fields": sorted(set(symptom.get("missing_inputs") or [])),
+        "error_categories": [symptom["error_category"]],
+        "text": text,
+    }
+
+
+def _patch_summary(candidate: dict) -> str:
+    """후보 패치에서 바뀐 frontmatter 줄을 'skill 의 전 → 후' 로 줄인다.
+
+    frontmatter 를 바꾸지 않고 본문만 바꿨으면 그렇게 적는다.
+    """
+    parts = []
+    for patch in candidate.get("patches", []):
+        lines = [line for line in patch.get("patch", "").splitlines()
+                 if line[:1] in "+-" and not line.startswith(("+++", "---"))]
+        declared = [line for line in lines if _LIST_LINE.match(line[1:])]
+        removed = [line[1:].strip() for line in declared if line.startswith("-")]
+        added = [line[1:].strip() for line in declared if line.startswith("+")]
+        if removed or added:
+            parts.append(f"{patch['skill']} 의 {'; '.join(removed) or '(없음)'} → "
+                         f"{'; '.join(added) or '(없음)'}")
+        elif lines:
+            parts.append(f"{patch['skill']} 본문만 수정")
+    return ", ".join(parts)
+
+
+_LIST_LINE = re.compile(r"^(inputs|outputs|steps|depends_on):\s*\[")
+
+
+def _strip_field(line: str | None, field: str) -> str | None:
+    """'outputs: [a, b]' 에서 칸 이름을 떼어 '[a, b]' 만 남긴다."""
+    if line and field and line.startswith(f"{field}:"):
+        return line[len(field) + 1:].strip()
+    return line
+
+
+def cases_from_proposals(details: list[dict], phases: dict[str, str]) -> list[dict]:
+    """운영자가 승인·반려한 제안서를 사례로 바꾼다. 결정 전 제안서는 건너뛴다.
+
+    details 는 service 의 GET /api/proposals/{id} 응답이고, phases 는 실패 실행 id 별 오류 단계다.
+    - 승인: 승인한 후보를 올바른 수정으로, 검증에서 떨어진 후보를 피해야 할 수정으로 둔다. 원인이
+      원인 실험으로 확정됐으면(root_cause.proof_run_ids) CONFIRMED, 아니면 ESTIMATED 다.
+    - 반려: 반려 API 에 사유가 없어 무엇이 틀렸는지 알 수 없다. 추천했던 후보만 피해야 할 수정으로
+      두고 올바른 수정은 비우며 신뢰도는 ESTIMATED 다. 반려됐다고 다른 후보까지 틀렸다고 보지
+      않는다.
+    원인(root_cause)이 없는 제안서는 변경을 알 수 없어 건너뛴다. id 는 case-<proposal_id> 라 같은
+    제안서는 한 번만 들어간다.
+    """
+    cases = {}
+    for detail in details:
+        decision = (detail.get("decision") or {}).get("decision")
+        proposal = detail.get("proposal") or {}
+        root, failure = proposal.get("root_cause"), proposal.get("failure") or {}
+        if decision not in ("approved", "rejected") or not root or not failure:
+            continue
+        candidates = {c["candidate_no"]: c for c in proposal.get("candidates", [])}
+        field = (root.get("before") or root.get("after") or "").split(":", 1)[0].strip()
+        # root_cause 의 변경 전·후 줄은 'outputs: [..]' 처럼 칸 이름을 달고 온다. 시나리오 사례와
+        # 같게 값만 둔다.
+        before, after = (_strip_field(root.get(k), field) for k in ("before", "after"))
+        if decision == "approved":
+            chosen = candidates.get(detail["decision"].get("candidate_no"), {})
+            correct = _patch_summary(chosen)
+            avoid = [_patch_summary(c) for c in candidates.values() if not c.get("valid")
+                     and _patch_summary(c)]
+            confidence = CONFIRMED if root.get("proof_run_ids") else ESTIMATED
+        else:
+            recommended = candidates.get(detail.get("recommended_candidate_no"), {})
+            correct = None
+            avoid = [s for s in [_patch_summary(recommended)] if s]
+            confidence = ESTIMATED
+        if not correct and not avoid:
+            continue  # 남길 해법이 없다(유효 안 없음 제안서를 닫은 반려 등).
+        execution = failure.get("execution_id")
+        case_id = f"case-{detail['proposal_id']}"
+        cases[case_id] = case_item({
+            "id": case_id,
+            "symptom": {
+                "error_category": failure.get("category"),
+                "phase": phases.get(execution, "runtime"),
+                "failed_skill": failure.get("skill"),
+                "missing_inputs": failure.get("missing_inputs") or [],
+            },
+            "change": {"skill": root.get("skill"), "field": field,
+                       "before": before, "after": after},
+            "root_skill": root.get("skill"),
+            "correct_fix": correct,
+            "anti_patterns": avoid,
+            "outcome": decision,
+            "confidence": confidence,
+            "evidence": {"proposal_id": detail["proposal_id"], "execution_id": execution,
+                         "run_ids": root.get("proof_run_ids") or []},
+            "source": f"proposal:{detail['proposal_id']}",
         })
-    return items
+    return [cases[k] for k in sorted(cases)]
+
+
+def merge_proposal_cases(new_cases: list[dict], path: Path = PROPOSAL_CASES_PATH) -> list[dict]:
+    """제안서 사례를 path 에 쌓는다. 이미 있는 id 는 그대로 두고 새 id 만 더한 전체 목록을 돌려준다.
+
+    service 목록은 최근 제안서·결정만 돌려주므로, 지난번에 쌓은 사례가 목록에서 빠져도 사라지지 않게
+    파일에 남긴다. 같은 제안서는 한 번만 들어간다.
+    """
+    stored = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    by_id = {case["id"]: case for case in stored}
+    for case in new_cases:
+        by_id.setdefault(case["id"], case)
+    merged = [by_id[k] for k in sorted(by_id)]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return merged
 
 
 def build(trace: dict, snapshot: dict, skills: list[dict], flow_constants: dict, catalog: dict,
