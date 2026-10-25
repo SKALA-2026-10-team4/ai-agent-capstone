@@ -11,14 +11,18 @@
   않으며 실패해도 httpx client 를 닫는다.
 - get_tools 가 부를 때마다 USE_STUB_MCP 를 읽고, tools 가 StubMCPTools 와
   skillops-agent/skillops_agent/mcp_client.py 의 first_text 를 그대로 다시 내보낸다.
+- run_scenarios 가 intent_expectations 를 값이 있을 때만 보내고, mcp_client 가 서비스 토큰이 있으면
+  X-Service-Token 헤더를 붙인다.
 """
 
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import httpx
 import pytest
 
+import skillops_agent.mcp_client as client_module
 import skillops_agent.tools as tools_module
 from skillops_agent.contracts import ContractError
 from skillops_agent.order_agent import OrderAgentError
@@ -534,3 +538,51 @@ def test_first_text_is_the_helper_tools_use():
     from skillops_agent.mcp_client import first_text
 
     assert tools_module.first_text is first_text
+
+
+# ── 의도 시험 인자와 서비스 토큰 ───────────────────────────────────────────────
+
+
+async def test_run_scenarios_appends_intent_expectations_last():
+    """intent_expectations 는 값이 있을 때만 extra_checks 뒤에 붙는다(계획 2.4)."""
+    tools = tools_with()
+    expectations = [
+        {"scope": "order.payment_method == 'card'", "checks": ["payment.status == null"]}
+    ]
+    await tools.run_scenarios("w", ["g-01"], extra_checks=["a"], intent_expectations=expectations)
+    await tools.run_scenarios("w", ["g-01"], intent_expectations=[])
+    base = [("workspace_id", "w"), ("scenario_ids", ["g-01"]), ("repeat", 2)]
+    assert sent(tools) == [
+        ("run_scenarios", [*base, ("extra_checks", ["a"]), ("intent_expectations", expectations)]),
+        ("run_scenarios", base),
+    ]
+
+
+def test_mcp_client_uses_plain_url_without_token(monkeypatch):
+    """토큰이 없으면 예전처럼 URL 문자열로 연결한다."""
+    monkeypatch.setattr(client_module.config, "SERVICE_TOKEN", "")
+    assert client_module.mcp_client("http://svc/mcp").server == "http://svc/mcp"
+    assert client_module.service_headers("") == {}
+
+
+async def test_mcp_client_sends_service_token_header(monkeypatch):
+    """SKILLOPS_SERVICE_TOKEN 이 있으면 모든 MCP 요청에 X-Service-Token 헤더를 붙인다."""
+    seen = {}
+
+    @asynccontextmanager
+    async def fake_streams(url, http_client=None):
+        seen["url"] = url
+        seen["token"] = http_client.headers.get("X-Service-Token")
+        yield ("read", "write")
+
+    monkeypatch.setattr(client_module, "streamable_http_client", fake_streams)
+    monkeypatch.setattr(client_module.config, "SERVICE_TOKEN", "secret")
+    client = client_module.mcp_client("http://svc/mcp")
+    assert not isinstance(client.server, str)
+    async with client.server as streams:
+        assert streams == ("read", "write")
+    assert seen == {"url": "http://svc/mcp", "token": "secret"}
+    explicit = client_module.mcp_client("http://svc/mcp", token="other")
+    async with explicit.server:
+        pass
+    assert seen["token"] == "other"

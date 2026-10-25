@@ -5,6 +5,8 @@ MCPTools 는 두 곳을 부른다.
   get_snapshot_file이 부른다. get_snapshot을 뺀 다섯 개는 order_agent.py를 거쳐 재시도와
   OrderAgentError 규칙을 따른다. 상대편은
   order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 다.
+  get_tool_catalog 는 업무 도구 목록(GET /api/tools, 같은 폴더의 ToolController.java)을 읽고, 읽지
+  못하면 예외 대신 None 을 돌려준다.
 - service MCP 서버(/mcp)의 도구는 ping, diff_skill, get_dependency_graph, create_workspace,
   apply_patch, run_scenarios, save_proposal 이 부른다. 도구 구현은
   service/src/main/java/com/capstone4/skillops/mcp/ 의 PingTools, SkillDiffTools,
@@ -204,6 +206,14 @@ class MCPTools:
         """partial 증거 수집에 사용할 원본 파일을 공유 HTTP client로 읽는다."""
         return await order_agent.get_snapshot_file(snapshot_id, path, client=self._http)
 
+    async def get_tool_catalog(self) -> dict | None:
+        """주문 Agent 의 업무 도구 목록(GET /api/tools)을 order_agent.get_tool_catalog 로 읽는다.
+
+        읽지 못하거나 모양이 틀리면 예외 대신 None 이다. skillops-agent/skillops_agent/nodes.py 의
+        fetch_evidence 가 개발 요청서 판정(skillops-agent/skillops_agent/capability.py)에 쓴다.
+        """
+        return await order_agent.get_tool_catalog(client=self._http)
+
     # ── MCP 도구 ─────────────────────────────────────────────────────────────────
 
     async def ping(self) -> str:
@@ -274,7 +284,9 @@ class MCPTools:
         받는다. patches 항목은 {skill, base_version, patch} 다. 원문과 맞지 않는 수정은
         INVALID_INPUT MCPToolError 가 된다. skillops-agent/skillops_agent/nodes.py 의
         _ablate_change 와 _verify_candidate 가 부르고, _verify_candidate 는 그 오류를 받은 후보만
-        무효로 바꾼다.
+        무효로 바꾼다. service 는 run_scenarios 를 한 번이라도 돌린 workspace 의 apply_patch 를
+        WORKSPACE_FROZEN 으로 거절한다. 두 노드는 실험·후보마다 새 workspace 를 만들어 시험 전에
+        한 번만 적용하므로 이 오류에 닿지 않는다.
         """
         return await self._call(
             "apply_patch",
@@ -291,22 +303,30 @@ class MCPTools:
         repeat: int = 2,
         replay_run_ids: list[str] | None = None,
         extra_checks: list | None = None,
+        intent_expectations: list | None = None,
     ) -> dict:
         """MCP 도구 run_scenarios 로 연습 공간에서 시험 주문을 돌리고 채점 결과를 받는다.
 
         service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 의 runScenarios() 가
-        받는다. workspace_id, scenario_ids, repeat 는 늘 보내고, replay_run_ids 와 extra_checks 는
-        값이 있을 때만 그 순서로 덧붙인다. 노드는 skillops-agent/skillops_agent/nodes.py 의
-        _run_scenarios 를 거쳐 repeat 와 extra_checks 를 넘기고, 재현 주문은 scenario_ids 의
-        f-<execution_id> 로 넣어 replay_run_ids 는 쓰지 않는다. repeat 기본값 2 는 service 기본값과
-        같지만, 노드가 단계별 반복 횟수(skillops-agent/skillops_agent/config.py 의 *_REPEAT)를 늘
-        넘기므로 실제 튜닝 지점은 config 다.
+        받는다. workspace_id, scenario_ids, repeat 는 늘 보내고, replay_run_ids, extra_checks,
+        intent_expectations 는 값이 있을 때만 그 순서로 덧붙인다. intent_expectations 는 담당자
+        의도 [{scope, checks}] 이며, service 는 scope 에 맞는 기준 주문을 기존 expect 대신 그 checks
+        로 채점하고 결과에 intent_scoped 를 붙인다(docs/plans/2026-10-26-behavior-edit-root-fix.md
+        2.4). 노드는 skillops-agent/skillops_agent/nodes.py 의 _run_scenarios 를 거쳐 repeat,
+        extra_checks, intent_expectations 를 넘기고, 재현 주문은 scenario_ids 의 f-<execution_id> 로
+        넣어 replay_run_ids 는 쓰지 않는다. repeat 기본값 2 는 service 기본값과 같지만, 노드가
+        단계별 반복 횟수(skillops-agent/skillops_agent/config.py 의 *_REPEAT)를 늘 넘기므로 실제
+        튜닝 지점은 config 다.
         """
         args: dict = {
             "workspace_id": workspace_id,
             "scenario_ids": scenario_ids,
             "repeat": repeat,
-            **_optional_args(replay_run_ids=replay_run_ids, extra_checks=extra_checks),
+            **_optional_args(
+                replay_run_ids=replay_run_ids,
+                extra_checks=extra_checks,
+                intent_expectations=intent_expectations,
+            ),
         }
         return await self._call("run_scenarios", args)
 
@@ -314,8 +334,9 @@ class MCPTools:
         """MCP 도구 save_proposal 로 제안서를 service 에 저장한다.
 
         service/src/main/java/com/capstone4/skillops/mcp/ProposalTools.java 의 saveProposal() 이
-        받는다. 돌려받는 값은 {proposal_id, status, valid_candidate_nos} 다. service 가 근거 실행과
-        합격 조건을 다시 확인해, 근거 실행이 맞지 않으면 INVALID_INPUT 오류를 돌려준다.
+        받는다. 돌려받는 값은 {proposal_id, status, valid_candidate_nos} 이고, service 가 장부로
+        다시 계산한 판정이 Agent 값과 다르면 server_overrides 가 더 붙는다. service 가 근거 실행을
+        다시 확인해, 근거 실행이 맞지 않으면 INVALID_INPUT 오류를 돌려준다.
         skillops-agent/skillops_agent/nodes.py 의 save_proposal 노드가 부르고, 거부되면
         MCPToolError 가 그대로 올라가 진단이 ERROR 로 남는다.
         """

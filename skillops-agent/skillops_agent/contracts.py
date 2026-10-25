@@ -6,8 +6,12 @@ LLM 은 제안만 하고 판정은 C 실행 결과로만 하므로, B 가 받은
 
 함수는 다음 묶음으로 나뉜다.
 - 실행 기록을 읽는 함수는 execution_uuid, event_data, error_event, context_keys, tools_called 다.
-- 의도 확인 조건은 두 가지로 다룬다. check_problem 은 보내기 전에 조건을 검사하고,
-  CHECK_FAILURE_PREFIX 는 실행 결과의 실패 사유에서 확인 조건 실패를 알아본다.
+- 조건 문법 v2 는 읽기를 흉내 낸다. condition_problem 은 한 줄을 읽을 수 있는지 보고,
+  condition_parts 와 literal_values 는 읽은 조건을 나눈다. condition_holds 와 lookup_value 는 의도
+  scope 를 시험 주문의 처음 값으로 평가할 때만 쓴다. check_problem 은 보내기 전에 문법과 값
+  이름을 함께 검사하고, CHECK_FAILURE_PREFIX 는 실행 결과의 실패 사유에서 확인 조건 실패를
+  알아본다. RESERVED_KEYS 와 SCOPE_KEYS 는 확인 조건과 의도 scope 가 쓰는 값 이름이고,
+  INTENT_MAX_EXPECTATIONS 와 INTENT_MAX_CHECKS 는 의도 expectations 의 개수 상한이다.
 - snapshot 과 diff 를 검사하는 함수는 file_hashes, skill_file_path, skill_of_file,
   check_manifest, check_skill_listing, check_diff_evidence 다.
 - run_scenarios 결과를 다루는 함수는 validate_report, replay_scenario_id, run_ids_of,
@@ -26,6 +30,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from decimal import Decimal
 from uuid import UUID
 
 
@@ -111,12 +116,37 @@ def context_keys(trace: dict) -> list[str]:
     return sorted(keys)
 
 
-# C 의 service/src/main/java/com/capstone4/skillops/scenario/Check.java 와 같은 문법이다.
-# 한 줄은 '<값 이름> (==|!=|in) <값>' 모양이다. 값은 '글자', true, false, null, 숫자이고, in 뒤에만
-# [..] 목록이 온다. 두 정규식은 Check.java 의 LINE, NUMBER 와 같다. C 쪽 문법을 바꾸면 이 두
-# 정규식과 _is_literal, _split_outside_quotes 를 함께 고친다.
-_CHECK_LINE = re.compile(r"^\s*(\S+)\s+(==|!=|in)\s+(.+?)\s*$")
+# C 의 service/src/main/java/com/capstone4/skillops/scenario/Check.java 와 같은 조건 문법 v2 다
+# (docs/plans/2026-10-26-behavior-edit-root-fix.md 2.1). 한 줄은 '<값 이름> <연산자> <값>' 모양이고
+# 연산자 앞뒤에 공백이 있어야 한다. 값은 '글자', true, false, null, 숫자이고, in 뒤에만 [..] 목록이
+# 온다. 숫자 비교(>, >=, <, <=)의 오른쪽은 숫자만 읽는다. Python 은 읽기(parse)를 흉내 내고, 평가는
+# 의도 scope 를 기준 주문의 처음 값으로 볼 때만 한다(condition_holds). 공용 사례
+# docs/contracts/examples/condition-cases.json 의 evaluate[].text 는 모두 읽혀야 하고 그 holds 대로
+# 평가돼야 하며, unreadable[] 은 모두 읽히지 않아야 한다(skillops-agent/tests/test_checks.py). C 쪽
+# 문법을 바꾸면 두 정규식과 _is_literal, _split_outside_quotes 를 함께 고친다. 연산자 목록은 긴 것을
+# 먼저 둔다(>= 가 > 보다 앞).
+_CHECK_LINE = re.compile(r"^\s*(\S+)\s+(==|!=|in|>=|<=|>|<)\s+(.+?)\s*$")
 _NUMBER = re.compile(r"-?\d+(\.\d+)?")
+# 오른쪽에 숫자만 오는 비교 연산자다.
+NUMERIC_OPERATORS = (">", ">=", "<", "<=")
+# 실행 문맥에 없어도 C 가 채워 주는 예약 값 이름이다. 확인 조건(checks)에서만 쓴다. 단계 rules 의
+# when 에는 선언 input 이 아니면 쓸 수 없다(2.2).
+RESERVED_KEYS = ("order.final_status", "order.shipments")
+# 의도 expectations 의 scope 가 보는 시험 주문의 처음 값 이름이다(2.3). order.total 은 service 가
+# 상품 단가로 계산한다.
+SCOPE_KEYS = (
+    "order.payment_method",
+    "order.customer",
+    "order.shipping.country",
+    "order.shipping.express",
+    "order.total",
+)
+# 의도 expectations 의 개수 상한과 expectation 하나의 checks 상한이다(2.3). 담당자가 준 의도의
+# expectations 수는 skillops-agent/skillops_agent/main.py 의 OwnerIntent 가 같은 값(10)으로 막고,
+# 넘친 checks 는 skillops-agent/skillops_agent/nodes.py 의 _owner_expectations 가, Agent 가 만든
+# expectations 는 같은 파일의 _usable_expectations 가 버린다.
+INTENT_MAX_EXPECTATIONS = 10
+INTENT_MAX_CHECKS = 10
 
 
 def _is_literal(raw: str) -> bool:
@@ -153,26 +183,163 @@ def _split_outside_quotes(inner: str) -> list[str]:
     return parts
 
 
-def check_problem(check: str, known_keys: set[str]) -> str | None:
-    """C 가 읽을 수 있고 실행 기록에 있는 값을 보는 조건이면 None, 아니면 버리는 이유다.
+def condition_problem(text: str) -> str | None:
+    """조건 한 줄을 C 가 읽을 수 있으면 None, 아니면 읽지 못하는 이유다. 값 이름은 보지 않는다.
 
-    C 는 읽지 못하는 조건이 하나라도 있으면 run_scenarios 요청 전체를 거절하므로, 확인 조건을 보내기
-    전에 한 줄씩 검사한다. 문법을 먼저 보고 값 이름(known_keys)을 나중에 본다. 이유 문구는 제안서의
-    dropped_checks 에 남아 운영자가 읽는다. skillops-agent/skillops_agent/nodes.py 의 _split_checks
-    가 부르고 skillops-agent/tests/test_checks.py 가 규칙을 고정한다.
+    문법 v2(모듈의 _CHECK_LINE 주석)만 본다. check_problem 이 먼저 부르고,
+    skillops-agent/skillops_agent/nodes.py 의 담당자 의도(intent) 거르기(_owner_expectations,
+    _scope_problem)도 쓴다. 이유 문구는 제안서의 dropped_checks 에 남아 사람이 읽는다.
     """
-    match = _CHECK_LINE.match(check) if isinstance(check, str) else None
+    match = _CHECK_LINE.match(text) if isinstance(text, str) else None
     if not match:
-        return "형식이 '<값 이름> (==|!=|in) <값>' 이 아닙니다"
-    key, op, raw = match.groups()
+        return "형식이 '<값 이름> <연산자> <값>' 이 아닙니다(연산자 ==, !=, in, >, >=, <, <=)"
+    _key, op, raw = match.groups()
     if op == "in":
         if not (raw.startswith("[") and raw.endswith("]")):
             return "in 뒤에는 [..] 목록이 와야 합니다"
         if not all(_is_literal(part) for part in _split_outside_quotes(raw[1:-1])):
             return "목록 안의 값을 읽을 수 없습니다"
+    elif op in NUMERIC_OPERATORS:
+        if not _NUMBER.fullmatch(raw.strip()):
+            return "숫자 비교(>, >=, <, <=)의 오른쪽에는 숫자만 됩니다"
     elif not _is_literal(raw):
         return "값을 읽을 수 없습니다('글자', true, false, null, 숫자만 됩니다)"
-    if key not in known_keys:
+    return None
+
+
+def condition_parts(text: str) -> tuple[str, str, str] | None:
+    """읽을 수 있는 조건이면 (값 이름, 연산자, 오른쪽 글), 아니면 None 이다.
+
+    skillops-agent/skillops_agent/skill_rules.py 가 rules 의 when 과 의도 scope 의 값 이름을 읽고,
+    checks 에서 order.final_status 의 기대 상태를 찾을 때 쓴다.
+    """
+    if condition_problem(text) is not None:
+        return None
+    key, op, raw = _CHECK_LINE.match(text).groups()
+    return key, op, raw
+
+
+def literal_values(raw: str) -> list[str]:
+    """조건 오른쪽 글에서 따옴표 글자 값만 꺼낸다. 'A' 는 [A], ['A', 'B'] 는 [A, B] 다.
+
+    따옴표가 없는 값(true, 숫자 등)은 빼고, 읽을 수 없는 글이면 빈 목록이다.
+    skillops-agent/skillops_agent/skill_rules.py 가 기대 최종 상태(HOLD, REJECTED)를 찾을 때 쓴다.
+    """
+    value = raw.strip()
+    parts = _split_outside_quotes(value[1:-1]) if value.startswith("[") else [value]
+    return [
+        part.strip()[1:-1]
+        for part in parts
+        if len(part.strip()) >= 2 and part.strip().startswith("'") and part.strip().endswith("'")
+    ]
+
+
+def _literal_value(raw: str):
+    """읽을 수 있는 값 한 칸을 Python 값으로 바꾼다.
+
+    '글자' 는 str, true·false 는 bool, null 은 None, 숫자는 Decimal 이다. condition_holds 가 부르며
+    condition_problem 으로 읽을 수 있다고 본 값만 넘긴다.
+    """
+    value = raw.strip()
+    if len(value) >= 2 and value.startswith("'") and value.endswith("'"):
+        return value[1:-1]
+    if value in ("true", "false"):
+        return value == "true"
+    if value == "null":
+        return None
+    return Decimal(value)
+
+
+def lookup_value(context: dict, key: str):
+    """문맥에서 값 이름 key 의 값을 찾는다. 없으면 None 이다(2.1 값 찾기).
+
+    이름이 그대로 있으면 그 값이다. 없으면 점으로 나눈 가장 긴 앞부분이 문맥에 있을 때 그 값에서
+    나머지 경로를 한 칸씩 내려간다. 중간 값이 Map 이 아니거나 칸이 없으면 None 이고, 더 짧은
+    앞부분으로 다시 찾지 않는다. service/src/main/java/com/capstone4/skillops/scenario/Check.java 의
+    lookup 과 같은 규칙이다.
+    """
+    if key in context:
+        return context[key]
+    parts = key.split(".")
+    for cut in range(len(parts) - 1, 0, -1):
+        prefix = ".".join(parts[:cut])
+        if prefix in context:
+            value = context[prefix]
+            for part in parts[cut:]:
+                if not isinstance(value, dict) or part not in value:
+                    return None
+                value = value[part]
+            return value
+    return None
+
+
+def _number(value) -> Decimal | None:
+    """숫자면 Decimal, 아니면 None 이다. bool 은 숫자로 보지 않는다(true 는 1 이 아니다)."""
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
+        return None
+    return Decimal(str(value))
+
+
+def _same(left, right) -> bool:
+    """두 값이 같은지 본다. Check.java 의 same 과 같다.
+
+    하나라도 None 이면 둘 다 None 일 때만 같다. 숫자끼리는 값으로 비교하고, 숫자와 숫자가 아닌 값,
+    bool 과 bool 이 아닌 값은 같지 않다.
+    """
+    if left is None or right is None:
+        return left is None and right is None
+    left_number, right_number = _number(left), _number(right)
+    if left_number is not None or right_number is not None:
+        return left_number is not None and right_number is not None and left_number == right_number
+    if isinstance(left, bool) or isinstance(right, bool):
+        return isinstance(left, bool) and isinstance(right, bool) and left == right
+    return isinstance(left, str) and isinstance(right, str) and left == right
+
+
+def condition_holds(text: str, context: dict) -> bool | None:
+    """조건 한 줄이 문맥(context)에서 맞는지 본다. 읽을 수 없는 조건이면 None 이다.
+
+    service 의 Check.holds 와 같은 뜻으로 평가한다. 값은 lookup_value 로 찾고, 숫자 비교는 실제 값이
+    숫자일 때만 맞을 수 있다. 공용 사례 docs/contracts/examples/condition-cases.json 의 evaluate[]
+    가 기대(holds)를 고정한다(skillops-agent/tests/test_checks.py). 시험 주문의 처음 값으로 의도
+    scope 를 평가할 때 skillops-agent/skillops_agent/nodes.py 와
+    skillops-agent/skillops_agent/stub_tools.py 가 쓴다.
+    """
+    parts = condition_parts(text)
+    if parts is None:
+        return None
+    key, op, raw = parts
+    actual = lookup_value(context, key)
+    if op == "in":
+        return any(_same(actual, _literal_value(p)) for p in _split_outside_quotes(raw[1:-1]))
+    if op in NUMERIC_OPERATORS:
+        number = _number(actual)
+        if number is None:
+            return False
+        expected = Decimal(raw.strip())
+        return {
+            ">": number > expected,
+            ">=": number >= expected,
+            "<": number < expected,
+            "<=": number <= expected,
+        }[op]
+    same = _same(actual, _literal_value(raw))
+    return same if op == "==" else not same
+
+
+def check_problem(check: str, known_keys: set[str]) -> str | None:
+    """C 가 읽을 수 있고 실행 기록에 있는 값을 보는 조건이면 None, 아니면 버리는 이유다.
+
+    C 는 읽지 못하는 조건이 하나라도 있으면 run_scenarios 요청 전체를 거절하므로, 확인 조건을 보내기
+    전에 한 줄씩 검사한다. 문법(condition_problem)을 먼저 보고 값 이름(known_keys)을 나중에 본다.
+    이유 문구는 제안서의 dropped_checks 에 남아 운영자가 읽는다.
+    skillops-agent/skillops_agent/nodes.py 의 _split_checks 가 부르고
+    skillops-agent/tests/test_checks.py 가 규칙을 고정한다.
+    """
+    problem = condition_problem(check)
+    if problem:
+        return problem
+    if _CHECK_LINE.match(check).group(1) not in known_keys:
         return "실행 기록에 없는 값 이름입니다"
     return None
 
@@ -271,7 +438,11 @@ def patch_contract_ok(applied: dict) -> bool:
 
 
 def patch_metadata_ok(applied: dict) -> bool:
-    """필수 정보 오류 목록을 검증하며 누락된 서버 검사 결과는 계약 오류로 처리한다."""
+    """필수 정보 오류 목록을 검증하며 누락된 서버 검사 결과는 계약 오류로 처리한다.
+
+    칸 이름은 docs/contracts/apply-patch-result.schema.json v1.4 의 metadata_errors.field 와 같다.
+    v1.4 에서 rules(단계 skill 의 실행 규칙 형식 오류)가 더해졌다.
+    """
     errors = applied.get("metadata_errors")
     if not isinstance(errors, list):
         raise ContractError("invalid apply_patch response")
@@ -284,14 +455,18 @@ def patch_metadata_ok(applied: dict) -> bool:
             )
             or item["code"] not in ("INVALID_SKILL_NAME", "INVALID_SKILL_FORMAT")
             or item["field"]
-            not in ("name", "version", "owner", "description", "body", "frontmatter")
+            not in ("name", "version", "owner", "description", "body", "frontmatter", "rules")
         ):
             raise ContractError("invalid apply_patch response")
     return not errors
 
 
 def patch_flow_ok(applied: dict) -> bool:
-    """flow 구조 검사 목록과 코드·사유 조합을 검증하며 누락된 검사 결과를 거부한다."""
+    """flow 구조 검사 목록과 코드·사유 조합을 검증하며 누락된 검사 결과를 거부한다.
+
+    사유와 코드의 짝은 docs/contracts/apply-patch-result.schema.json v1.4 의 flow_errors.oneOf 와
+    같다. v1.4 에서 RULE_KEY_NOT_INPUT(rules 의 when 이 선언하지 않은 input 을 봄)이 더해졌다.
+    """
     codes = {
         "EMPTY_STEPS": "INVALID_FLOW",
         "TOO_MANY_STEPS": "INVALID_FLOW",
@@ -301,6 +476,7 @@ def patch_flow_ok(applied: dict) -> bool:
         "INVALID_SKILL_NAME": "INVALID_SKILL_NAME",
         "UNREADABLE_SKILL": "INVALID_SKILL_FORMAT",
         "NESTED_FLOW_NOT_SUPPORTED": "CONTRACT_VIOLATION",
+        "RULE_KEY_NOT_INPUT": "CONTRACT_VIOLATION",
     }
     errors = applied.get("flow_errors")
     if not isinstance(errors, list):
@@ -350,8 +526,9 @@ def validate_report(
     workspace_id 가 같은지, 요청한 시나리오가 같은 순서로 빠짐없이 왔는지, 시나리오마다 실행 ID 가
     repeat 개이고 서로 다른 UUID 인지, passed 와 failures 가 맞는지, 실패가 실제로 돈 실행을
     가리키는지, all_passed 가 결과와 맞는지를 본다. 하나라도 어긋나면 ContractError 를 던져, 결과가
-    비거나 모자란 응답을 통과로 읽지 않게 한다. skillops-agent/skillops_agent/nodes.py 의
-    _run_scenarios 가 부르고 skillops-agent/tests/test_scenarios.py 가 경계를 고정한다.
+    비거나 모자란 응답을 통과로 읽지 않게 한다. 결과의 intent_scoped(의도 expectations 로 채점한
+    기준 주문인지)는 선택 칸이라 검사하지 않고 그대로 넘긴다. skillops-agent/skillops_agent/nodes.py
+    의 _run_scenarios 가 부르고 skillops-agent/tests/test_scenarios.py 가 경계를 고정한다.
     """
     if not isinstance(report, dict) or report.get("workspace_id") != workspace_id:
         raise ContractError("run_scenarios workspace_id mismatch")
