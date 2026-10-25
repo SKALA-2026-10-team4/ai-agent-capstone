@@ -10,6 +10,7 @@
 // 받은 토큰과 사용자는 auth store 가 sessionStorage 에 둔다.
 // 데모 계정은 owner(업무 담당자)와 operator(운영자)이며,
 // service/src/main/resources/application.yml 의 skillops.auth.users 에 있다.
+// 화면에는 데모 계정 안내를 띄우지 않으므로 계정은 이 파일이나 application.yml 에서 확인한다.
 // mock 모드에서는 frontend/src/mocks/index.js 가 같은 계정으로 로그인을 흉내 낸다.
 // frontend/tests/diagnosis.spec.js 가 '아이디', '비밀번호' 칸과 '로그인' 버튼 이름으로 로그인한다.
 import { ref } from 'vue'
@@ -54,20 +55,25 @@ async function submit() {
   <form class="card login" @submit.prevent="submit">
     <span class="logo"><Sparkles :size="22" /></span>
     <h1>SkillOps</h1>
-    <p class="muted sub">Skill 개선안을 검토하고 다듬는 운영 화면</p>
+    <p class="muted sub">skill 운영 관리 에이전트</p>
+    <!-- 라벨 글자('아이디', '비밀번호')는 e2e 테스트가 칸을 찾는 이름이라 바꾸지 않는다.
+         안내는 placeholder 로만 더한다. -->
     <label>
       아이디
-      <input v-model.trim="username" autocomplete="username" required autofocus />
+      <input v-model.trim="username" placeholder="아이디를 입력해 주세요" autocomplete="username" required autofocus />
     </label>
     <label>
       비밀번호
-      <input v-model="password" type="password" autocomplete="current-password" required />
+      <input
+        v-model="password"
+        type="password"
+        placeholder="비밀번호를 입력해 주세요"
+        autocomplete="current-password"
+        required
+      />
     </label>
     <p v-if="error" class="error-text">{{ error }}</p>
     <button class="primary lg" :disabled="busy">{{ busy ? '확인 중…' : '로그인' }}</button>
-    <p class="muted small">
-      로컬 데모 계정: <code>owner</code>(업무 담당자) · <code>operator</code>(운영자, 승인 가능)
-    </p>
   </form>
 </template>
 
@@ -114,10 +120,5 @@ input {
   border-radius: 6px;
   background: var(--bg);
   color: var(--text);
-}
-
-.small {
-  font-size: 12px;
-  margin: 0;
 }
 </style>
