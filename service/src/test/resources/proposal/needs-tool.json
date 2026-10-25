@@ -1,0 +1,72 @@
+{
+  "thread_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "trigger": {
+    "type": "skill_saved",
+    "execution_id": null,
+    "baseline_snapshot_id": "11111111-1111-4111-8111-111111111111",
+    "candidate_snapshot_id": "22222222-2222-4222-8222-222222222222",
+    "changed_paths": ["skills/shipping-reserve/SKILL.md"],
+    "change_id": "c_20261026_07",
+    "entry_skill_id": "order-flow",
+    "diagnosis_only": false,
+    "intent_checks": [],
+    "run_id": null,
+    "skill": "shipping-reserve",
+    "version": 2
+  },
+  "baseline_snapshot_id": "11111111-1111-4111-8111-111111111111",
+  "snapshot_id": "22222222-2222-4222-8222-222222222222",
+  "failure": {
+    "execution_id": "55555555-5555-4555-8555-555555555555",
+    "skill": "shipping-reserve",
+    "category": "CONTRACT_VIOLATION",
+    "message": "required input shipping.weather not found",
+    "missing_inputs": ["shipping.weather"],
+    "at": "2026-10-26T01:20:00Z"
+  },
+  "root_cause": {
+    "skill": "shipping-reserve",
+    "change_no": 1,
+    "hunk_id": "h_5d2a7c9e1b30",
+    "from_version": 2,
+    "to_version": 2,
+    "summary": "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved] → inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved, shipping.weather]",
+    "before": "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]",
+    "after": "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved, shipping.weather]",
+    "proof_run_ids": ["r_d0000000000000000000000000000001", "r_d0000000000000000000000000000002"],
+    "kind": "change",
+    "repro_scenario_ids": ["f-55555555-5555-4555-8555-555555555555"]
+  },
+  "intent": null,
+  "candidates": [],
+  "recommended_candidate_no": null,
+  "status": "no_valid_fix",
+  "development_request": {
+    "kind": "needs_tool",
+    "title": "shipping-reserve 단계가 쓰는 shipping.weather 값을 만드는 도구 필요",
+    "gaps": [
+      { "key": "shipping.weather", "needed_by": "shipping-reserve", "field": "inputs", "kind": "missing_value" },
+      { "key": "shipping.weather", "needed_by": "shipping-reserve", "field": "rules", "kind": "missing_value" }
+    ],
+    "options": [
+      { "type": "extend_tool", "tool": "shipping.reserve", "skill": "shipping-reserve", "add_produces": ["shipping.weather"] },
+      {
+        "type": "new_tool",
+        "suggested_name": "weather.lookup",
+        "place_before": "shipping-reserve",
+        "available_inputs": ["order.shipping", "payment.status", "inventory.reserved"],
+        "produces": ["shipping.weather"]
+      }
+    ],
+    "change_points": [
+      "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java",
+      "order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java"
+    ],
+    "interim": {
+      "summary": "shipping-reserve 의 inputs 와 rules 에서 shipping.weather 를 빼면 주문이 끝까지 처리됩니다. 비 오는 날 보류 정책은 도구가 생길 때까지 지켜지지 않습니다.",
+      "patch": "--- a/skills/shipping-reserve/SKILL.md\n+++ b/skills/shipping-reserve/SKILL.md\n@@ -3,1 +3,1 @@\n-inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved, shipping.weather]\n+inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]\n",
+      "proof_run_ids": ["r_d0000000000000000000000000000002"]
+    },
+    "evidence_run_ids": ["r_d0000000000000000000000000000001", "r_d0000000000000000000000000000002"]
+  }
+}

@@ -253,7 +253,8 @@ class ProposalDocumentWriterTest {
         assertThat(doc.summary()).isEqualTo(
                 "2026년 10월 21일 15시 30분에 들어온 주문이 payment 단계에서 멈췄습니다. "
                         + "바뀐 부분을 하나씩 되돌려 시험했지만 원인을 하나로 확정하지 못했습니다. "
-                        + "시험할 수정안은 만들지 못했습니다. 담당자가 Skill을 직접 고쳐야 합니다.");
+                        + "시험할 수정안은 만들지 못했습니다. "
+                        + "승인할 수 있는 안이 없습니다. 아래 원인과 발생 경위를 보고 고칠 방법을 정해 주세요.");
         assertThat(doc.sections()).extracting(Section::key).doesNotContain("intent");
         assertThat(section(doc, "decision").paragraphs()).containsExactly(
                 "모든 확인을 통과한 수정안이 없어 승인할 안이 없습니다.",

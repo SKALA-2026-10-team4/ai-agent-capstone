@@ -30,12 +30,14 @@ import com.capstone4.skillops.scenario.TestFixtures.InMemoryRunLedger;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 제안서 저장과 결정 표시의 동작을 리팩토링 전 그대로 고정하는 특성 테스트다.
- * 대상은 service/src/main/java/com/capstone4/skillops/proposal/ 의 ProposalService, ProposalValidator, Proposal, ProposalRules 다.
- * save_proposal 거부 메시지 전체와 여러 규칙을 어겼을 때 어느 메시지가 먼저 나오는지, 같은 진단 재저장이 검사보다 먼저 일어나는지,
- * 저장하는 본문과 원본과 결과 값, 결정 표시 규칙과 오류 코드·문구·HTTP 상태, Proposal.decide 의 payload 교체,
- * ProposalRules.passes 의 경계를 확인한다. 근거 실행 장부는 service/src/test/java/com/capstone4/skillops/scenario/TestFixtures.java 의
- * InMemoryRunLedger 에 F1 픽스처의 실행 번호를 미리 넣어 쓴다.
+ * 제안서 저장과 결정 표시의 동작을 고정하는 특성 테스트다.
+ * 대상은 service/src/main/java/com/capstone4/skillops/proposal/ 의 ProposalService, ProposalValidator, ProposalJudge, Proposal,
+ * ProposalRules 다. save_proposal 거부 메시지 전체와 여러 규칙을 어겼을 때 어느 메시지가 먼저 나오는지, 같은 진단 재저장이 검사보다
+ * 먼저 일어나는지, 저장하는 본문과 원본과 결과 값, 결정 표시 규칙과 오류 코드·문구·HTTP 상태, Proposal.decide 의 payload 교체,
+ * ProposalRules.passes 의 경계를 확인한다.
+ * Agent 의 valid, status, recommended_candidate_no, results 가 서버 판정과 다르면 예전에는 거부했지만, 지금은 서버 값으로 덮고
+ * server_overrides 에 남긴다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.7 절). 장부와 연습 공간 기록은 ProposalTestBench 의
+ * withF1 이 F1 픽스처에 맞춰 채운다.
  */
 class ProposalCharacterizationTest {
 
@@ -43,20 +45,30 @@ class ProposalCharacterizationTest {
     static final JsonMapper JSON = JsonMapper.builder().build();
 
     ProposalRepository repository = mock(ProposalRepository.class);
-    InMemoryRunLedger ledger = new InMemoryRunLedger();
-    ProposalService service = new ProposalService(repository, ledger, Clock.fixed(NOW, ZoneOffset.UTC));
+    ProposalTestBench bench = new ProposalTestBench().withF1();
+    InMemoryRunLedger ledger = bench.ledger;
+    ProposalService service = new ProposalService(repository, ledger, bench.judge(), Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp() {
         given(repository.save(any(Proposal.class))).willAnswer(call -> call.getArgument(0));
         given(repository.findByThreadId(anyString())).willReturn(Optional.empty());
-        // F1 픽스처가 근거로 적은 원인 실행과 후보 실행을 장부에 미리 남긴다.
-        ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000001", false);
-        ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000002", true);
-        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", true);
-        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000002", true);
-        ledger.record("w_c2", "g-01", "r_c2000000000000000000000000000001", true);
-        ledger.record("w_c2", "g-02", "r_c2000000000000000000000000000002", false);
+    }
+
+    /** 저장된 제안서 payload 의 server_overrides 를 꺼낸다. */
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> overrides() {
+        return (List<Map<String, Object>>) captured().getPayload().get("server_overrides");
+    }
+
+    /** server_overrides 의 한 칸을 만든다. */
+    static Map<String, Object> override(Integer candidateNo, String field, Object agentValue, Object serverValue) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("candidate_no", candidateNo);
+        entry.put("field", field);
+        entry.put("agent_value", agentValue);
+        entry.put("server_value", serverValue);
+        return entry;
     }
 
     /** F1 픽스처(service/src/test/resources/proposal/f1-proposed.json)를 새로 읽어 change 로 고친 제안서를 돌려준다. */
@@ -112,6 +124,37 @@ class ProposalCharacterizationTest {
         assertRejected(f1(p -> p.put("status", " ")), "status 는 proposed 나 no_valid_fix 여야 합니다 (받은 값 null)");
     }
 
+    /** snapshot_id 가 없으면 의도와 근거를 대조할 수 없으므로 거부한다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.10 절 V3-1). */
+    @Test
+    void snapshotIdMessage() {
+        assertRejected(f1(p -> p.remove("snapshot_id")), "snapshot_id 가 없습니다");
+        assertRejected(f1(p -> p.put("snapshot_id", null)), "snapshot_id 가 없습니다");
+        assertRejected(f1(p -> p.put("snapshot_id", " ")), "snapshot_id 가 없습니다");
+    }
+
+    /** snapshot_id 는 status 다음, 후보보다 먼저 본다. */
+    @Test
+    void snapshotIdIsCheckedAfterStatusAndBeforeCandidates() {
+        assertRejected(f1(p -> {
+            p.put("status", "bogus");
+            p.remove("snapshot_id");
+        }), "status 는 proposed 나 no_valid_fix 여야 합니다 (받은 값 bogus)");
+        assertRejected(f1(p -> {
+            p.remove("snapshot_id");
+            candidate(p, 1).put("candidate_no", 3);
+        }), "snapshot_id 가 없습니다");
+    }
+
+    /** 진단한 snapshot 의 metadata 를 주문 Agent 에서 읽지 못하면 Agent 값으로 판정하지 않고 저장을 거부한다. 오류 code 는 주문 Agent 의 것이다. */
+    @Test
+    void unreadableSnapshotMetadataRejectsTheSave() {
+        bench.metadata.clear();
+
+        assertThatThrownBy(() -> service.save(f1(p -> {
+        }))).isInstanceOf(com.capstone4.skillops.snapshot.OrderAgentException.class).hasMessageContaining("snapshot");
+        then(repository).should(never()).save(any());
+    }
+
     @Test
     void candidateNumberMessage() {
         assertRejected(f1(p -> candidate(p, 1).put("candidate_no", 3)),
@@ -130,9 +173,14 @@ class ProposalCharacterizationTest {
         }), "후보 1 의 근거 실행 r_c1000000000000000000000000000001 을 연습 공간 w_c1 에서 찾을 수 없습니다");
     }
 
+    /** Agent 의 valid 가 서버 판정과 달라도 거부하지 않는다. 서버 값으로 덮고 server_overrides 에 남긴다. */
     @Test
-    void agentValidMessage() {
-        assertRejected(f1(p -> candidate(p, 1).put("valid", true)), "후보 2 의 valid(true)가 시험 결과로 다시 계산한 값(false)과 다릅니다");
+    void agentValidIsOverriddenNotRejected() {
+        SavedProposal saved = service.save(f1(p -> candidate(p, 1).put("valid", true)));
+
+        assertThat(saved.validCandidateNos()).containsExactly(1);
+        assertThat(overrides()).containsExactly(override(2, "valid", true, false));
+        assertThat(candidate(captured().getPayload(), 1)).containsEntry("valid", false);
     }
 
     @Test
@@ -144,13 +192,56 @@ class ProposalCharacterizationTest {
         assertThat(saved.validCandidateNos()).containsExactly(1);
     }
 
+    /** Agent 의 results 는 장부로 다시 계산한 값으로 덮는다. 합격 후보가 그대로면 status 와 추천도 그대로다. */
     @Test
-    void statusAndPassingMessages() {
-        assertRejected(f1(p -> {
+    void agentResultsAreRecomputedFromTheLedger() {
+        SavedProposal saved = service.save(f1(p -> {
             results(p, 0).put("fixes_failure", false);
             candidate(p, 0).put("valid", false);
-        }), "합격한 후보가 없는데 status 가 proposed 입니다");
-        assertRejected(f1(p -> p.put("status", "no_valid_fix")), "합격한 후보 [1] 가 있는데 status 가 no_valid_fix 입니다");
+        }));
+
+        assertThat(saved).extracting(SavedProposal::status, SavedProposal::validCandidateNos)
+                .containsExactly("proposed", List.of(1));
+        assertThat(overrides()).containsExactly(override(1, "results.fixes_failure", false, true),
+                override(1, "valid", false, true));
+        assertThat(results(captured().getPayload(), 0)).containsEntry("fixes_failure", true);
+    }
+
+    /** 합격 후보가 있는데 no_valid_fix 로 보내면 서버가 proposed 로 바꾼다. */
+    @Test
+    void statusFollowsTheServerVerdict() {
+        SavedProposal saved = service.save(f1(p -> p.put("status", "no_valid_fix")));
+
+        assertThat(saved.status()).isEqualTo("proposed");
+        assertThat(overrides()).containsExactly(override(null, "status", "no_valid_fix", "proposed"));
+        assertThat(captured().getStatus()).isEqualTo("proposed");
+    }
+
+    /** 장부에 재현 실행이 모자라면 서버는 합격 후보가 없다고 보고, status 와 추천을 no_valid_fix 와 null 로 바꾼다. */
+    @Test
+    void missingReproRunsTurnTheProposalIntoNoValidFix() {
+        ledger.clear();
+        ledger.record("w_ablation", ProposalTestBench.REPRO, "r_a0000000000000000000000000000001", false);
+        ledger.record("w_ablation", ProposalTestBench.REPRO, "r_a0000000000000000000000000000002", true);
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", true);
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000002", true);
+        ledger.record("w_c2", "g-01", "r_c2000000000000000000000000000001", true);
+        ledger.record("w_c2", "g-02", "r_c2000000000000000000000000000002", false);
+
+        SavedProposal saved = service.save(f1(p -> {
+        }));
+
+        assertThat(saved).extracting(SavedProposal::status, SavedProposal::validCandidateNos)
+                .containsExactly("no_valid_fix", List.of());
+        assertThat(overrides()).containsExactly(
+                override(1, "results.fixes_failure", true, false),
+                override(1, "results.keeps_old_orders", Map.of("passed", 3, "total", 3), Map.of("passed", 1, "total", 3)),
+                override(1, "valid", true, false),
+                override(2, "results.fixes_failure", true, false),
+                override(2, "results.keeps_old_orders", Map.of("passed", 2, "total", 3), Map.of("passed", 0, "total", 3)),
+                override(null, "status", "proposed", "no_valid_fix"),
+                override(null, "recommended_candidate_no", 1, null));
+        assertThat(captured().getPayload()).containsEntry("recommended_candidate_no", null);
     }
 
     @Test
@@ -162,14 +253,21 @@ class ProposalCharacterizationTest {
                 "원인 근거 실행 r_ffffffffffffffffffffffffffffffff 을 찾을 수 없습니다");
     }
 
+    /** 추천 후보가 합격 후보가 아니면 서버가 합격 후보 가운데 rank 가 가장 작은 후보로 바꾼다. 숫자가 아닌 값도 바꾼다. */
     @Test
-    void recommendedMessages() {
-        assertRejected(f1(p -> p.put("recommended_candidate_no", 2)),
-                "recommended_candidate_no 2 은 합격한 후보가 아닙니다 (합격 후보 [1])");
-        assertRejected(f1(p -> p.put("recommended_candidate_no", null)),
-                "recommended_candidate_no null 은 합격한 후보가 아닙니다 (합격 후보 [1])");
-        assertRejected(f1(p -> p.put("recommended_candidate_no", "1")),
-                "recommended_candidate_no null 은 합격한 후보가 아닙니다 (합격 후보 [1])");
+    void recommendedIsReplacedByAPassingCandidate() {
+        for (Object agent : new Object[] { 2, null, "1" }) {
+            Map<String, Object> proposal = f1(p -> p.put("recommended_candidate_no", agent));
+            SavedProposal saved = service.save(proposal);
+
+            assertThat(saved.validCandidateNos()).containsExactly(1);
+            Proposal stored = captured();
+            assertThat(stored.getPayload()).containsEntry("recommended_candidate_no", 1);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> entries = (List<Map<String, Object>>) stored.getPayload().get("server_overrides");
+            assertThat(entries).containsExactly(override(null, "recommended_candidate_no", agent, 1));
+            org.mockito.Mockito.clearInvocations(repository);
+        }
     }
 
     // ── 여러 규칙을 어긴 입력은 먼저 검사하는 규칙의 메시지가 나온다 ─────────────────
@@ -188,10 +286,11 @@ class ProposalCharacterizationTest {
             candidate(p, 0).put("evidence_run_ids", List.of("r_unknown"));
             candidate(p, 1).put("valid", true);
         }), "후보 1 의 근거 실행 r_unknown 을 연습 공간 w_c1 에서 찾을 수 없습니다");
+        // valid 불일치는 더 이상 거부 사유가 아니므로 다음 후보의 번호 검사가 먼저 걸린다.
         assertRejected(f1(p -> {
             candidate(p, 0).put("valid", false);
             candidate(p, 1).put("candidate_no", 3);
-        }), "후보 1 의 valid(false)가 시험 결과로 다시 계산한 값(true)과 다릅니다");
+        }), "candidate_no 는 1부터 빠짐없이 매겨야 합니다 (2번째 후보의 값 3)");
     }
 
     @Test
@@ -206,17 +305,30 @@ class ProposalCharacterizationTest {
         }), "후보 1 의 workspace_id 가 없습니다");
     }
 
+    /** 원인 근거는 서버가 proposed 로 판정했을 때만 본다. Agent 가 합격 후보가 없다고 적어도 서버가 합격으로 보면 원인 근거를 요구한다. */
     @Test
-    void passingCountIsCheckedBeforeRootCauseAndRootCauseBeforeRecommendation() {
+    void rootCauseIsCheckedWhenTheServerProposes() {
         assertRejected(f1(p -> {
             results(p, 0).put("fixes_failure", false);
             candidate(p, 0).put("valid", false);
             p.put("root_cause", null);
-        }), "합격한 후보가 없는데 status 가 proposed 입니다");
+        }), "root_cause.proof_run_ids 가 비어 있습니다");
         assertRejected(f1(p -> {
             p.put("root_cause", null);
             p.put("recommended_candidate_no", 2);
         }), "root_cause.proof_run_ids 가 비어 있습니다");
+    }
+
+    /** 서버가 no_valid_fix 로 판정하면 원인 근거가 없어도 저장한다. */
+    @Test
+    void noRootCauseIsAcceptedWhenTheServerFindsNoPassingCandidate() {
+        bench.workspaces.remove("w_c1");
+
+        SavedProposal saved = service.save(f1(p -> p.put("root_cause", null)));
+
+        assertThat(saved.status()).isEqualTo("no_valid_fix");
+        assertThat(overrides()).contains(override(1, "results.evidence_matches", null, false),
+                override(null, "status", "proposed", "no_valid_fix"));
     }
 
     @Test
@@ -257,18 +369,35 @@ class ProposalCharacterizationTest {
 
     // ── 저장하는 값 ──────────────────────────────────────────────────────
 
+    /**
+     * 저장하는 payload 는 받은 제안서를 서버 판정으로 덮은 사본이고, 본문은 그 사본으로 만든다. 받은 제안서는 바꾸지 않는다.
+     * 서버가 채운 칸(metadata_valid, flow_valid, evidence_matches, server_overrides)을 빼면 받은 제안서와 같다.
+     */
     @Test
-    void storedDocumentIsTheWriterOutputAndPayloadIsTheInput() {
+    void storedDocumentIsTheWriterOutputOfTheServerPayload() {
         Map<String, Object> input = f1(p -> {
+        });
+        Map<String, Object> untouched = f1(p -> {
         });
         SavedProposal saved = service.save(input);
 
         Proposal stored = captured();
         @SuppressWarnings("unchecked")
-        Map<String, Object> expected = JSON.convertValue(ProposalDocumentWriter.write(saved.proposalId(), input, NOW),
-                Map.class);
+        Map<String, Object> expected = JSON.convertValue(
+                ProposalDocumentWriter.write(saved.proposalId(), stored.getPayload(), NOW), Map.class);
         assertThat(stored.getDocument()).isEqualTo(expected);
-        assertThat(stored.getPayload()).isSameAs(input);
+        assertThat(input).isEqualTo(untouched);
+        assertThat(stored.getPayload()).isNotSameAs(input).containsEntry("server_overrides", List.of());
+        assertThat(results(stored.getPayload(), 0)).containsEntry("metadata_valid", true).containsEntry("flow_valid", true)
+                .containsEntry("evidence_matches", true);
+        Map<String, Object> withoutServerFields = new LinkedHashMap<>(stored.getPayload());
+        withoutServerFields.remove("server_overrides");
+        for (int i = 0; i < 2; i++) {
+            results(withoutServerFields, i).remove("metadata_valid");
+            results(withoutServerFields, i).remove("flow_valid");
+            results(withoutServerFields, i).remove("evidence_matches");
+        }
+        assertThat(withoutServerFields).isEqualTo(untouched);
         assertThat(stored.getStatus()).isEqualTo("proposed");
         assertThat(stored.getThreadId()).isEqualTo("5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b");
         assertThat(stored.getValidCandidateNos()).containsExactly(1);
@@ -466,6 +595,14 @@ class ProposalCharacterizationTest {
     }
 
     /** 새 flow 판정이 있으면 엄격한 Boolean true를 요구하고 과거 누락은 호환한다. */
+    /** 서버가 쓰는 evidence_matches 도 있으면 Boolean true 여야 하고, 없는 과거 제안서는 기존 판정을 유지한다. */
+    @Test
+    void evidenceMatchParticipatesInValidity() {
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("evidence_matches", true)))).isTrue();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("evidence_matches", false)))).isFalse();
+        assertThat(ProposalRules.passes(passingWith(c -> map(c.get("results")).put("evidence_matches", null)))).isFalse();
+    }
+
     @Test
     void flowResultParticipatesInValidityWithoutReinterpretingLegacyProposals() {
         assertThat(ProposalRules.passes(passing())).isTrue();

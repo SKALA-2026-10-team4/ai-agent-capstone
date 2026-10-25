@@ -2,12 +2,15 @@ package com.capstone4.skillops.workspace;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,6 +46,11 @@ import tools.jackson.databind.annotation.JsonNaming;
  * service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 가 create 와 apply 를 MCP 도구로 내놓는다.
  * service/src/main/java/com/capstone4/skillops/scenario/ScenarioRunner.java 는 skillsOf 를,
  * service/src/main/java/com/capstone4/skillops/scenario/HarnessFlowRunner.java 는 sourceSnapshotIdOf 와 filesOf 를 읽는다.
+ *
+ * 같은 연습 공간에 apply_patch 와 run_scenarios 가 동시에 오면 apply 가 고정 확인을 지난 뒤 freeze 가 끼어들어 고정 기록을 덮거나,
+ * 시험이 고정 전 원문으로 돌 수 있다. 그래서 apply 와 freeze 는 연습 공간 번호별 잠금(lockOf) 안에서 차례로 돈다. 잠금은 이 서비스
+ * 프로세스 하나 안에서만 통하므로, service 를 여러 개 띄우면 이 경합은 막지 못한다(알려진 한계). Agent 는 후보마다 새 연습 공간을 쓰고
+ * apply_patch 가 끝난 뒤에 run_scenarios 를 부르므로 지금 흐름에서는 경합이 생기지 않는다.
  *
  * 흐름을 바꿀 때 고칠 곳은 다음과 같다. 연습 공간 번호 모양은 newId, created_at 정밀도는 saveNew, snapshot 안에서
  * skill 로 볼 파일 규칙은 SKILL_MD_PATH, 끊긴 연결을 셀 flow 는 ENTRY_SKILL, 수정 거부 정책은 rejectUnreadableHeaders,
@@ -119,6 +127,8 @@ public class WorkspaceService {
     private final SkillVersionStore store;
     /** snapshot_id 로 시작할 때만 쓰는 주문 Agent 클라이언트다. 두 인자 생성자로 만든 서비스(단위 시험)에서는 null 이다. */
     private final OrderAgentClient orderAgent;
+    /** apply 와 freeze 가 같은 연습 공간에서 겹치지 않게 하는 연습 공간 번호별 잠금 객체다. 연습 공간 하나에 객체 하나가 남는다. */
+    private final Map<String, Object> locks = new ConcurrentHashMap<>();
 
     /**
      * Spring 이 쓰는 생성자다. 생성자가 둘이라서 @Autowired 로 Spring 이 고를 생성자를 정한다.
@@ -319,20 +329,31 @@ public class WorkspaceService {
      * Agent의 _judge는 연결 검사와 별도로 metadata_valid와 flow_valid를 판정한다.
      * 같은 skill 을 여러 번 고치면 앞의 수정이 들어간 글 위에 다음 수정을 적용한다.
      *
-     * 단계는 입력 검사, 연습 공간 조회와 OPEN 확인, 복사본에 수정 적용(applyOne), 연결 분석(analyze), 맨 위 칸을 깨는 수정
-     * 거부(rejectUnreadableHeaders), 저장 순이다. 저장은 모든 검사를 통과한 뒤 맨 끝에 한 번만 한다.
+     * 단계는 입력 검사, 연습 공간 조회와 OPEN 확인, 고정 확인, 복사본에 수정 적용(applyOne), 연결 분석(analyze), 맨 위 칸을 깨는
+     * 수정 거부(rejectUnreadableHeaders), 저장 순이다. 저장은 모든 검사를 통과한 뒤 맨 끝에 한 번만 하고, 이때 넣은 수정과 오류 수를
+     * 함께 남긴다(WorkspaceRecord.recordApply). save_proposal 재판정이 이 기록으로 후보를 다시 판정한다.
+     * flow_errors 에는 실행 규칙(rules)의 조건 키가 inputs 에 없는 단계(RULE_KEY_NOT_INPUT)도 들어간다.
      *
      * @param patches 적힌 순서대로 적용한다. 비어 있으면 안 된다
      * @throws IllegalArgumentException 없는 연습 공간이나 skill, 사용 중이 아닌 연습 공간, 기준 버전 불일치, 원문과 맞지 않는
      *                                  수정, 고치면 맨 위 칸을 읽을 수 없게 되는 수정, entry flow 를 읽을 수 없는 연습 공간이면
      *                                  던진다
+     * @throws WorkspaceFrozenException run_scenarios 를 이미 돌린 연습 공간이면 던진다
      */
     public PatchResult apply(String workspaceId, List<PatchInput> patches) {
         if (patches == null || patches.isEmpty()) {
             throw new IllegalArgumentException("patches 에 수정 내용을 하나 이상 넣으세요");
         }
+        synchronized (lockOf(workspaceId)) {
+            return applyLocked(workspaceId, patches);
+        }
+    }
+
+    /** apply 의 본문이다. 같은 연습 공간의 freeze 와 겹치지 않게 lockOf 잠금 안에서만 부른다. */
+    private PatchResult applyLocked(String workspaceId, List<PatchInput> patches) {
         WorkspaceRecord record = find(workspaceId);
         requireOpen(record, workspaceId);
+        requireNotFrozen(record, workspaceId);
 
         // 복사본에 적용한다. record 는 모두 성공한 뒤에만 바꾼다.
         Map<String, WorkspaceSkill> skills = new TreeMap<>(record.getSkills());
@@ -343,12 +364,73 @@ public class WorkspaceService {
         DependencyGraph graph = analyze(skills);
         rejectUnreadableHeaders(graph, changed);
         List<Violation> metadataErrors = metadataErrorsOf(skills);
-        List<FlowStructureValidator.Violation> flowErrors = FlowStructureValidator.validate(graph);
+        List<FlowStructureValidator.Violation> flowErrors = flowErrorsOf(graph, skills);
+        List<BrokenLink> brokenLinks = brokenLinksOf(graph);
+        List<DependencyViolation> dependencyViolations = dependencyViolationsOf(graph);
 
         record.replaceSkills(skills);
+        // save_proposal 재판정이 제안서 후보와 대조할 수 있게 넣은 수정과 이번 결과의 오류 수를 함께 남긴다.
+        record.recordApply(patches.stream().map(p -> new AppliedPatch(p.skill(), p.baseVersion(), p.patch())).toList(),
+                new ApplyCheck(brokenLinks.size(), dependencyViolations.size(), metadataErrors.size(), flowErrors.size()));
         repository.save(record);
-        return new PatchResult(workspaceId, changedSkillsOf(skills, changed), brokenLinksOf(graph),
-                dependencyViolationsOf(graph), metadataErrors, flowErrors);
+        return new PatchResult(workspaceId, changedSkillsOf(skills, changed), brokenLinks, dependencyViolations,
+                metadataErrors, flowErrors);
+    }
+
+    /**
+     * 그래프의 구조 오류(FlowStructureValidator.validate) 뒤에 실행 규칙 조건 키 오류(ruleKeyErrors)를 잇는다.
+     * 순서는 단계 수, 중복 단계, 읽기 실패 노드, 방어 조건, 규칙 조건 키 순이다.
+     */
+    private static List<FlowStructureValidator.Violation> flowErrorsOf(DependencyGraph graph,
+            Map<String, WorkspaceSkill> skills) {
+        List<FlowStructureValidator.Violation> errors = new ArrayList<>(FlowStructureValidator.validate(graph));
+        errors.addAll(FlowStructureValidator.ruleKeyErrors(graph, WorkspaceRecord.textsOf(skills)));
+        return List.copyOf(errors);
+    }
+
+    /**
+     * run_scenarios 가 연습 공간을 고정한다. 모든 입력 검사를 통과하고 첫 모의 실행을 시작하기 직전에
+     * service/src/main/java/com/capstone4/skillops/scenario/ScenarioRunner.java 의 run 이 부른다. 이미 고정됐으면 그대로 둔다.
+     * 고정된 연습 공간은 apply_patch 를 WORKSPACE_FROZEN 으로 거부하므로, 시험한 skill 과 제안서의 수정이 어긋나지 않는다.
+     * 없는 번호면 IllegalArgumentException 을 던진다.
+     */
+    public void freeze(String workspaceId) {
+        synchronized (lockOf(workspaceId)) {
+            WorkspaceRecord record = find(workspaceId);
+            if (!record.isFrozen()) {
+                record.freeze(Instant.now().truncatedTo(ChronoUnit.MICROS));
+                repository.save(record);
+            }
+        }
+    }
+
+    /** 연습 공간 번호별 잠금 객체를 돌려준다. 번호가 null 이면 빈 글의 잠금을 쓴다(find 가 곧 거부한다). */
+    private Object lockOf(String workspaceId) {
+        return locks.computeIfAbsent(workspaceId == null ? "" : workspaceId, id -> new Object());
+    }
+
+    /**
+     * save_proposal 재판정이 읽을 연습 공간의 사실 묶음을 돌려준다. 없는 번호면 예외 대신 빈 값을 돌려준다.
+     * 재판정은 연습 공간이 없으면 그 후보를 근거가 맞지 않는 후보로 본다.
+     * service/src/main/java/com/capstone4/skillops/proposal/ProposalJudge.java 가 부른다.
+     */
+    public Optional<WorkspaceEvidence> evidenceOf(String workspaceId) {
+        if (workspaceId == null) {
+            return Optional.empty();
+        }
+        return repository.findById(workspaceId).map(record -> new WorkspaceEvidence(record.getWorkspaceId(),
+                record.getSourceSnapshotId(), record.isFrozen(),
+                record.getAppliedPatches() == null ? null : List.copyOf(record.getAppliedPatches()),
+                record.getLastApply(),
+                record.getStartTexts() == null ? null : Map.copyOf(record.getStartTexts()),
+                WorkspaceRecord.textsOf(record.getSkills())));
+    }
+
+    /** run_scenarios 로 고정된 연습 공간이면 WorkspaceFrozenException 을 던진다. requireOpen 다음에 본다. */
+    private static void requireNotFrozen(WorkspaceRecord record, String workspaceId) {
+        if (record.isFrozen()) {
+            throw new WorkspaceFrozenException(workspaceId);
+        }
     }
 
     /** 실행기 후보 조회처럼 flow 밖의 Skill까지 필수 정보를 검사하고 이름순으로 오류를 모은다. */
