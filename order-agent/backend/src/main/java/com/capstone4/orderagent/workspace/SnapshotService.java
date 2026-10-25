@@ -63,6 +63,17 @@ public class SnapshotService {
      * order-agent/frontend/src/components/ExecutionInspector.vue 의 SNAPSHOT_FIXTURES 가 같은 이름을 들고 있으므로 이름을 바꾸면 함께 고친다.
      */
     private static final Set<String> DEMO_FIXTURES = Set.of("baseline", "broken-contract", "repaired");
+    /** 담당자 의도 text 의 글자 수(코드 포인트) 상한이다. docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3 절의 계약 값이다. */
+    private static final int MAX_INTENT_TEXT = 500;
+    /** 담당자 의도 하나의 expectations 수 상한과 expectation 하나의 checks 수 상한이다. 같은 계약 값이다. */
+    private static final int MAX_INTENT_EXPECTATIONS = 10, MAX_INTENT_CHECKS = 10;
+    /**
+     * 담당자 의도 scope 의 값 이름으로 쓸 수 있는 시험 주문의 처음 값이다. 이 다섯 이름과 정확히 같아야 하며 앞부분(order.shipping)이나
+     * 더 깊은 경로(order.shipping.country.code)는 받지 않는다. docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3 절과 2.10 절 V3-2 의 계약 값이고
+     * skillops-agent/skillops_agent/contracts.py 의 SCOPE_KEYS 와 같은 순서다. 오류 문구에 이 순서대로 적는다.
+     */
+    private static final List<String> INTENT_SCOPE_KEYS =
+        List.of("order.payment_method", "order.customer", "order.shipping.country", "order.shipping.express", "order.total");
     private final SnapshotRepository store;
     // 게시 번들 루트의 절대 경로다(order-agent.skills-root, 환경 변수 ORDER_AGENT_SKILLS_ROOT, 기본 ../skills).
     private final Path root;
@@ -140,16 +151,27 @@ public class SnapshotService {
         return publish(readPublishedBundle(), Map.of("source", "published-bundle", "release", CAPTURE_RELEASE));
     }
     /**
+     * 수정 저장 요청의 선택 칸 intent(담당자 의도)다. text 는 바꾸려는 업무 규칙 한 문장이고, expectations 는 그 의도를 시험 주문으로 확인할
+     * 조건 묶음이다(없으면 SkillOps Agent 가 text 와 수정 내용으로 만든다). 모양 계약은 docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3 절이다.
+     * 저장할 때 scope 와 checks 를 조건 문법 v2(RuleCondition)로 읽어 보고, 읽을 수 없거나 scope 값 이름이 INTENT_SCOPE_KEYS 가 아니면
+     * 저장하지 않는다(2.10 절 V3-2). 모르는 JSON 키는 다른 요청 본문처럼 MALFORMED_JSON 이다.
+     */
+    public record EditIntent(String text, List<Expectation> expectations) {
+        /** 의도 확인 조건 하나다. scope 는 시험 주문의 처음 값으로 고르는 조건 한 줄이거나 null(모든 시험 주문)이고, checks 는 실행 결과 조건 1~10개다. */
+        public record Expectation(String scope, List<String> checks) {}
+    }
+    /**
      * 사용자가 고친 SKILL.md 들을 기준 snapshot 위에 덮어 새 snapshot 으로 저장하고, 진단 요청 전달 대기 행(outbox)을 같은 트랜잭션에 남긴다.
      * 게시 번들(order-agent/skills)은 바꾸지 않고 flow 계약도 검증하지 않는다.
-     * 검사 순서는 요청 모양(INVALID_SKILL_EDITS), 기준 snapshot 의 존재와 무결성(SNAPSHOT_NOT_FOUND, SNAPSHOT_TAMPERED), 기준 해시(BASELINE_HASH_MISMATCH),
-     * 변경별 경로와 크기, 실제로 바뀐 파일이 있는지(NO_SKILL_CHANGES)다. 실패하면 snapshot 도 outbox 행도 남지 않는다.
+     * 검사 순서는 요청 모양(INVALID_SKILL_EDITS, intent 모양과 조건 문법 포함), 기준 snapshot 의 존재와 무결성(SNAPSHOT_NOT_FOUND, SNAPSHOT_TAMPERED),
+     * 기준 해시(BASELINE_HASH_MISMATCH), 변경별 경로와 크기, 실제로 바뀐 파일이 있는지(NO_SKILL_CHANGES)다. 실패하면 snapshot 도 outbox 행도 남지 않는다.
      * metadata 의 source 는 user-edit 이고 change_id, baseline_snapshot_id, baseline_hash, changed_paths, validation_status(QUEUED)를 담는다.
+     * intent 가 있으면 intentMetadata 로 정리한 값을 metadata 와 outbox 본문의 intent 칸에 함께 담고, 없으면 두 곳 모두 그 칸을 만들지 않는다.
      * EvidenceController.saveEdits(POST /api/snapshots/edits)가 부르고, 남긴 행은 SkillChangeDispatcher 가 service 로 보낸다.
      */
     @Transactional
-    public SnapshotRepository.Stored saveEdits(UUID baselineId, String baselineHash, Map<String, String> changes) {
-        requireEditRequest(baselineId, baselineHash, changes);
+    public SnapshotRepository.Stored saveEdits(UUID baselineId, String baselineHash, Map<String, String> changes, EditIntent intent) {
+        requireEditRequest(baselineId, baselineHash, changes, intent);
         var baseline=get(baselineId);
         if(!baseline.hash().equals(baselineHash))throw new AgentException("BASELINE_HASH_MISMATCH");
         var files=new TreeMap<>(baseline.files());
@@ -157,16 +179,78 @@ public class SnapshotService {
         if(changedPaths.isEmpty())throw new AgentException("NO_SKILL_CHANGES");
         // 계약이나 형식이 틀린 Skill 도 진단할 수 있도록 일부러 저장한다. 검증은 실행이 맡는다.
         String changeId=UUID.randomUUID().toString();
-        var saved=publish(files,Map.of("source","user-edit","change_id",changeId,
-            "baseline_snapshot_id",baselineId.toString(),"baseline_hash",baselineHash,
-            "changed_paths",List.copyOf(changedPaths),"validation_status","QUEUED"));
-        store.insertChangeEvent(UUID.fromString(changeId),saved.id(),changeEventPayload(changeId,baselineId,saved.id(),changedPaths));
+        var metadata=new LinkedHashMap<String,Object>();
+        metadata.put("source","user-edit");metadata.put("change_id",changeId);
+        metadata.put("baseline_snapshot_id",baselineId.toString());metadata.put("baseline_hash",baselineHash);
+        metadata.put("changed_paths",List.copyOf(changedPaths));metadata.put("validation_status","QUEUED");
+        var recorded=intent==null?null:intentMetadata(intent);
+        if(recorded!=null)metadata.put("intent",recorded);
+        var saved=publish(files,metadata);
+        store.insertChangeEvent(UUID.fromString(changeId),saved.id(),changeEventPayload(changeId,baselineId,saved.id(),changedPaths,recorded));
         return saved;
     }
-    /** 수정 요청에 기준 snapshot id 와 기준 해시가 있고 변경이 1~MAX_EDIT_CHANGES 개인지 확인한다. 어긋나면 INVALID_SKILL_EDITS 다. */
-    private static void requireEditRequest(UUID baselineId, String baselineHash, Map<String, String> changes) {
-        if(baselineId==null||baselineHash==null||changes==null||changes.isEmpty()||changes.size()>MAX_EDIT_CHANGES)
+    /**
+     * 수정 요청에 기준 snapshot id 와 기준 해시가 있고 변경이 1~MAX_EDIT_CHANGES 개이며, intent 가 있으면 그 모양(validIntent)과
+     * 조건 문법(requireReadableConditions)이 맞는지 확인한다. 어긋나면 INVALID_SKILL_EDITS 다.
+     */
+    private static void requireEditRequest(UUID baselineId, String baselineHash, Map<String, String> changes, EditIntent intent) {
+        if(baselineId==null||baselineHash==null||changes==null||changes.isEmpty()||changes.size()>MAX_EDIT_CHANGES||!validIntent(intent))
             throw new AgentException("INVALID_SKILL_EDITS");
+        if(intent!=null&&intent.expectations()!=null)requireReadableConditions(intent.expectations());
+    }
+    /**
+     * intent 가 없거나 모양이 맞으면 true 다. text 는 공백이 아닌 1~MAX_INTENT_TEXT 자이고, expectations 는 없거나 0~MAX_INTENT_EXPECTATIONS 개다.
+     * expectation 마다 scope 는 null 이거나 공백이 아닌 글이고, checks 는 공백이 아닌 글 1~MAX_INTENT_CHECKS 개다. 조건 문법은 보지 않는다.
+     */
+    private static boolean validIntent(EditIntent intent) {
+        if(intent==null)return true;
+        String text=intent.text();
+        if(text==null||text.isBlank()||text.codePointCount(0,text.length())>MAX_INTENT_TEXT)return false;
+        var expectations=intent.expectations()==null?List.<EditIntent.Expectation>of():intent.expectations();
+        if(expectations.size()>MAX_INTENT_EXPECTATIONS)return false;
+        for(var e:expectations){
+            if(e==null||e.scope()!=null&&e.scope().isBlank()||e.checks()==null||e.checks().isEmpty()||e.checks().size()>MAX_INTENT_CHECKS
+                ||e.checks().stream().anyMatch(check->check==null||check.isBlank()))return false;
+        }
+        return true;
+    }
+    /**
+     * 모양 검사를 통과한 expectations 의 scope 와 checks 를 앞에서부터 RuleCondition.parse(조건 문법 v2)로 읽는다. 읽을 수 없는 조건
+     * (예: payment.status = null)이나 값 이름이 INTENT_SCOPE_KEYS 가 아닌 scope 를 처음 만나면 INVALID_SKILL_EDITS 를 던진다.
+     * details 의 field 는 그 칸의 JSON 경로(intent.expectations[0].checks[1] 모양), reason 은 CONDITION_UNREADABLE 이나 SCOPE_KEY_NOT_ALLOWED,
+     * message 는 그 줄을 밝힌 문구다. GlobalExceptionHandler 는 details 를 응답에 싣지 않으므로 HTTP 본문에는 code 만 보인다.
+     * checks 의 값 이름은 Skill 마다 달라 여기서 보지 않는다. 저장 때 막지 않으면 진단 쪽이 그 본문을 받지 못해 outbox 행이 계속 다시 보내지고,
+     * SkillChangeDispatcher 가 가장 오래된 행부터 보내므로 뒤에 저장한 수정까지 전달되지 않는다(2.10 절 V3-2).
+     */
+    private static void requireReadableConditions(List<EditIntent.Expectation> expectations) {
+        for(int i=0;i<expectations.size();i++){
+            var e=expectations.get(i);String at="intent.expectations["+i+"]";
+            if(e.scope()!=null&&!INTENT_SCOPE_KEYS.contains(readCondition(at+".scope",e.scope()).key()))
+                throw invalidCondition(at+".scope","SCOPE_KEY_NOT_ALLOWED",
+                    "의도 scope 의 값 이름은 "+String.join(", ",INTENT_SCOPE_KEYS)+" 가운데 하나여야 합니다: "+e.scope());
+            for(int j=0;j<e.checks().size();j++)readCondition(at+".checks["+j+"]",e.checks().get(j));
+        }
+    }
+    /** 조건 한 줄을 읽는다. 읽을 수 없으면 RuleCondition 이 원문을 밝혀 만든 문구를 message 로 CONDITION_UNREADABLE 오류를 던진다. */
+    private static RuleCondition readCondition(String field, String text) {
+        try{return RuleCondition.parse(text);}catch(IllegalArgumentException e){throw invalidCondition(field,"CONDITION_UNREADABLE",e.getMessage());}
+    }
+    /** 의도 조건 오류 하나를 details(field, reason, message)가 있는 INVALID_SKILL_EDITS 로 만든다. */
+    private static AgentException invalidCondition(String field, String reason, String message) {
+        return new AgentException("INVALID_SKILL_EDITS",Map.of("field",field,"reason",reason,"message",message));
+    }
+    /**
+     * 검사한 intent 를 snapshot metadata 와 outbox 본문에 넣을 모양으로 바꾼다. 키는 text, expectations 이고 expectation 마다 scope, checks 다.
+     * expectations 를 생략한 요청은 빈 목록으로, scope 를 생략한 expectation 은 scope null 로 적어 받는 쪽이 늘 같은 모양을 읽게 한다.
+     */
+    private static Map<String, Object> intentMetadata(EditIntent intent) {
+        var expectations=new ArrayList<Map<String,Object>>();
+        for(var e:intent.expectations()==null?List.<EditIntent.Expectation>of():intent.expectations()){
+            var item=new LinkedHashMap<String,Object>();item.put("scope",e.scope());item.put("checks",List.copyOf(e.checks()));
+            expectations.add(item);
+        }
+        var result=new LinkedHashMap<String,Object>();result.put("text",intent.text());result.put("expectations",expectations);
+        return result;
     }
     /**
      * 변경마다 경로와 내용을 먼저 보고(INVALID_SKILL_EDITS) 그다음 크기를 본다(INVALID_BUNDLE_SIZE). 기준과 바이트가 같은 변경은 버리고
@@ -188,14 +272,20 @@ public class SnapshotService {
     }
     /**
      * service 의 POST /internal/skill-changes 로 전달할 skill_saved 이벤트 본문 JSON 을 만든다. 키는 type, change_id, baseline_snapshot_id,
-     * candidate_snapshot_id, changed_paths 다. service/src/main/java/com/capstone4/skillops/diagnosis/DiagnosisController.java 는 type 과 change_id 를,
+     * candidate_snapshot_id, changed_paths 이고, 담당자 의도가 있을 때만 intent 가 뒤에 붙는다(없으면 칸 자체가 없다).
+     * service/src/main/java/com/capstone4/skillops/diagnosis/DiagnosisController.java 는 type 과 change_id 를,
      * skillops-agent/skillops_agent/main.py 의 DiagnoseRequest 는 candidate_snapshot_id 를 반드시 요구하고 모르는 키를 거절하므로
-     * 키를 더하거나 이름을 바꾸지 않는다. service 는 이 본문을 고치지 않고 그대로 넘긴다.
+     * 키를 더하거나 이름을 바꿀 때는 DiagnoseRequest 와 함께 바꾼다. intent 는 DiagnoseRequest.intent 와 같은 모양이다.
+     * service 는 이 본문을 고치지 않고 그대로 넘긴다.
      */
-    private static String changeEventPayload(String changeId, UUID baselineId, UUID candidateId, SortedSet<String> changedPaths) {
-        return Json.write(Map.of("type","skill_saved","change_id",changeId,
-            "baseline_snapshot_id",baselineId.toString(),"candidate_snapshot_id",candidateId.toString(),
-            "changed_paths",List.copyOf(changedPaths)));
+    private static String changeEventPayload(String changeId, UUID baselineId, UUID candidateId, SortedSet<String> changedPaths,
+            Map<String, Object> intent) {
+        var payload=new LinkedHashMap<String,Object>();
+        payload.put("type","skill_saved");payload.put("change_id",changeId);
+        payload.put("baseline_snapshot_id",baselineId.toString());payload.put("candidate_snapshot_id",candidateId.toString());
+        payload.put("changed_paths",List.copyOf(changedPaths));
+        if(intent!=null)payload.put("intent",intent);
+        return Json.write(payload);
     }
     // TODO(C-1/C-2 연동): 확정된 버전 집합이나 SEALED workspace revision 을 받아 발행한다.
     // 편집 중인 경로를 직접 읽지 말고 후보 메타데이터와 관련 파일 전체를 함께 넘겨야 한다.

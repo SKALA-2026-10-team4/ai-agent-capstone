@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
  * 기본 fixed 모드의 결정 제공자다. 모델 없이 규칙으로 답한다. select 질문에는 늘 OrderFlowPolicy.ROOT_FLOW_ID 를, 그 밖의 질문에는
  * ToolCatalog 에서 그 단계에 묶인 도구와 단계 입력으로 채운 인자를 돌려준다.
  * Skill 본문은 읽지 않으므로 본문에만 적은 정책은 지키지 않고, front matter 계약(steps, inputs, outputs, depends_on)만 실행에 영향을 준다.
+ * front matter 의 실행 규칙(rules)은 이 제공자가 아니라 OrderHarness 가 결정 요청 전에 평가하므로 fixed 모드에서도 지켜진다.
  * 비용 없이 Skill 선택, 로드, 입출력, 오류 분기를 재현하려고 둔다.
  * order-agent/backend/src/test/java/com/capstone4/orderagent/integration/AgentEvidenceIntegrationTest.java 의
  * bodyOnlyPrepaidPolicyIsDeliveredButNotEnforcedByFixedMode 가 본문 정책을 지키지 않는 동작을 보여 준다.
