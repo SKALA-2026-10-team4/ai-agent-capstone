@@ -10,7 +10,8 @@ import jakarta.persistence.Table;
 
 /**
  * 운영자의 승인·거절 결정 한 번을 approvals 표의 한 줄로 남기는 엔티티다.
- * 계약 5(docs/contracts/mcp-tools-input-output.md)의 저장 공간 목록에 approvals 로 적힌 표이고, 칸 구성은 A 가 맡는다.
+ * docs/contracts/mcp-tools-input-output.md 의 저장 공간 목록에 approvals 로 적힌 표이고, 칸 구성은 A 가 맡는다. MCP 도구는 이 표를
+ * 읽지도 쓰지도 않는다.
  * service/src/main/java/com/capstone4/skillops/approval/ApprovalService.java 의 recordDecision 이 결정마다 새 줄을 만든다.
  * service/src/main/java/com/capstone4/skillops/api/ApprovalView.java 가 이 가운데 화면에 내보낼 9개 칸을 골라 JSON 으로 바꾸며,
  * id, agentResult, agentMessage 는 내보내지 않는다.

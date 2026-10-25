@@ -19,7 +19,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * service/src/main/java/com/capstone4/skillops/mcp/ProposalTools.java 의 saveProposal 이 MCP 결과로 내보내는 모양을 고정한다.
- * 성공하면 {proposal_id, status, valid_candidate_nos} 세 키만 담은 JSON 을 돌려주는지(계약 5 §10),
+ * 성공하면 {proposal_id, status, valid_candidate_nos} 세 키만 담은 JSON 을 돌려주는지(docs/contracts/mcp-tools-input-output.md 의 save_proposal 절),
  * service/src/main/java/com/capstone4/skillops/proposal/ProposalService.java 의 save 가 IllegalArgumentException 을 던지면
  * C-2 오류 모양의 INVALID_INPUT 오류(retryable=false)를 돌려주는지 본다.
  * SkillOps Agent 의 skillops-agent/skillops_agent/tools.py 와 skillops-agent/skillops_agent/nodes.py 의 save_proposal 이 이 모양을 읽는다.

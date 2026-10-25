@@ -42,6 +42,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel as _PydanticModel
 
+from . import rag
 from .config import (
     ABLATION_REPEAT,
     DEFAULT_ENTRY_SKILL_ID,
@@ -208,7 +209,9 @@ def _progress(state: AgentState, node: str, msg: str, **updates) -> dict:
     }
 
 
-async def _ask_llm(prompt_name: str, schema, *, with_style: bool = False, **fields):
+async def _ask_llm(
+    prompt_name: str, schema, *, with_style: bool = False, references: str = "", **fields
+):
     """프롬프트를 채워 LLM 에 묻는다. make_structured_llm 은 교체되므로 호출 때 찾는다.
 
     skillops-agent/prompts/<prompt_name>.md 를 읽어 fields 로 {trace} 같은 자리를 str.format 으로
@@ -218,13 +221,24 @@ async def _ask_llm(prompt_name: str, schema, *, with_style: bool = False, **fiel
     테스트와 scripts 가 이 모듈의 make_structured_llm 이름을 바꿔 끼우므로 import 시점이 아니라
     호출할 때 찾는다. 프롬프트의 자리와 fields 이름이 어긋나면 str.format 이 KeyError 를 던지고
     skillops-agent/skillops_agent/graph.py 의 guarded 가 ERROR 로 남긴다. hypothesize,
-    extract_intent, generate_candidates, rank_and_explain 이 부른다.
+    extract_intent, generate_candidates, rank_and_explain 이 부른다. references 는
+    skillops-agent/skillops_agent/rag.py 의 references 가 고른 참고 자료 글이다. 채운 프롬프트
+    맨 끝에 그대로 붙이므로 str.format 을 거치지 않아 자료 안의 중괄호가 자리로 읽히지 않는다.
     """
     template = load_prompt(prompt_name)
     if with_style:
         fields["style"] = load_prompt("style")
-    text = template.format(**fields)
+    text = template.format(**fields) + references
     return await make_structured_llm(schema).ainvoke(text)
+
+
+def _rag_progress(state: AgentState, node: str, ids: list[str]) -> dict:
+    """노드가 프롬프트에 붙인 참고 자료 id 를 rag_references 에 노드 이름으로 남긴다.
+
+    RunStore 기록에 남아 어떤 근거로 가설·의도·후보를 만들었는지 나중에 볼 수 있다. 같은 노드가
+    재시도로 다시 돌면 마지막 회차의 id 로 바꾼다.
+    """
+    return {"rag_references": {**(state.get("rag_references") or {}), node: ids}}
 
 
 def _retry_feedback(retry: int, items: list | None, to_lines) -> str:
@@ -659,9 +673,11 @@ async def hypothesize(state: AgentState) -> dict:
     previous_failures = _retry_feedback(
         retry, state.get("ablation_runs"), _rejected_hypothesis_lines
     )
+    references, reference_ids = rag.references(state)
     result = await _ask_llm(
         "hypothesize",
         _HypothesesOutput,
+        references=references,
         trace=trace,
         diff=state.get("changes", []),
         previous_failures=previous_failures,
@@ -675,7 +691,10 @@ async def hypothesize(state: AgentState) -> dict:
         raise ContractError("LLM returned no hypotheses")
 
     message = f"가설 {len(hypotheses)}개 생성 (retry={retry})"
-    return _progress(state, "hypothesize", message, hypotheses=hypotheses)
+    return _progress(
+        state, "hypothesize", message, hypotheses=hypotheses,
+        **_rag_progress(state, "hypothesize", reference_ids),
+    )
 
 
 # ── Node 4: ablate ────────────────────────────────────────────────────────────
@@ -861,9 +880,11 @@ async def extract_intent(state: AgentState) -> dict:
     diff = state.get("diff") or {}
     root_cause = state.get("root_cause") or {}
     known = await _known_values(state)
+    references, reference_ids = rag.references(state)
     result = await _ask_llm(
         "extract_intent",
         _IntentOutput,
+        references=references,
         root_cause=root_cause,
         diff=diff,
         context_keys=", ".join(known) or "(없음)",
@@ -882,7 +903,10 @@ async def extract_intent(state: AgentState) -> dict:
     )
 
     message = f"의도 추출 완료 (조건 {len(kept)}개, 버린 조건 {len(dropped)}개)"
-    return _progress(state, "extract_intent", message, intent=intent)
+    return _progress(
+        state, "extract_intent", message, intent=intent,
+        **_rag_progress(state, "extract_intent", reference_ids),
+    )
 
 
 # ── Node 7: generate_candidates ──────────────────────────────────────────────
@@ -1009,9 +1033,11 @@ async def generate_candidates(state: AgentState) -> dict:
     if dep_graph.get("complete") is not True:
         raise ContractError("dependency graph is incomplete")
 
+    references, reference_ids = rag.references(state)
     result = await _ask_llm(
         "generate_candidates",
         _CandidatesOutput,
+        references=references,
         root_cause={**root_cause, "skill_versions": state["skill_versions"]},
         intent=intent,
         diff=diff,
@@ -1029,7 +1055,10 @@ async def generate_candidates(state: AgentState) -> dict:
         raise ContractError("LLM returned no candidates")
 
     message = f"후보 {len(candidates)}개 생성 (retry={retry})"
-    return _progress(state, "generate_candidates", message, candidates=candidates)
+    return _progress(
+        state, "generate_candidates", message, candidates=candidates,
+        **_rag_progress(state, "generate_candidates", reference_ids),
+    )
 
 
 # ── Node 8: verify_candidates ────────────────────────────────────────────────
@@ -1307,11 +1336,11 @@ def _failure_of(trace: dict | None) -> dict | None:
 
 
 def proposal_payload(state: AgentState) -> dict:
-    """save_proposal 로 보낼 제안서(계약 5 §10)를 상태에서 만든다.
+    """save_proposal 로 보낼 제안서를 상태에서 만든다.
 
     합격 판정은 service 가 다시 하고, 제안서 본문은 service 가 쓴다. 제안서 모양은
     docs/contracts/proposal.schema.json(계약 4)이고, 도구 입출력은
-    docs/contracts/mcp-tools-input-output.md 의 10절(계약 5 §10)이다. thread_id 는
+    docs/contracts/mcp-tools-input-output.md 의 save_proposal 절이다. thread_id 는
     pipeline_thread_id 이며 service 가 같은 진단의 중복 저장을 막는 데 쓴다. root_cause 에는 해당
     change 의 before 와 after 를 덧붙이고, 후보의 workspace 는 workspace_id 로 이름을 바꾼다(원래
     상태는 고치지 않는다). recommended 인덱스는 recommended_candidate_no 로 바꾸고, 유효 후보가

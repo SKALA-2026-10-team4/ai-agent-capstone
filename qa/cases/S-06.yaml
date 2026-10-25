@@ -1,0 +1,22 @@
+# 승인해도 운영 중인 Skill 은 바뀌지 않아야 한다. 반영은 사람이 따로 한다.
+id: S-06
+group: S
+title: 합격 개선안을 승인함
+set: dev
+run: manual
+
+steps:
+  - "합격 후보가 있는 제안서를 준비한다."
+  - "운영 Skill 상태를 기록한다. `git status order-agent/skills` 결과와 게시 번들 order-agent/skills/bundle.json 의 내용을 남긴다."
+  - "operator 계정으로 POST /api/proposals/{제안서 번호}/approve 에 {\"candidate_no\": <합격 번호>, \"intent_confirmed\": true} 를 보낸다."
+  - "운영 Skill 상태를 다시 본다."
+expected: 승인 기록과 approval_token(a_ 로 시작)이 생기고, order-agent/skills 와 게시 번들은 그대로다.
+
+evidence:
+  - claim: 승인은 기록만 남기고 운영 반영(promote_workspace)은 연결되어 있지 않다
+    kind: 코드 근거
+    where: service/src/main/java/com/capstone4/skillops/approval/ApprovalService.java
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)

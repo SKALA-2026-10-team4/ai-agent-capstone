@@ -1,0 +1,67 @@
+# 실행 순서를 바꾼 경우다. 결제 도구의 전제 때문에 의도를 살릴 수 없다.
+id: D-02
+group: D
+title: 결제를 재고 확인보다 앞으로 옮김
+set: dev
+run: auto
+
+change:
+  - file: skills/order-flow/SKILL.md
+    from: "steps: [order-intake, inventory-check, payment, shipping-reserve, notify]"
+    to: "steps: [order-intake, payment, inventory-check, shipping-reserve, notify]"
+
+intent:
+  text: 결제부터 받고 재고를 잡겠다
+  checks: []
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: payment, missing: [inventory.reserved], deps: [inventory-check]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [no_valid_fix]
+  root_cause: [order-flow]
+  fixable: false
+
+fixes:
+  - name: 순서를 유지하고 결제가 재고 값을 받지 않게 함
+    change:
+      - file: skills/payment/SKILL.md
+        from: "inputs: [order.id, order.total, order.payment_method, inventory.reserved]"
+        to: "inputs: [order.id, order.total, order.payment_method]"
+      - file: skills/payment/SKILL.md
+        from: "depends_on: [inventory-check]"
+        to: "depends_on: [order-intake]"
+    tests_pass: false
+    failure: TOOL_ERROR
+    valid: false
+  - name: 되돌리기
+    change:
+      - file: skills/order-flow/SKILL.md
+        from: "steps: [order-intake, payment, inventory-check, shipping-reserve, notify]"
+        to: "steps: [order-intake, inventory-check, payment, shipping-reserve, notify]"
+    tests_pass: true
+    valid: false
+
+evidence:
+  - claim: 결제 단계가 실행 전 검사에서 재고 값과 선행 단계 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 order-flow 의 steps 순서다
+    kind: 구성, 되돌려 보기
+    where: check 에서 순서를 되돌리면 재현 주문이 통과한다
+  - claim: 고칠 수 없다
+    kind: 불가능 증명
+    where: >-
+      결제 도구는 재고가 예약된 주문만 받는다(order-agent/backend/src/main/java/com/capstone4/orderagent/adapter/PaymentMockAdapter.java
+      의 pay). 결제가 재고 예약보다 먼저 도는 흐름은 Skill 파일을 어떻게 고쳐도 도구 단계(TOOL_ERROR)에서 멈춘다
+  - claim: 되돌리기는 불합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1
+
+current:
+  checked: 2026-10-23
+  result: 원인은 맞게 짚지만 되돌리기가 합격으로 판정돼 proposed 로 끝난다
+  defects: [D1]

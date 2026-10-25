@@ -221,8 +221,8 @@ class MCPTools:
         """MCP 도구 diff_skill 을 불러 두 snapshot 사이 skill 하나의 SKILL.md 차이를 읽는다.
 
         service/src/main/java/com/capstone4/skillops/mcp/SkillDiffTools.java 의 diffSkill() 이
-        받는다. 인자 이름은 실제 서버의 이름을 따르며, docs/contracts/mcp-tools-input-output.md
-        4장에 적힌 v1 계약 이름과는 다르다. skillops-agent/skillops_agent/nodes.py 의
+        받는다. 인자와 결과 칸은 docs/contracts/mcp-tools-input-output.md 의 diff_skill 절과
+        같다. skillops-agent/skillops_agent/nodes.py 의
         _collect_changes 가 결과의 hunks 를 변경 단위로 쓰고,
         skillops-agent/scripts/b_c_contract_smoke.py 도 부른다.
         """

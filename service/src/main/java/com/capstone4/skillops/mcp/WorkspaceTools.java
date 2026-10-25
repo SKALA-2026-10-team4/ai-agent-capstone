@@ -22,7 +22,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
  * 결과와 예외는 service/src/main/java/com/capstone4/skillops/mcp/WorkspaceToolResults.java 의 run 이 JSON 글 하나로
  * 바꾼다. 오류는 C-1 도구와 같은 {code, message, retryable, upstream_status, snapshot_id} 모양이다.
  *
- * 입출력 이름은 계약 5 v1(docs/contracts/mcp-tools-input-output.md)을 따른다. @McpToolParam 에 이름 속성이 없어서
+ * 입출력 표는 docs/contracts/mcp-tools-input-output.md 의 create_workspace, apply_patch, run_scenarios 절에 있다. @McpToolParam 에 이름 속성이 없어서
  * Java 파라미터 이름이 곧 도구 입력 키가 되므로 파라미터를 snake_case 로 쓴다. 이름을 바꾸면 Agent 의 호출이 깨진다.
  *
  * 부르는 쪽은 skillops-agent/skillops_agent/tools.py 의 MCPTools.create_workspace, apply_patch, run_scenarios 다.
@@ -38,7 +38,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
  * 도구 설명 문자열은 MCP 클라이언트가 도구 목록에서 읽는 공개 문서다. run_scenarios 설명의 repeat 기본값과 범위는
  * ScenarioRunner 의 DEFAULT_REPEAT, MIN_REPEAT, MAX_REPEAT 와 같아야 하고,
  * service/src/test/java/com/capstone4/skillops/mcp/WorkspaceToolsTest.java 가 이를 확인한다. 상수를 바꾸면 이 설명과
- * docs/contracts/mcp-tools-input-output.md 의 repeat 설명도 함께 고친다.
+ * docs/contracts/mcp-tools-input-output.md 의 run_scenarios 절에 있는 repeat 설명도 함께 고친다.
  */
 @Component
 public class WorkspaceTools {

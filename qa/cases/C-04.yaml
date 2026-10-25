@@ -1,0 +1,62 @@
+# 받는 쪽이 바뀌어 약속이 깨졌지만, 넘기는 쪽 Skill 을 고쳐 의도를 살릴 수 있는 경우다.
+id: C-04
+group: C
+title: 결제 inputs 의 inventory.reserved 를 예약 가능 수량으로 바꿈
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "inputs: [order.id, order.total, order.payment_method, inventory.reserved]"
+    to: "inputs: [order.id, order.total, order.payment_method, inventory.reservable_quantity]"
+
+intent:
+  text: 결제는 예약 가능 수량을 보고 판단한다
+  checks: ["inventory.reservable_quantity != null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: payment, missing: [inventory.reservable_quantity]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [payment]
+  fixable: true
+
+fixes:
+  - name: 재고 확인이 reservable_quantity 도 넘기게 함
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.available, inventory.reserved]"
+        to: "outputs: [inventory.available, inventory.reserved, inventory.reservable_quantity]"
+    tests_pass: true
+    valid: true
+  - name: 되돌리기
+    change:
+      - file: skills/payment/SKILL.md
+        from: "inputs: [order.id, order.total, order.payment_method, inventory.reservable_quantity]"
+        to: "inputs: [order.id, order.total, order.payment_method, inventory.reserved]"
+    tests_pass: false
+    failure: "확인 조건 실패: inventory.reservable_quantity != null"
+    valid: false
+
+evidence:
+  - claim: 결제 단계가 실행 전 검사에서 inventory.reservable_quantity 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 결제 inputs 변경이다
+    kind: 구성, 되돌려 보기
+    where: check 에서 그 수정을 되돌리면 재현 주문이 통과한다
+  - claim: 고칠 수 있다
+    kind: 존재 증명
+    where: fixes 의 첫 안이 check 에서 시험을 통과한다. 재고 도구가 그 값을 실제로 만든다(order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java 의 reserveInventory)
+  - claim: 되돌리기는 불합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1
+
+current:
+  checked: 2026-10-23
+  result: EVALUATED/proposed. 의도 조건이 버려져 되돌리기도 합격으로 판정된다
+  defects: [D1]

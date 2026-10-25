@@ -1,0 +1,39 @@
+# 본문에 업무 규칙을 적은 경우다. 규칙 모드는 본문을 읽지 않으므로 표준 주문 기준으로는 깨지지 않는다.
+id: T-02
+group: T
+title: 결제 Skill 본문에 '선입금 주문만 결제한다'는 규칙을 더함
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "재고 예약 성공을 확인합니다."
+    to: "재고 예약 성공을 확인합니다. 선입금(prepaid) 주문만 결제하고 카드 주문은 결제하지 않습니다."
+
+intent:
+  text: 카드 주문은 결제하지 않는다
+
+order_agent:
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [VALIDATED]
+
+evidence:
+  - claim: 표준 주문 3개가 모두 통과한다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 규칙 모드는 본문 정책을 지키지 않는다
+    kind: 코드 근거
+    where: >-
+      order-agent/backend/src/main/java/com/capstone4/orderagent/harness/FixedDecisionProvider.java,
+      order-agent/backend/src/test/java/com/capstone4/orderagent/integration/AgentEvidenceIntegrationTest.java 의
+      bodyOnlyPrepaidPolicyIsDeliveredButNotEnforcedByFixedMode
+
+note: 본문 정책이 실행에 반영되지 않는다는 사실은 같은 수정본에 정책 확인 요청을 보내는 T-02b 로 잡는다(한계 L1).
+
+current:
+  checked: 2026-10-23
+  result: VALIDATED

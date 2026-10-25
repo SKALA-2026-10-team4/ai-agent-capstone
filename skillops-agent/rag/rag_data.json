@@ -1,0 +1,592 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-10-23T10:20:52+00:00",
+  "bundle": {
+    "snapshot_id": "74efeac3-2ffd-4dff-97d8-463533969645",
+    "snapshot_hash": "a8d5a391724fbc4a5e7a50f5f029c6ba52b98e0bd63641b33fbf9679a81d45b7",
+    "release": "camping-v1",
+    "source": "published-bundle",
+    "bundle_version": "camping-v1@a8d5a391724f"
+  },
+  "source_execution_id": "b1a7409c-1efb-44ed-8cec-f33e94b68043",
+  "items": [
+    {
+      "id": "tool-inventory-check",
+      "kind": "tool_contract",
+      "skill": "inventory-check",
+      "tool": "inventory.reserve",
+      "tool_args": [
+        "order_id",
+        "items[{sku,qty}]"
+      ],
+      "produces": [
+        "inventory.available",
+        "inventory.reservable_quantity",
+        "inventory.reserved"
+      ],
+      "compensation_tool": "inventory.release",
+      "failure_if_violated": "MISSING_SKILL_OUTPUT",
+      "skills": [
+        "inventory-check"
+      ],
+      "fields": [
+        "inventory.available",
+        "inventory.reservable_quantity",
+        "inventory.reserved"
+      ],
+      "error_categories": [
+        "MISSING_SKILL_OUTPUT",
+        "CONTRACT_VIOLATION"
+      ],
+      "source": [
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java",
+        "trace:TOOL_RESULT"
+      ],
+      "source_execution_id": "b1a7409c-1efb-44ed-8cec-f33e94b68043",
+      "generated_at": "2026-10-23T10:20:52+00:00",
+      "bundle_version": "camping-v1@a8d5a391724f",
+      "text": "inventory-check skill 은 inventory.reserve 도구만 쓴다. 도구가 실제로 돌려주는 값: inventory.available, inventory.reservable_quantity, inventory.reserved. 이 밖의 값은 도구가 만들지 않으므로 outputs 에 선언하면 실행 중 MISSING_SKILL_OUTPUT 으로 실패한다. 선언만 바꿔서는 새 값을 만들 수 없고 도구 구현을 바꿔야 한다. 결제가 거절되거나 결제 전에 오류가 나면 서버가 inventory.release 으로 예약을 되돌린다."
+    },
+    {
+      "id": "tool-notify",
+      "kind": "tool_contract",
+      "skill": "notify",
+      "tool": "notify.send",
+      "tool_args": [
+        "order_id",
+        "customer"
+      ],
+      "produces": [
+        "notify.channel",
+        "notify.sent"
+      ],
+      "compensation_tool": null,
+      "failure_if_violated": "MISSING_SKILL_OUTPUT",
+      "skills": [
+        "notify"
+      ],
+      "fields": [
+        "notify.channel",
+        "notify.sent"
+      ],
+      "error_categories": [
+        "MISSING_SKILL_OUTPUT",
+        "CONTRACT_VIOLATION"
+      ],
+      "source": [
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java",
+        "trace:TOOL_RESULT"
+      ],
+      "source_execution_id": "b1a7409c-1efb-44ed-8cec-f33e94b68043",
+      "generated_at": "2026-10-23T10:20:52+00:00",
+      "bundle_version": "camping-v1@a8d5a391724f",
+      "text": "notify skill 은 notify.send 도구만 쓴다. 도구가 실제로 돌려주는 값: notify.channel, notify.sent. 이 밖의 값은 도구가 만들지 않으므로 outputs 에 선언하면 실행 중 MISSING_SKILL_OUTPUT 으로 실패한다. 선언만 바꿔서는 새 값을 만들 수 없고 도구 구현을 바꿔야 한다."
+    },
+    {
+      "id": "tool-order-intake",
+      "kind": "tool_contract",
+      "skill": "order-intake",
+      "tool": "order.inspect",
+      "tool_args": [
+        "order_id"
+      ],
+      "produces": [
+        "order.customer",
+        "order.id",
+        "order.items",
+        "order.payment_method",
+        "order.shipping",
+        "order.total"
+      ],
+      "compensation_tool": null,
+      "failure_if_violated": "MISSING_SKILL_OUTPUT",
+      "skills": [
+        "order-intake"
+      ],
+      "fields": [
+        "order.customer",
+        "order.id",
+        "order.items",
+        "order.payment_method",
+        "order.shipping",
+        "order.total"
+      ],
+      "error_categories": [
+        "MISSING_SKILL_OUTPUT",
+        "CONTRACT_VIOLATION"
+      ],
+      "source": [
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java",
+        "trace:TOOL_RESULT"
+      ],
+      "source_execution_id": "b1a7409c-1efb-44ed-8cec-f33e94b68043",
+      "generated_at": "2026-10-23T10:20:52+00:00",
+      "bundle_version": "camping-v1@a8d5a391724f",
+      "text": "order-intake skill 은 order.inspect 도구만 쓴다. 도구가 실제로 돌려주는 값: order.customer, order.id, order.items, order.payment_method, order.shipping, order.total. 이 밖의 값은 도구가 만들지 않으므로 outputs 에 선언하면 실행 중 MISSING_SKILL_OUTPUT 으로 실패한다. 선언만 바꿔서는 새 값을 만들 수 없고 도구 구현을 바꿔야 한다."
+    },
+    {
+      "id": "tool-payment",
+      "kind": "tool_contract",
+      "skill": "payment",
+      "tool": "payment.charge",
+      "tool_args": [
+        "order_id",
+        "amount (server total)",
+        "method (card/prepaid)"
+      ],
+      "produces": [
+        "payment.id",
+        "payment.status"
+      ],
+      "compensation_tool": null,
+      "failure_if_violated": "MISSING_SKILL_OUTPUT",
+      "skills": [
+        "payment"
+      ],
+      "fields": [
+        "payment.id",
+        "payment.status"
+      ],
+      "error_categories": [
+        "MISSING_SKILL_OUTPUT",
+        "CONTRACT_VIOLATION"
+      ],
+      "source": [
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java",
+        "trace:TOOL_RESULT"
+      ],
+      "source_execution_id": "b1a7409c-1efb-44ed-8cec-f33e94b68043",
+      "generated_at": "2026-10-23T10:20:52+00:00",
+      "bundle_version": "camping-v1@a8d5a391724f",
+      "text": "payment skill 은 payment.charge 도구만 쓴다. 도구가 실제로 돌려주는 값: payment.id, payment.status. 이 밖의 값은 도구가 만들지 않으므로 outputs 에 선언하면 실행 중 MISSING_SKILL_OUTPUT 으로 실패한다. 선언만 바꿔서는 새 값을 만들 수 없고 도구 구현을 바꿔야 한다."
+    },
+    {
+      "id": "tool-shipping-reserve",
+      "kind": "tool_contract",
+      "skill": "shipping-reserve",
+      "tool": "shipping.reserve",
+      "tool_args": [
+        "order_id",
+        "country",
+        "express"
+      ],
+      "produces": [
+        "shipping.eta",
+        "shipping.id"
+      ],
+      "compensation_tool": null,
+      "failure_if_violated": "MISSING_SKILL_OUTPUT",
+      "skills": [
+        "shipping-reserve"
+      ],
+      "fields": [
+        "shipping.eta",
+        "shipping.id"
+      ],
+      "error_categories": [
+        "MISSING_SKILL_OUTPUT",
+        "CONTRACT_VIOLATION"
+      ],
+      "source": [
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java",
+        "trace:TOOL_RESULT"
+      ],
+      "source_execution_id": "b1a7409c-1efb-44ed-8cec-f33e94b68043",
+      "generated_at": "2026-10-23T10:20:52+00:00",
+      "bundle_version": "camping-v1@a8d5a391724f",
+      "text": "shipping-reserve skill 은 shipping.reserve 도구만 쓴다. 도구가 실제로 돌려주는 값: shipping.eta, shipping.id. 이 밖의 값은 도구가 만들지 않으므로 outputs 에 선언하면 실행 중 MISSING_SKILL_OUTPUT 으로 실패한다. 선언만 바꿔서는 새 값을 만들 수 없고 도구 구현을 바꿔야 한다."
+    },
+    {
+      "id": "contract-map",
+      "kind": "contract_map",
+      "initial_inputs": [
+        "order.id",
+        "order.items",
+        "order.customer",
+        "order.payment_method",
+        "order.shipping"
+      ],
+      "edges": [
+        {
+          "key": "inventory.available",
+          "producer": "inventory-check",
+          "consumers": []
+        },
+        {
+          "key": "inventory.reserved",
+          "producer": "inventory-check",
+          "consumers": [
+            "payment",
+            "shipping-reserve"
+          ]
+        },
+        {
+          "key": "notify.channel",
+          "producer": "notify",
+          "consumers": []
+        },
+        {
+          "key": "notify.sent",
+          "producer": "notify",
+          "consumers": []
+        },
+        {
+          "key": "order.id",
+          "producer": "order-intake",
+          "consumers": [
+            "inventory-check",
+            "notify",
+            "order-intake",
+            "payment",
+            "shipping-reserve"
+          ]
+        },
+        {
+          "key": "order.total",
+          "producer": "order-intake",
+          "consumers": [
+            "payment"
+          ]
+        },
+        {
+          "key": "payment.id",
+          "producer": "payment",
+          "consumers": [
+            "shipping-reserve"
+          ]
+        },
+        {
+          "key": "payment.status",
+          "producer": "payment",
+          "consumers": [
+            "notify",
+            "shipping-reserve"
+          ]
+        },
+        {
+          "key": "shipping.eta",
+          "producer": "shipping-reserve",
+          "consumers": [
+            "notify"
+          ]
+        },
+        {
+          "key": "shipping.id",
+          "producer": "shipping-reserve",
+          "consumers": [
+            "notify"
+          ]
+        }
+      ],
+      "skills": [
+        "*"
+      ],
+      "fields": [
+        "inventory.available",
+        "inventory.reserved",
+        "notify.channel",
+        "notify.sent",
+        "order.customer",
+        "order.id",
+        "order.items",
+        "order.payment_method",
+        "order.shipping",
+        "order.total",
+        "payment.id",
+        "payment.status",
+        "shipping.eta",
+        "shipping.id"
+      ],
+      "error_categories": [
+        "MISSING_SKILL_OUTPUT",
+        "CONTRACT_VIOLATION"
+      ],
+      "source": [
+        "skills/*/SKILL.md frontmatter",
+        "OrderFlowPolicy.INITIAL_INPUT_KEYS"
+      ],
+      "generated_at": "2026-10-23T10:20:52+00:00",
+      "bundle_version": "camping-v1@a8d5a391724f",
+      "text": "[정상 계약 지도: 게시본 기준] 처음 주문 입력: order.id, order.items, order.customer, order.payment_method, order.shipping\n- inventory.available: inventory-check → (쓰는 skill 없음)\n- inventory.reserved: inventory-check → payment, shipping-reserve\n- notify.channel: notify → (쓰는 skill 없음)\n- notify.sent: notify → (쓰는 skill 없음)\n- order.id: order-intake → inventory-check, notify, order-intake, payment, shipping-reserve\n- order.total: order-intake → payment\n- payment.id: payment → shipping-reserve\n- payment.status: payment → notify, shipping-reserve\n- shipping.eta: shipping-reserve → notify\n- shipping.id: shipping-reserve → notify\n어떤 skill 도 만들지 않는 값을 inputs 에 요구하면 정적 검사에서 CONTRACT_VIOLATION(missing_inputs)으로 실행 전에 막힌다. 오류가 난 skill(입력을 못 받은 쪽)과 고칠 skill(값을 안 만들거나 없는 값을 요구한 쪽)은 다를 수 있다."
+    },
+    {
+      "id": "policy-flow",
+      "kind": "policy",
+      "applies_to_skills": [
+        "order-flow"
+      ],
+      "rules": [
+        {
+          "rule": "정상 steps",
+          "value": [
+            "order-intake",
+            "inventory-check",
+            "payment",
+            "shipping-reserve",
+            "notify"
+          ]
+        },
+        {
+          "rule": "선행 단계",
+          "value": "inventory-check 는 order-intake 가 끝난 뒤에만",
+          "violation": "CONTRACT_VIOLATION"
+        },
+        {
+          "rule": "선행 단계",
+          "value": "notify 는 shipping-reserve 가 끝난 뒤에만",
+          "violation": "CONTRACT_VIOLATION"
+        },
+        {
+          "rule": "선행 단계",
+          "value": "payment 는 inventory-check 가 끝난 뒤에만",
+          "violation": "CONTRACT_VIOLATION"
+        },
+        {
+          "rule": "선행 단계",
+          "value": "shipping-reserve 는 payment 가 끝난 뒤에만",
+          "violation": "CONTRACT_VIOLATION"
+        },
+        {
+          "rule": "필수 마지막 단계",
+          "value": "notify",
+          "violation": "INCOMPLETE_FLOW"
+        },
+        {
+          "rule": "최대 단계 수",
+          "value": 12,
+          "violation": "INVALID_FLOW"
+        }
+      ],
+      "skills": [
+        "order-flow"
+      ],
+      "fields": [],
+      "error_categories": [
+        "CONTRACT_VIOLATION",
+        "INCOMPLETE_FLOW",
+        "INVALID_FLOW"
+      ],
+      "source": [
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderFlowPolicy.java",
+        "skills/order-flow/SKILL.md steps",
+        "skills/*/SKILL.md depends_on"
+      ],
+      "generated_at": "2026-10-23T10:20:52+00:00",
+      "bundle_version": "camping-v1@a8d5a391724f",
+      "text": "정상 steps: [order-intake, inventory-check, payment, shipping-reserve, notify]. 선행 단계: inventory-check 는 order-intake 가 끝난 뒤에만 (어기면 CONTRACT_VIOLATION). 선행 단계: notify 는 shipping-reserve 가 끝난 뒤에만 (어기면 CONTRACT_VIOLATION). 선행 단계: payment 는 inventory-check 가 끝난 뒤에만 (어기면 CONTRACT_VIOLATION). 선행 단계: shipping-reserve 는 payment 가 끝난 뒤에만 (어기면 CONTRACT_VIOLATION). 필수 마지막 단계: notify (어기면 INCOMPLETE_FLOW). 최대 단계 수: 12 (어기면 INVALID_FLOW)."
+    },
+    {
+      "id": "policy-outcomes",
+      "kind": "policy",
+      "applies_to_skills": [
+        "inventory-check",
+        "payment"
+      ],
+      "version": "v1",
+      "skills": [
+        "inventory-check",
+        "payment"
+      ],
+      "fields": [],
+      "error_categories": [],
+      "source": [
+        "skillops-agent/rag/policies/outcomes.md",
+        "order-agent/docs/team-scenarios.md",
+        "order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java"
+      ],
+      "text": "재고 부족 → REJECTED, 결제·배송·알림 안 함. 결제 거절 → HOLD, 재고 예약 해제, 배송·알림 안 함. 이 두 결과는 정상 업무 결과이지 Skill 결함이 아니다."
+    },
+    {
+      "id": "guide-intent",
+      "kind": "guideline",
+      "applies_to_errors": [
+        "CONTRACT_VIOLATION",
+        "MISSING_SKILL_OUTPUT",
+        "INCOMPLETE_FLOW"
+      ],
+      "owner": "AI 플랫폼팀",
+      "version": "v1",
+      "skills": [
+        "*"
+      ],
+      "fields": [],
+      "error_categories": [
+        "CONTRACT_VIOLATION",
+        "MISSING_SKILL_OUTPUT",
+        "INCOMPLETE_FLOW"
+      ],
+      "source": [
+        "skillops-agent/rag/guides/intent.md"
+      ],
+      "text": "계약 오류를 일으킨 선언 변경 자체를 담당자의 업무 의도로 확정하지 않는다. 값을 지우기만 했거나, 도구가 주지 않는 값을 추가했거나, 필수 단계를 뺀 변경은 지킬 새 업무 규칙이 없을 수 있다. 그때 의도 설명은 '추정'임을 밝히고 확인 조건(checks)을 비운다."
+    },
+    {
+      "id": "guide-repair",
+      "kind": "guideline",
+      "applies_to_errors": [
+        "CONTRACT_VIOLATION",
+        "MISSING_SKILL_OUTPUT",
+        "INCOMPLETE_FLOW"
+      ],
+      "owner": "AI 플랫폼팀",
+      "version": "v1",
+      "skills": [
+        "*"
+      ],
+      "fields": [],
+      "error_categories": [
+        "CONTRACT_VIOLATION",
+        "MISSING_SKILL_OUTPUT",
+        "INCOMPLETE_FLOW"
+      ],
+      "source": [
+        "skillops-agent/rag/guides/repair.md"
+      ],
+      "text": "도구가 만들지 않는 값을 선언에서 빼는 것, 하위 skill 이 요구하는 값을 원인 skill 의 outputs 에 되살리는 것, 필수 순서·단계를 복구하는 것은 '되돌리기'가 아니라 계약 복구다. 변경 의도는 실행 가능한 범위에서만 보존한다. 의도를 지키려면 도구나 코드 변경이 필요하면 Skill 문서 수정만으로는 불가능하다고 적고, 계약을 복구하는 후보를 낸다. 결함을 하위 skill 의 inputs·depends_on 수정으로 퍼뜨리지 않는다."
+    },
+    {
+      "confidence": "확인됨(시나리오 문서)",
+      "id": "case-S2",
+      "symptom": {
+        "error_category": "CONTRACT_VIOLATION",
+        "phase": "static_validation",
+        "failed_skill": "payment",
+        "missing_inputs": [
+          "inventory.reserved"
+        ]
+      },
+      "change": {
+        "skill": "inventory-check",
+        "field": "outputs",
+        "before": "[inventory.available, inventory.reserved]",
+        "after": "[inventory.available]"
+      },
+      "root_skill": "inventory-check",
+      "correct_fix": "inventory-check outputs 에 inventory.reserved 를 되살린다",
+      "anti_patterns": [
+        "payment·shipping-reserve 의 inputs 에서 inventory.reserved 를 지우거나 inventory.available 로 바꿔 결함을 하위로 퍼뜨리기"
+      ],
+      "outcome": "scenario",
+      "evidence": {},
+      "source": "order-agent/docs/scenarios/S2-inventory-output-deletion.md",
+      "kind": "case",
+      "skills": [
+        "inventory-check",
+        "payment"
+      ],
+      "fields": [
+        "inventory.reserved"
+      ],
+      "error_categories": [
+        "CONTRACT_VIOLATION"
+      ],
+      "text": "[사례 case-S2, 확인됨(시나리오 문서)] 증상: payment 에서 CONTRACT_VIOLATION(static_validation), 누락 입력 ['inventory.reserved']. 변경: inventory-check 의 outputs [inventory.available, inventory.reserved] → [inventory.available]. 원인 skill: inventory-check. 올바른 수정: inventory-check outputs 에 inventory.reserved 를 되살린다. 피해야 할 수정: payment·shipping-reserve 의 inputs 에서 inventory.reserved 를 지우거나 inventory.available 로 바꿔 결함을 하위로 퍼뜨리기."
+    },
+    {
+      "confidence": "확인됨(시나리오 문서)",
+      "id": "case-S3",
+      "symptom": {
+        "error_category": "CONTRACT_VIOLATION",
+        "phase": "static_validation",
+        "failed_skill": "shipping-reserve",
+        "missing_inputs": [
+          "payment.id",
+          "payment.status"
+        ]
+      },
+      "change": {
+        "skill": "order-flow",
+        "field": "steps",
+        "before": "[order-intake, inventory-check, payment, shipping-reserve, notify]",
+        "after": "[order-intake, inventory-check, shipping-reserve, payment, notify]"
+      },
+      "root_skill": "order-flow",
+      "correct_fix": "order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 조회 전용 도구와 단계를 따로 설계해야 한다고 밝힌다",
+      "anti_patterns": [
+        "shipping-reserve 의 inputs·depends_on 에서 payment 를 지워 결제 확인 없이 배송하게 만들기"
+      ],
+      "outcome": "scenario",
+      "evidence": {},
+      "source": "order-agent/docs/scenarios/S3-shipping-before-payment.md",
+      "kind": "case",
+      "skills": [
+        "order-flow",
+        "shipping-reserve"
+      ],
+      "fields": [
+        "payment.id",
+        "payment.status"
+      ],
+      "error_categories": [
+        "CONTRACT_VIOLATION"
+      ],
+      "text": "[사례 case-S3, 확인됨(시나리오 문서)] 증상: shipping-reserve 에서 CONTRACT_VIOLATION(static_validation), 누락 입력 ['payment.id', 'payment.status']. 변경: order-flow 의 steps [order-intake, inventory-check, payment, shipping-reserve, notify] → [order-intake, inventory-check, shipping-reserve, payment, notify]. 원인 skill: order-flow. 올바른 수정: order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 조회 전용 도구와 단계를 따로 설계해야 한다고 밝힌다. 피해야 할 수정: shipping-reserve 의 inputs·depends_on 에서 payment 를 지워 결제 확인 없이 배송하게 만들기."
+    },
+    {
+      "confidence": "확인됨(시나리오 문서)",
+      "id": "case-S4",
+      "symptom": {
+        "error_category": "INCOMPLETE_FLOW",
+        "phase": "runtime",
+        "failed_skill": "order-flow",
+        "missing_inputs": []
+      },
+      "change": {
+        "skill": "order-flow",
+        "field": "steps",
+        "before": "[order-intake, inventory-check, payment, shipping-reserve, notify]",
+        "after": "[order-intake, inventory-check, payment, shipping-reserve]"
+      },
+      "root_skill": "order-flow",
+      "correct_fix": "order-flow steps 끝에 필수 마지막 단계 notify 를 되살린다",
+      "anti_patterns": [
+        "notify 를 선택 단계로 보고 빠진 채로 두기"
+      ],
+      "outcome": "scenario",
+      "evidence": {},
+      "source": "order-agent/docs/scenarios/S4-missing-notify.md",
+      "kind": "case",
+      "skills": [
+        "order-flow"
+      ],
+      "fields": [],
+      "error_categories": [
+        "INCOMPLETE_FLOW"
+      ],
+      "text": "[사례 case-S4, 확인됨(시나리오 문서)] 증상: order-flow 에서 INCOMPLETE_FLOW(runtime), 누락 입력 없음. 변경: order-flow 의 steps [order-intake, inventory-check, payment, shipping-reserve, notify] → [order-intake, inventory-check, payment, shipping-reserve]. 원인 skill: order-flow. 올바른 수정: order-flow steps 끝에 필수 마지막 단계 notify 를 되살린다. 피해야 할 수정: notify 를 선택 단계로 보고 빠진 채로 두기."
+    },
+    {
+      "confidence": "확인됨(시나리오 문서)",
+      "id": "case-S6",
+      "symptom": {
+        "error_category": "MISSING_SKILL_OUTPUT",
+        "phase": "runtime",
+        "failed_skill": "inventory-check",
+        "missing_inputs": []
+      },
+      "change": {
+        "skill": "inventory-check",
+        "field": "outputs",
+        "before": "[inventory.available, inventory.reserved]",
+        "after": "[inventory.available, inventory.reserved, inventory.reservation_reference]"
+      },
+      "root_skill": "inventory-check",
+      "correct_fix": "inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 도구 구현을 바꿔야 한다고 밝힌다",
+      "anti_patterns": [
+        "도구가 만들지 않는 값을 선언에 그대로 두거나 하위 skill 의 inputs 로 퍼뜨리기"
+      ],
+      "outcome": "scenario",
+      "evidence": {},
+      "source": "order-agent/docs/scenarios/S6-unproduced-output.md",
+      "kind": "case",
+      "skills": [
+        "inventory-check"
+      ],
+      "fields": [],
+      "error_categories": [
+        "MISSING_SKILL_OUTPUT"
+      ],
+      "text": "[사례 case-S6, 확인됨(시나리오 문서)] 증상: inventory-check 에서 MISSING_SKILL_OUTPUT(runtime), 누락 입력 없음. 변경: inventory-check 의 outputs [inventory.available, inventory.reserved] → [inventory.available, inventory.reserved, inventory.reservation_reference]. 원인 skill: inventory-check. 올바른 수정: inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 도구 구현을 바꿔야 한다고 밝힌다. 피해야 할 수정: 도구가 만들지 않는 값을 선언에 그대로 두거나 하위 skill 의 inputs 로 퍼뜨리기."
+    }
+  ]
+}

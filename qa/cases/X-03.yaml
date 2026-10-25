@@ -1,0 +1,38 @@
+# 경계 사례다. 안전장치처럼 보이는 입력이 빠져도 실행 결과는 그대로다.
+id: X-03
+group: X
+title: 결제 inputs 에서 inventory.reserved 를 지움
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "inputs: [order.id, order.total, order.payment_method, inventory.reserved]"
+    to: "inputs: [order.id, order.total, order.payment_method]"
+
+intent:
+  text: 재고 확인 결과를 받지 않고 결제하겠다
+
+order_agent:
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [VALIDATED]
+
+evidence:
+  - claim: 표준 주문 3개가 모두 통과한다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 결제 도구 인자에는 재고 값이 없고, 재고 예약은 결제 도구가 주문 정보에서 다시 확인한다
+    kind: 코드 근거
+    where: >-
+      order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java 의 BINDINGS,
+      order-agent/backend/src/main/java/com/capstone4/orderagent/adapter/PaymentMockAdapter.java 의 pay
+
+note: 목표 동작은 안전장치처럼 보이는 입력이 빠졌다는 경고지만, 지금 결론 목록에는 경고가 없어 채점하지 않는다.
+
+current:
+  checked: 2026-10-23
+  result: VALIDATED

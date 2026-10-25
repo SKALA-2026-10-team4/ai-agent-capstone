@@ -1,0 +1,59 @@
+# 경계 사례다. 오타를 바로잡는 것은 되돌리기지만, 지킬 의도가 없으므로 되돌리기를 허용한다.
+id: X-01
+group: X
+title: 배송 예약 inputs 의 payment.id 를 payment.ld 로 잘못 침(오타)
+set: dev
+run: auto
+
+change:
+  - file: skills/shipping-reserve/SKILL.md
+    from: "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]"
+    to: "inputs: [order.id, order.shipping, payment.ld, payment.status, inventory.reserved]"
+
+intent:
+  text: 의도한 변경이 아닌 오타다
+  checks: []
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: shipping-reserve, missing: [payment.ld]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [shipping-reserve]
+  fixable: true
+  revert_allowed: true
+
+fixes:
+  - name: 오타 바로잡기
+    change:
+      - file: skills/shipping-reserve/SKILL.md
+        from: "inputs: [order.id, order.shipping, payment.ld, payment.status, inventory.reserved]"
+        to: "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]"
+    tests_pass: true
+    valid: true
+  - name: 오타 값을 지움
+    change:
+      - file: skills/shipping-reserve/SKILL.md
+        from: "inputs: [order.id, order.shipping, payment.ld, payment.status, inventory.reserved]"
+        to: "inputs: [order.id, order.shipping, payment.status, inventory.reserved]"
+    tests_pass: true
+    valid: false
+    policy: 입력을 지워 시험을 통과시키면 배송 단계의 검사가 약해진다(R3)
+
+evidence:
+  - claim: 배송 단계가 실행 전 검사에서 payment.ld 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 오타 바로잡기는 되돌리기지만 합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1 의 예외
+  - claim: 오타 값을 지운 안은 시험은 통과하지만 불합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R3
+
+current:
+  checked: 2026-10-23
+  result: 두 안이 모두 합격이고 순위도 같아(고친 Skill 수 1) 입력을 지운 안이 추천될 수 있다

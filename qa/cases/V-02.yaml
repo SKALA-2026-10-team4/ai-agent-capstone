@@ -1,0 +1,44 @@
+# C-03 의 의도를 담당자가 앞뒤가 맞게 한 번에 저장한 경우다. 오류는 없지만 표준 주문의 확인 조건을 어긴다.
+id: V-02
+group: V
+title: 결제 결과를 넘기지 않도록 결제·배송·알림을 함께 고쳐 저장함
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "outputs: [payment.id, payment.status]"
+    to: "outputs: [payment.id]"
+  - file: skills/shipping-reserve/SKILL.md
+    from: "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]"
+    to: "inputs: [order.id, order.shipping, payment.id, inventory.reserved]"
+  - file: skills/notify/SKILL.md
+    from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+    to: "inputs: [order.id, order.customer, shipping.id, shipping.eta]"
+
+intent:
+  text: 결제 번호만 넘기고 결제 결과는 넘기지 않는다
+  checks: ["payment.status == null"]
+
+order_agent:
+  g-01: {result: check_failed, reason: "payment.status == 'PAID'"}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [VALIDATION_FAILED, EVALUATED]
+  proposal: [no_valid_fix]
+  root_cause: [payment]
+  fixable: false
+
+evidence:
+  - claim: 오류 없이 끝나지만 g-01 의 확인 조건 payment.status == 'PAID' 에서 떨어진다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 의도는 표준 주문 g-01 의 확인 조건과 함께 참일 수 없다
+    kind: 불가능 증명
+    where: scenarios/order-agent/golden/g-01.json 의 assertions
+
+current:
+  checked: 2026-10-23
+  result: VALIDATION_FAILED

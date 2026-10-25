@@ -151,6 +151,29 @@ async def get_snapshot_file(
                               retryable=False, snapshot_id=snapshot_id) from exc
 
 
+async def list_recent_runs(*, client: httpx.AsyncClient | None = None) -> dict:
+    """최근 실행 요약 목록을 GET /api/executions 로 읽어 그대로 돌려준다.
+
+    order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
+    recent() 가 이 경로를 받는다. 응답은 {"items": [...]} 이고 최신 실행이 앞에 오며 최대 20건이다.
+    성공한 실행과 모의 실행도 들어 있다. skillops-agent/scripts/build_rag_data.py 가 도구 계약을
+    읽을 성공 실행을 찾을 때 쓴다.
+    """
+    return await _get("/api/executions", client)
+
+
+async def get_snapshot(snapshot_id: str, *, client: httpx.AsyncClient | None = None) -> dict:
+    """snapshot manifest 를 GET /api/snapshots/{snapshot_id} 로 읽어 그대로 돌려준다.
+
+    order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
+    snapshot() 이 이 경로를 받는다. 응답의 metadata.source 로 게시본(published-bundle)인지 알 수
+    있다.
+    skillops-agent/scripts/build_rag_data.py 가 게시본으로 돈 실행을 고를 때 쓴다.
+    """
+    _require_uuid("snapshot_id", snapshot_id)
+    return await _get(f"/api/snapshots/{snapshot_id}", client, snapshot_id=snapshot_id)
+
+
 async def _get(
     path: str, client: httpx.AsyncClient | None, *, params: dict | None = None, **ref: str
 ) -> Any:
@@ -160,7 +183,7 @@ async def _get(
     skillops-agent/skillops_agent/config.py 의 ORDER_AGENT_BASE_URL(환경 변수
     ORDER_AGENT_BASE_URL)과 TIMEOUT_SECONDS 로 client 를 직접 만들고 조회가 끝나면 닫는다. ref 는
     실패할 때 OrderAgentError에 실을 요청 인자(execution_id 또는 snapshot_id)다.
-    조회 함수 다섯 개가 모두 이 함수를 거친다.
+    위 조회 함수들은 모두 이 함수를 거친다.
     """
     if client is None:
         async with httpx.AsyncClient(base_url=ORDER_AGENT_BASE_URL, timeout=TIMEOUT_SECONDS) as own:

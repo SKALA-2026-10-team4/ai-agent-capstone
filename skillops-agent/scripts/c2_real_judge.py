@@ -1,8 +1,8 @@
 """실제 주문 Agent 로 수정 후보를 판정하는 실험용 스크립트다.
 
 가짜 실행기 없이 C-2 도구(create_workspace, apply_patch, run_scenarios)가 주문 Agent 에서 모의
-실행한 결과로 후보 세 개를 채점한다. docs/contracts/mcp-tools-input-output.md 의 2026-10-21 갱신
-(#55)은 이 실험으로 확인했다.
+실행한 결과로 후보 세 개를 채점한다. docs/contracts/mcp-tools-input-output.md 의 run_scenarios 절
+예시는 이 실험의 결과다.
 
 준비할 것은 다음과 같다.
 - 주문 Agent(order-agent/, 기본 http://localhost:8081)가 떠 있어야 한다. 모델 모드가 기본값

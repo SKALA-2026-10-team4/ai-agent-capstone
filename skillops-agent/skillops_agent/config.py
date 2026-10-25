@@ -13,8 +13,9 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(usecwd=True))
 
 # LLM 모델 이름(SKILLOPS_MODEL)이다.
-# skillops-agent/skillops_agent/llm.py 의 make_llm 이 ChatOpenAI 를 만들 때 쓴다.
-MODEL = os.getenv("SKILLOPS_MODEL", "gpt-4.1-mini")
+# skillops-agent/skillops_agent/llm.py 의 make_llm 이 ChatOpenAI 를 만들 때 쓴다. RAG 실험에서
+# gpt-4.1-mini·gpt-4o-mini 는 참고 자료를 받아도 거의 쓰지 못해 gpt-5.4-mini 를 기본으로 둔다.
+MODEL = os.getenv("SKILLOPS_MODEL", "gpt-5.4-mini")
 # service 주소(SKILLOPS_SERVICE_URL)다. 이 모듈에서 MCP_URL 기본값을 만들 때만 쓴다.
 SERVICE_URL = os.getenv("SKILLOPS_SERVICE_URL", "http://localhost:8080")
 # service MCP 서버 주소(SKILLOPS_MCP_URL)다. skillops-agent/skillops_agent/tools.py 의 MCPTools 와
@@ -38,6 +39,16 @@ ORDER_AGENT_BASE_URL = os.getenv("ORDER_AGENT_BASE_URL", "http://localhost:8081"
 # /runs 조회도 같은 토큰으로 막는다. 비어 있으면 검증을 건너뛴다(개발 모드). service 에도 같은
 # 값을 준다.
 SERVICE_TOKEN = os.getenv("SKILLOPS_SERVICE_TOKEN", "")
+
+# false 이면 진단 노드가 RAG 참고 자료(skillops-agent/rag/rag_data.json)를 붙이지 않는다. 기본값은
+# true 다. skillops-agent/skillops_agent/rag.py 의 references 가 이 값을 본다.
+RAG_ENABLED = os.getenv("SKILLOPS_RAG_ENABLED", "true").lower() == "true"
+# RAG 참고 자료에서 빼고 고를 자료 id 목록(SKILLOPS_RAG_EXCLUDE, 쉼표로 구분)이다. 장애 사례로
+# 평가할 때 같은 케이스의 사례(예: case-S2)를 빼서 답을 미리 보여 주지 않는 데 쓴다. 기본값은 빈
+# 목록이다.
+RAG_EXCLUDED_IDS = [
+    v.strip() for v in os.getenv("SKILLOPS_RAG_EXCLUDE", "").split(",") if v.strip()
+]
 
 # true 이면 service(:8080) 없이 stub 응답으로 개발한다. 기본값은 false 다.
 # skillops-agent/skillops_agent/tools.py 의 get_tools 가 이 값을 보고
@@ -130,5 +141,24 @@ DEFAULT_ENTRY_SKILL_ID = "order-flow"
 # skillops-agent/tests/test_flow_characterization.py 의 대체 설명('rank N: ...') 단언도 고친다.
 RANK_FALLBACK_EVIDENCE_COUNT = 2
 # LLM 샘플링 온도다. skillops-agent/skillops_agent/llm.py 의 make_llm 이 쓴다.
-# 같은 입력에 출력이 흔들리지 않게 0.0 으로 둔다.
+# 같은 입력에 출력이 흔들리지 않게 0.0 으로 둔다. gpt-5 계열은 온도를 받지 않아 langchain_openai 가
+# 이 값을 빼고 보낸다. 그래서 기본 모델에서는 같은 입력에도 결과가 달라질 수 있다.
 LLM_TEMPERATURE = 0.0
+
+# ── 호출(트리거) 진단 튜닝 값 ──────────────────────────────────────────────────
+# skillops-agent/skillops_agent/trigger_graph.py 와 trigger_nodes.py 가 쓴다. 회귀 진단 그래프와
+# 따로 움직이므로 위 표(test_pipeline_defaults.py)에는 넣지 않고
+# skillops-agent/tests/test_trigger_graph.py 가 값을 고정한다.
+
+# 진단 → 개선안 → 재검증을 반복하는 최대 횟수다. 다 쓰면 no_valid_fix 로 끝난다.
+MAX_TRIGGER_ATTEMPTS = 3
+# 질의 하나를 선택 Agent 에 묻는 횟수다. 기획안 2-3 "한 번의 실행으로 판정하지 않는다"를 따르며,
+# 과반을 맞혀야 그 질의를 통과로 본다. 그래서 홀수로 둔다.
+TRIGGER_SELECT_REPEAT = 3
+# 선택 Agent 를 동시에 부르는 최대 수다. API 속도 제한에 걸리면 줄인다.
+TRIGGER_CONCURRENCY = 8
+# 개선안 description 의 최대 글자 수다. 넘는 안은 재검증하지 않고 버린다.
+TRIGGER_DESCRIPTION_MAX = 1024
+# 목표 호출 재현율이다. 통과한 안이 이 값에 못 미치면 남은 시도로 더 고치고, 끝나면 통과한 안 중
+# 가장 좋은 안을 제안한다.
+TRIGGER_TARGET_RECALL = 0.9

@@ -1,0 +1,21 @@
+# 담당자 의도를 확인하지 않은 승인은 막혀야 한다.
+id: S-03
+group: S
+title: 의도 확인 체크 없이 승인함
+set: dev
+run: manual
+
+steps:
+  - "합격 후보가 있는 제안서를 준비한다."
+  - "operator 계정으로 로그인한다."
+  - "POST /api/proposals/{제안서 번호}/approve 에 {\"candidate_no\": 1, \"intent_confirmed\": false} 를 보낸다."
+expected: 400 INTENT_NOT_CONFIRMED 로 거부되고 승인 기록이 남지 않는다.
+
+evidence:
+  - claim: intent_confirmed 가 false 면 승인 서비스를 부르기 전에 거부한다
+    kind: 코드 근거
+    where: service/src/main/java/com/capstone4/skillops/api/ApprovalController.java 의 approve
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)

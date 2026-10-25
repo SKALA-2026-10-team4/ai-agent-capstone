@@ -1,0 +1,34 @@
+# 문제없는 수정이다. 담당 부서만 바꾼다.
+id: N-03
+group: N
+title: 배송 예약 Skill 의 담당 부서(owner)를 바꿈
+set: dev
+run: auto
+
+change:
+  - file: skills/shipping-reserve/SKILL.md
+    from: "owner: 주문운영팀"
+    to: "owner: 물류팀"
+
+intent:
+  text: 배송 예약 담당을 물류팀으로 옮긴다
+
+order_agent:
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [VALIDATED]
+
+evidence:
+  - claim: 표준 주문 3개가 모두 통과한다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: owner 는 비어 있지만 않으면 되는 칸이다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/harness/SkillLoader.java 의 requireMetadata
+
+current:
+  checked: 2026-10-23
+  result: VALIDATED

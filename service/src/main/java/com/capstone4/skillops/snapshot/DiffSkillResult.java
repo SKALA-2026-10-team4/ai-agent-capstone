@@ -17,11 +17,9 @@ import tools.jackson.databind.annotation.JsonNaming;
  * @param status       modified, added, removed, unchanged 가운데 하나다.
  * @param relatedFiles 같은 skill 폴더의 다른 파일(resources 등)이다. 해시로만 비교하고 내용은 읽지 않는다.
  */
-// TODO(C-1/C-2/B, 계약 확정 후): 지금 결과의 skill_id, before, after, hunks 는 v1 계약 문서
-// (docs/contracts/mcp-tools-input-output.md 4장)의 skill, from_version, to_version, changes 와 다르다.
-// Hunk 의 index(0부터)는 change_no(1부터)에, header 는 location 에, diff 는 patch 에, part 의 frontmatter 값은 header 에
-// 매핑한다. 지금은 진단 Agent(skillops-agent/skillops_agent/nodes.py 의 _collect_changes)가 hunk 마다 change_no 를 직접 붙인다.
-// apply_patch 도 같은 바뀌기 전 파일 기준 patch 를 받게 맞추고, 고정 hunk_id 와 양쪽 해시를 잃지 않는다.
+// 칸 이름과 뜻은 docs/contracts/mcp-tools-input-output.md 의 diff_skill 절에 적혀 있으므로, 칸을 바꾸면 그 절도 함께 고친다.
+// 1부터 세는 change_no 는 이 결과에 없고, 진단 Agent(skillops-agent/skillops_agent/nodes.py 의 _collect_changes)가 hunk 마다
+// 직접 붙인다.
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record DiffSkillResult(
         String skillId,

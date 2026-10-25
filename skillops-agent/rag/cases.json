@@ -1,0 +1,94 @@
+[
+  {
+    "id": "case-S2",
+    "symptom": {
+      "error_category": "CONTRACT_VIOLATION",
+      "phase": "static_validation",
+      "failed_skill": "payment",
+      "missing_inputs": ["inventory.reserved"]
+    },
+    "change": {
+      "skill": "inventory-check",
+      "field": "outputs",
+      "before": "[inventory.available, inventory.reserved]",
+      "after": "[inventory.available]"
+    },
+    "root_skill": "inventory-check",
+    "correct_fix": "inventory-check outputs 에 inventory.reserved 를 되살린다",
+    "anti_patterns": [
+      "payment·shipping-reserve 의 inputs 에서 inventory.reserved 를 지우거나 inventory.available 로 바꿔 결함을 하위로 퍼뜨리기"
+    ],
+    "outcome": "scenario",
+    "evidence": {},
+    "source": "order-agent/docs/scenarios/S2-inventory-output-deletion.md"
+  },
+  {
+    "id": "case-S3",
+    "symptom": {
+      "error_category": "CONTRACT_VIOLATION",
+      "phase": "static_validation",
+      "failed_skill": "shipping-reserve",
+      "missing_inputs": ["payment.id", "payment.status"]
+    },
+    "change": {
+      "skill": "order-flow",
+      "field": "steps",
+      "before": "[order-intake, inventory-check, payment, shipping-reserve, notify]",
+      "after": "[order-intake, inventory-check, shipping-reserve, payment, notify]"
+    },
+    "root_skill": "order-flow",
+    "correct_fix": "order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 조회 전용 도구와 단계를 따로 설계해야 한다고 밝힌다",
+    "anti_patterns": [
+      "shipping-reserve 의 inputs·depends_on 에서 payment 를 지워 결제 확인 없이 배송하게 만들기"
+    ],
+    "outcome": "scenario",
+    "evidence": {},
+    "source": "order-agent/docs/scenarios/S3-shipping-before-payment.md"
+  },
+  {
+    "id": "case-S4",
+    "symptom": {
+      "error_category": "INCOMPLETE_FLOW",
+      "phase": "runtime",
+      "failed_skill": "order-flow",
+      "missing_inputs": []
+    },
+    "change": {
+      "skill": "order-flow",
+      "field": "steps",
+      "before": "[order-intake, inventory-check, payment, shipping-reserve, notify]",
+      "after": "[order-intake, inventory-check, payment, shipping-reserve]"
+    },
+    "root_skill": "order-flow",
+    "correct_fix": "order-flow steps 끝에 필수 마지막 단계 notify 를 되살린다",
+    "anti_patterns": [
+      "notify 를 선택 단계로 보고 빠진 채로 두기"
+    ],
+    "outcome": "scenario",
+    "evidence": {},
+    "source": "order-agent/docs/scenarios/S4-missing-notify.md"
+  },
+  {
+    "id": "case-S6",
+    "symptom": {
+      "error_category": "MISSING_SKILL_OUTPUT",
+      "phase": "runtime",
+      "failed_skill": "inventory-check",
+      "missing_inputs": []
+    },
+    "change": {
+      "skill": "inventory-check",
+      "field": "outputs",
+      "before": "[inventory.available, inventory.reserved]",
+      "after": "[inventory.available, inventory.reserved, inventory.reservation_reference]"
+    },
+    "root_skill": "inventory-check",
+    "correct_fix": "inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 도구 구현을 바꿔야 한다고 밝힌다",
+    "anti_patterns": [
+      "도구가 만들지 않는 값을 선언에 그대로 두거나 하위 skill 의 inputs 로 퍼뜨리기"
+    ],
+    "outcome": "scenario",
+    "evidence": {},
+    "source": "order-agent/docs/scenarios/S6-unproduced-output.md"
+  }
+]

@@ -1,0 +1,22 @@
+# 검증 서버가 꺼진 상태에서 저장한 경우다. 켜지면 자동으로 전달되어야 한다.
+id: E-04
+group: E
+title: service 가 꺼진 상태에서 저장
+set: dev
+run: manual
+
+steps:
+  - "service 를 끈다."
+  - "운영 화면에서 N-01 수정을 저장한다."
+  - "GET /api/skill-changes/{change_id} 를 몇 번 읽어 delivery_status, attempts, last_error 를 본다."
+  - "service 를 다시 켜고 같은 경로를 다시 읽는다."
+expected: 꺼져 있는 동안 PENDING 과 늘어나는 attempts, 전달 실패 문구가 보인다. 켜면 ACCEPTED 와 thread_id 가 생기고 진단이 진행된다.
+
+evidence:
+  - claim: 전달에 실패한 저장 이벤트는 시도 횟수와 오류를 남기고 다음 차례에 다시 보낸다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/workspace/SkillChangeDispatcher.java, docs/skill-save-auto-diagnosis.md
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)

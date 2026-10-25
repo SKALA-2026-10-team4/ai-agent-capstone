@@ -1,0 +1,66 @@
+# 도구에 없는 이름으로 바꾸는 것 자체가 의도인 경우다. Skill 수정만으로는 고칠 수 없다.
+id: U-02
+group: U
+title: 결제 outputs 의 payment.status 를 payment.result 로 이름만 바꿈
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "outputs: [payment.id, payment.status]"
+    to: "outputs: [payment.id, payment.result]"
+
+intent:
+  text: 결제 결과를 payment.result 라는 이름으로 통일하겠다
+  checks: ["payment.result != null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: shipping-reserve, missing: [payment.status]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [no_valid_fix]
+  root_cause: [payment]
+  fixable: false
+
+fixes:
+  - name: 배송과 알림이 payment.result 를 받게 함
+    change:
+      - file: skills/shipping-reserve/SKILL.md
+        from: "inputs: [order.id, order.shipping, payment.id, payment.status, inventory.reserved]"
+        to: "inputs: [order.id, order.shipping, payment.id, payment.result, inventory.reserved]"
+      - file: skills/notify/SKILL.md
+        from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+        to: "inputs: [order.id, order.customer, payment.result, shipping.id, shipping.eta]"
+    tests_pass: false
+    failure: MISSING_SKILL_OUTPUT
+    valid: false
+  - name: 되돌리기
+    change:
+      - file: skills/payment/SKILL.md
+        from: "outputs: [payment.id, payment.result]"
+        to: "outputs: [payment.id, payment.status]"
+    tests_pass: false
+    failure: "확인 조건 실패: payment.result != null"
+    valid: false
+
+evidence:
+  - claim: 배송 단계가 실행 전 검사에서 payment.status 없이 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 결제 outputs 변경이다
+    kind: 구성, 되돌려 보기
+    where: check 에서 그 수정을 되돌리면 재현 주문이 통과한다
+  - claim: 고칠 수 없다
+    kind: 불가능 증명
+    where: >-
+      결제 도구는 payment.status 와 payment.id 만 만들고(order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java
+      의 chargePayment), 처음부터 주어지는 값에도 payment.result 는 없다(order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderFlowPolicy.java
+      의 INITIAL_INPUT_KEYS). 그래서 Skill 파일을 어떻게 고쳐도 payment.result 는 실행 중에 생길 수 없다. 이름을 바꾸려면 도구 코드를 바꿔야 한다
+
+current:
+  checked: 2026-10-23
+  result: 의도 조건이 버려져 되돌리기가 합격으로 판정돼 proposed 로 끝난다
+  defects: [D1]

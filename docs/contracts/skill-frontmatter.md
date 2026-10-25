@@ -1,6 +1,6 @@
 # 계약 1 · SKILL.md frontmatter
 
-버전: v0 (초안) · 동결 예정: 1일차 09시
+SKILL.md 는 맨 위 `---` 두 줄 사이의 YAML(frontmatter)과 그 뒤 자연어 본문으로 이뤄진다. 이 문서는 지금 저장소의 skill 파일과 파서가 실제로 따르는 형식을 적는다. 기준 구현은 주문 Agent 의 `order-agent/backend/src/main/java/com/capstone4/orderagent/harness/SkillLoader.java` 이며, 두 Java 서버는 공용 파서로 YAML을 해석하고 목적별 검증을 수행한다.
 
 ## #72 최종 갱신 — 서버 공용 파싱 모듈 (2026-10-23)
 
@@ -113,49 +113,90 @@ MCP 요청·응답 필드와 apply_patch v1.3 Schema는 유지한다. 이 변경
 
 ```yaml
 ---
-name: payment                       # 디렉토리 이름과 동일. kebab-case
-description: 주문 금액을 결제한다. 결제 정책은 여기서 바꾼다.
-inputs:     [order.id, order.total, inventory.reserved]
-outputs:    [payment.id, payment.status]
+name: payment
+description: 예약된 주문 금액을 결제한다
+inputs: [order.id, order.total, order.payment_method, inventory.reserved]
+outputs: [payment.id, payment.status]
 depends_on: [inventory-check]
-owner: 재무팀                        # 이 skill 을 고치는 업무 담당 조직
-version: 4                          # 저장 시 서비스가 +1. 담당자는 건드리지 않는다
+owner: 주문운영팀
+version: 1
 ---
-# 결제 절차                          ← 여기부터 본문. 담당자가 쓰는 자연어.
-1. 재고 예약(inventory.reserved)이 true 인 주문만 진행한다.
-2. 결제 어댑터를 호출하고 payment.id 를 받는다.
-3. 실패하면 payment.status 를 FAILED 로 두고 끝낸다.
+# 예약된 주문 금액을 결제한다
+
+재고 예약 성공을 확인합니다. 결제 도구에 주문번호·서버 총액·결제 방식을 전달합니다. ...
 ```
 
-## orchestrator (`order-flow`)
+## flow skill (`order-flow`)
 
 ```yaml
 ---
 name: order-flow
-description: 주문 한 건이 거치는 단계와 순서. 순서를 바꾸는 사람은 운영팀.
+description: 캠핑용품 주문의 처리 순서
 steps: [order-intake, inventory-check, payment, shipping-reserve, notify]
-owner: 운영팀
+owner: 주문운영팀
 version: 1
 ---
-# 주문 처리 순서
-들어온 주문은 위 steps 순서대로 처리한다. 앞 단계가 FAILED 면 뒤 단계는 실행하지 않는다.
+# 캠핑용품 주문의 처리 순서
+
+위 steps 순서대로 처리합니다. ...
 ```
+
+`steps` 가 있으면 flow skill 이고, 없으면 단계 skill 이다. 루트 flow 이름은 `order-flow` 로 고정돼 있다(`OrderFlowPolicy.ROOT_FLOW_ID`).
+
+## 칸 규칙
+
+`SkillLoader` 가 아래 규칙 가운데 하나라도 어기면 `INVALID_SKILL_FORMAT` 으로 거절한다. 이름 규칙 위반은 `INVALID_SKILL_NAME`, 파일이 없으면 `UNKNOWN_SKILL` 이다.
+
+| 칸 | 단계 skill | flow skill | 규칙 |
+|---|---|---|---|
+| `name` | 필수 | 필수 | 폴더 이름과 같아야 한다. 소문자로 시작하고 소문자·숫자만 쓰며, 하이픈은 단어 사이에 하나씩만 둔다. 64자 이하다. |
+| `description` | 필수 | 필수 | 비어 있지 않은 문자열이다. |
+| `owner` | 필수 | 필수 | 비어 있지 않은 문자열이다. 이 skill 을 고치는 업무 담당 조직이다. |
+| `version` | 필수 | 필수 | 1 이상의 정수다. |
+| `inputs` | 필수 | 생략 가능 | 문자열 목록이다. 빈 목록은 되지만 빈 문자열이나 문자열이 아닌 항목은 안 된다. |
+| `outputs` | 필수 | 생략 가능 | `inputs` 와 같은 규칙이다. |
+| `depends_on` | 필수 | 생략 가능 | 앞에 끝나 있어야 하는 skill 이름 목록이다. 같은 규칙이다. |
+| `steps` | 없음 | 필수 | 비어 있지 않고 중복이 없으며 12개 이하인 skill 이름 목록이다(`OrderFlowPolicy.MAX_FLOW_STEPS`). |
+
+- 구분선은 첫 줄의 `---` 와 그 뒤 처음 나오는 `---` 줄이다. CRLF 는 LF 로 바꿔 읽고, 엄격한 UTF-8 이 아니면 거절한다.
+- YAML 은 SnakeYAML `SafeConstructor` 로 읽고 중복 키와 컬렉션 alias 를 허용하지 않는다. 목록은 `[a, b]` 한 줄 형식과 `- a` 여러 줄 형식 모두 YAML 로는 같지만, 아래 "파서별 차이"의 `SkillHeader` 는 한 줄 형식만 읽는다. 저장소의 skill 은 모두 한 줄 형식을 쓴다.
+- 본문은 앞뒤 공백을 지운 뒤 비어 있으면 안 된다. 본문의 내용은 검사하지 않는다. `openai` 결정 모드에서는 본문이 그대로 모델 질문에 들어간다.
+- 위에 없는 키는 읽지 않고 무시한다.
+
+## version
+
+`version` 은 담당자가 적은 값을 그대로 읽는다. 저장할 때 이 값을 자동으로 올리는 코드는 없다. 주문 Agent 의 수정 저장(`POST /api/snapshots/edits`)은 파일을 고치지 않고 새 snapshot 을 만들며, snapshot 과 파일 해시가 실제 변경을 구별한다. service 의 연습 공간은 `create_workspace` 가 돌려준 `skill_versions` 를 `apply_patch` 의 `base_version` 기준으로 쓰고, 결과의 `changed_skills[].version` 은 시작 버전에 수정 횟수를 더해 계산한 값이다. 이때도 SKILL.md 의 `version` 줄은 바뀌지 않는다.
 
 ## 컨텍스트 키 규칙
 
-- 키는 `<네임스페이스>.<필드>`. 네임스페이스는 skill 이 `outputs` 에 선언한 접두어다.
-  `order.*` 는 입력 주문에서 오고, 그 외는 모두 앞선 skill 의 출력이다.
-- **계약 일관성 검사**(W1, 기준 4): `steps` 순서대로 각 skill 의 `inputs` ⊆ `order.*` ∪ (앞선 skill 들의 `outputs`).
-- 로더는 frontmatter를 파싱하고 빈 본문을 거부한다. 본문 업무 내용은 해석하지 않고 모델에 전달한다.
-  그래서 "본문은 바꿨는데 frontmatter 는 그대로"가 장애 유형 F1 이 된다.
+- 키는 `<네임스페이스>.<필드>` 모양이다. 주문 입력에서 오는 키는 `order.*` 이고, 그 밖의 키는 앞선 단계 skill 이 `outputs` 에 선언한 값이다.
+- 처음부터 공급되는 키는 `order.id`, `order.items`, `order.customer`, `order.payment_method`, `order.shipping` 다섯 개다(`OrderFlowPolicy.INITIAL_INPUT_KEYS`). `order.total` 은 서버가 계산한 금액이라 처음에는 숨기고 `order-intake` 가 출력으로 올린다.
+- 정적 검증(`SkillLoader.validateFlow`)은 업무 도구를 실행하기 전에 `steps` 순서대로 각 단계의 `inputs` 가 처음 키와 앞선 단계 `outputs` 안에 있는지, `depends_on` 의 skill 이 앞에서 끝났는지 본다. 빠진 값이 있으면 `CONTRACT_VIOLATION`(`missing_inputs`, `missing_dependencies`)이다. 단계 자리에 flow skill 이 오면 `NESTED_FLOW_NOT_SUPPORTED` 다. 실행 중에도 단계마다 같은 검사를 다시 한다.
+- 주문 Agent 는 마지막에 `notify` 단계가 끝나지 않은 flow 를 `INCOMPLETE_FLOW` 로 실패시킨다(`OrderFlowPolicy.REQUIRED_FINAL_STEP`).
+- 이 검사는 frontmatter 선언만 본다. 그래서 본문만 바꾸고 선언을 그대로 두면 정적 검증은 통과하고, 어긋남은 실제 도구 실행 결과에서 드러난다.
+
+## 파서 공통화와 검증 역할
+
+두 Java 서버는 `shared/skill-parser`의 동일한 YAML 파서를 사용한다. 여러 줄 목록을 지원하고 모든 경로에 frontmatter 100,000 코드 포인트 한도를 적용한다. 이전 SkillHeader 간이 파서의 목록 해석 차이는 #72에서 해소했다.
+
+| 모듈 | 역할 |
+|---|---|
+| 주문 Agent `SkillLoader` | 공용 파서로 읽고 실행용 필수 정보·목록·flow를 검사한다. |
+| service `Frontmatter` / `SkillHeader` | 공용 파서를 호출하는 `SkillFrontmatter` 어댑터를 사용한다. 분석과 workspace의 필드 정책은 유지한다. |
+| service `DependencyAnalyzer` | 입력·선행 단계 위반을 수집한다. 필수 정보와 실행 구조는 `SkillMetadataValidator`, `FlowStructureValidator`가 별도로 검사한다. |
+| frontend `frontmatter.js` / `skillSet.js` | js-yaml `CORE_SCHEMA`로 읽고 편집기와 연결 점검용 필수 값을 검사한다. |
+
+안전 설정과 목적별 경계 정책은 위의 #72 최종 갱신 절을 따른다.
 
 ## 위치
 
-| 모드 | 경로 |
-|---|---|
-| live | `skills/<name>/SKILL.md` (저장소 루트, 서비스가 읽음) |
-| sandbox | `<workspace 루트>/<ws_id>/skills/<name>/SKILL.md` |
+| 폴더 | 내용 | 읽는 곳 |
+|---|---|---|
+| `order-agent/skills/<name>/SKILL.md` | 주문 Agent 의 게시 번들(release `camping-v1`)이다. `bundle.json` 에 파일별 해시를 봉인하며, 고친 뒤에는 `order-agent/scripts/publish-skills.py` 로 다시 봉인한다. `inventory-check/resources/policy.md` 같은 resources 도 함께 든다. | 주문 Agent 가 snapshot 으로 발행해 실행한다. 진단과 `harness` 실행기는 이 snapshot 을 쓴다. |
+| `skills/<name>/SKILL.md` | 저장소 루트의 운영 폴더다. 주문 Agent 번들과 칸 구조는 같지만 description, owner, 본문이 다르고 resources 가 없다. | service 의 `skillops.skills-dir`(`SKILLOPS_SKILLS_DIR`, 기본 `../skills`)이다. snapshot 없이 만든 연습 공간과 service 테스트가 읽는다. |
 
-## 상태 값 (final_status · payment.status 공용)
+주문 Agent 안에서 snapshot 의 skill 경로는 `skills/<name>/SKILL.md` 다(`SkillLoader.skillPath`).
 
-`SHIPPED` 정상 완료 · `REJECTED` 업무 규칙으로 거절(재고 부족 등) · `HOLD` 보류(F3 에서 신설) · `FAILED` harness/skill 오류
+## 상태 값
+
+주문의 최종 상태는 `SHIPPED`(정상 완료), `REJECTED`(재고 부족이나 엔트리 미선택으로 거절), `HOLD`(결제 거절로 보류), `FAILED`(실행 오류나 재시작 중단) 가운데 하나다(`order-agent/backend/src/main/java/com/capstone4/orderagent/entity/enums/OrderStatus.java`). 처리 중인 주문은 `CREATED`, `PROCESSING` 이다. `payment.status` 는 skill 출력 값이라 이 목록과 따로이며, 지금 결제 skill 은 승인이면 `PAID`, 거절이면 `DECLINED` 를 기록한다.
