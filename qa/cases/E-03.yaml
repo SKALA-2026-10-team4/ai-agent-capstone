@@ -1,0 +1,21 @@
+# 진단 도중 SkillOps Agent 가 재시작된 경우다. 끝나지 않을 진단이 진행 중으로 남지 않아야 한다.
+id: E-03
+group: E
+title: 진단 도중 SkillOps Agent 재시작
+set: dev
+run: manual
+
+steps:
+  - "uv run run_qa.py eval --only C-01 을 실행한다."
+  - "진단 상태가 RUNNING 인 동안 SkillOps Agent 프로세스를 끄고 다시 켠다."
+  - "GET /runs/{thread_id}/events 와 진단 화면을 본다."
+expected: 그 진단이 ERROR 와 재시작으로 중단되었다는 문구로 바뀌고 자동으로 다시 돌지 않는다. 화면에 이유가 보인다.
+
+evidence:
+  - claim: Agent 가 시작할 때 QUEUED 나 RUNNING 으로 남은 진단을 ERROR 로 정리한다
+    kind: 코드 근거
+    where: skillops-agent/skillops_agent/main.py 의 lifespan, skillops-agent/skillops_agent/run_store.py 의 recover
+
+current:
+  checked: 2026-10-23
+  result: 코드로 확인(실행 확인 전)

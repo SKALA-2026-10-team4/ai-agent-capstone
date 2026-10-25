@@ -1,0 +1,64 @@
+# 문제 있는 수정과 문제없는 수정을 한 번에 저장한 경우다. 문제없는 수정을 원인에서 빼야 한다.
+id: G-02
+group: G
+title: C-01 과 결제 본문 다듬기(N-02)를 한 번에 저장함
+set: dev
+run: auto
+
+change:
+  - file: skills/inventory-check/SKILL.md
+    from: "outputs: [inventory.available, inventory.reserved]"
+    to: "outputs: [inventory.reservable_quantity]"
+  - file: skills/payment/SKILL.md
+    from: "재고 예약 성공을 확인합니다."
+    to: "먼저 재고가 예약되었는지 확인합니다."
+    cause: false
+
+intent:
+  text: 재고는 예약 가능 수량으로 판단하고, 결제 본문은 읽기 쉽게 다듬는다
+  checks: ["inventory.reservable_quantity != null"]
+
+order_agent:
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: payment, missing: [inventory.reserved]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [inventory-check]
+  fixable: true
+
+fixes:
+  - name: reserved 도 함께 넘김
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.reservable_quantity]"
+        to: "outputs: [inventory.reservable_quantity, inventory.reserved]"
+    tests_pass: true
+    valid: true
+  - name: 재고 확인만 되돌리기
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.reservable_quantity]"
+        to: "outputs: [inventory.available, inventory.reserved]"
+    tests_pass: false
+    failure: "확인 조건 실패: inventory.reservable_quantity != null"
+    valid: false
+
+evidence:
+  - claim: 원인은 재고 확인 수정이고 결제 본문 수정은 원인이 아니다
+    kind: 구성, 되돌려 보기
+    where: check 에서 재고 확인 수정만 되돌리면 통과하고, 결제 본문 수정만 되돌리면 계속 실패한다
+  - claim: 고칠 수 있다
+    kind: 존재 증명
+    where: fixes 의 첫 안이 check 에서 시험을 통과한다
+
+note: >-
+  QA 문서 v0.1 의 G-02 는 같은 파일의 설명과 outputs 를 함께 바꿨다. 두 줄이 한 diff 덩어리로 묶여 원인 단위로 나눌 수
+  없으므로(한계 L4) 문제없는 수정을 다른 파일로 옮겼다.
+
+current:
+  checked: 2026-10-23
+  result: 원인은 inventory-check 로 맞게 짚는다. 되돌리기도 합격으로 판정된다
+  defects: [D1]

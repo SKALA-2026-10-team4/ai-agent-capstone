@@ -1,0 +1,24 @@
+# 아무것도 바꾸지 않고 저장을 누른 경우다. 저장 단계에서 막혀 진단이 생기지 않아야 한다.
+id: N-07
+group: N
+title: 아무것도 바꾸지 않고 저장함
+set: dev
+run: auto
+
+change: []
+# 바꾸지 않은 이 파일 하나로 저장을 요청한다.
+save_file: skills/notify/SKILL.md
+
+answer:
+  save_rejected: NO_SKILL_CHANGES
+
+evidence:
+  - claim: 주문 Agent 가 저장을 NO_SKILL_CHANGES 로 거부해 진단 요청이 생기지 않는다
+    kind: 관찰, 코드 근거
+    where: check 실행 결과, order-agent/backend/src/main/java/com/capstone4/orderagent/workspace/SnapshotService.java 의 saveEdits
+
+note: SkillOps 의 NO_SKILL_CHANGES 결론은 저장 경로에서는 나올 수 없다. QA 문서 v0.1 의 "변경 없음으로 끝남"은 이 케이스의 정답이 아니다.
+
+current:
+  checked: 2026-10-23
+  result: 저장 거부(NO_SKILL_CHANGES)

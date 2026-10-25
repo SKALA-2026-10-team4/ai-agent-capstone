@@ -1,0 +1,79 @@
+# 서로 다른 두 문제를 한 번에 저장한 경우다. 원인이 둘이라 하나만 되돌려서는 통과하지 않는다.
+id: G-01
+group: G
+title: C-01 과 C-02 를 한 번에 저장함(서로 다른 두 문제)
+set: dev
+run: auto
+
+change:
+  - file: skills/inventory-check/SKILL.md
+    from: "outputs: [inventory.available, inventory.reserved]"
+    to: "outputs: [inventory.reservable_quantity]"
+  - file: skills/shipping-reserve/SKILL.md
+    from: "outputs: [shipping.id, shipping.eta]"
+    to: "outputs: [shipping.id]"
+
+intent:
+  text: 재고는 예약 가능 수량으로 판단하고, 도착 예정일은 안내하지 않는다
+  checks: ["inventory.reservable_quantity != null", "shipping.eta == null"]
+
+order_agent:
+  # 실행 전 검사는 steps 순서대로 보므로 먼저 걸리는 결제 단계에서 멈춘다.
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: payment, missing: [inventory.reserved]}
+  g-02: *blocked
+  g-03: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause_all: [inventory-check, shipping-reserve]
+  fixable: true
+
+fixes:
+  - name: 두 곳을 모두 고침
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.reservable_quantity]"
+        to: "outputs: [inventory.reservable_quantity, inventory.reserved]"
+      - file: skills/notify/SKILL.md
+        from: "inputs: [order.id, order.customer, payment.status, shipping.id, shipping.eta]"
+        to: "inputs: [order.id, order.customer, payment.status, shipping.id]"
+    tests_pass: true
+    valid: true
+  - name: 재고 확인만 고침
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.reservable_quantity]"
+        to: "outputs: [inventory.reservable_quantity, inventory.reserved]"
+    tests_pass: false
+    failure: CONTRACT_VIOLATION
+    valid: false
+  - name: 모두 되돌리기
+    change:
+      - file: skills/inventory-check/SKILL.md
+        from: "outputs: [inventory.reservable_quantity]"
+        to: "outputs: [inventory.available, inventory.reserved]"
+      - file: skills/shipping-reserve/SKILL.md
+        from: "outputs: [shipping.id]"
+        to: "outputs: [shipping.id, shipping.eta]"
+    tests_pass: false
+    failure: "확인 조건 실패"
+    valid: false
+
+evidence:
+  - claim: 결제 단계가 실행 전 검사에서 먼저 멈춘다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: 원인은 두 수정 모두다
+    kind: 구성, 되돌려 보기
+    where: check 에서 둘을 함께 되돌려야 통과하고, 하나만 되돌리면 남은 하나 때문에 계속 실패한다
+  - claim: 두 곳을 함께 고치면 두 의도를 모두 살릴 수 있다
+    kind: 존재 증명
+    where: fixes 의 첫 안이 check 에서 시험을 통과한다
+
+current:
+  checked: 2026-10-23
+  result: >-
+    원인 미확정. 원인 실험이 덩어리를 하나씩만 되돌리므로 원인을 확정하지 못하고 원인 없이 no_valid_fix 로 끝난다
+    (가설이 비면 ERROR). 제안서 형식도 원인을 하나만 담는다
+  defects: [D3]

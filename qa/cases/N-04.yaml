@@ -1,0 +1,34 @@
+# 문제없는 수정이다. 버전 번호만 올린다.
+id: N-04
+group: N
+title: 알림 Skill 의 version 을 1 에서 2 로 올림
+set: dev
+run: auto
+
+change:
+  - file: skills/notify/SKILL.md
+    from: "version: 1"
+    to: "version: 2"
+
+intent:
+  text: 알림 Skill 의 버전을 올린다
+
+order_agent:
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+
+answer:
+  status: [VALIDATED]
+
+evidence:
+  - claim: 표준 주문 3개가 모두 통과한다
+    kind: 관찰
+    where: check 실행 기록
+  - claim: version 은 1 이상의 정수이기만 하면 된다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/harness/SkillLoader.java 의 requireMetadata
+
+current:
+  checked: 2026-10-23
+  result: VALIDATED
