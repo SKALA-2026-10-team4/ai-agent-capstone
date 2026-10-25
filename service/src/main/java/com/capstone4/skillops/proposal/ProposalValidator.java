@@ -9,7 +9,8 @@ import static com.capstone4.skillops.proposal.ProposalRules.strings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.capstone4.skillops.scenario.RunLedger;
 
@@ -56,19 +57,20 @@ final class ProposalValidator {
 
     /**
      * 후보를 목록 순서대로 검사하고 합격 후보 번호를 모은다. 후보마다 번호를 먼저 보고, 원문에 적용한 후보만 근거 실행을 확인한 뒤,
-     * 다시 계산한 합격 여부를 Agent 의 valid 와 비교한다. 적용에 실패한 후보는 근거 실행이 없어도 되지만 번호와 valid 검사는 받는다.
+     * 다시 계산한 합격 여부를 Agent 의 valid 와 비교하고 합격 후보의 실제 실행 통과도 확인한다.
+     * 적용에 실패한 후보는 근거 실행이 없어도 되지만 번호와 valid 검사는 받는다.
      */
     private List<Integer> checkCandidates(List<Map<String, Object>> candidates) {
         List<Integer> valid = new ArrayList<>();
         for (int i = 0; i < candidates.size(); i++) {
             Map<String, Object> candidate = candidates.get(i);
             int no = requireCandidateNo(candidate, i + 1);
-            if (ProposalRules.applied(candidate)) {
-                checkEvidence(no, candidate);
-            }
+            List<RunLedger.Evidence> evidence = ProposalRules.applied(candidate)
+                    ? checkEvidence(no, candidate) : List.of();
             boolean passes = ProposalRules.passes(candidate);
             requireAgentValidMatches(no, candidate, passes);
             if (passes) {
+                requirePassingEvidence(no, evidence);
                 valid.add(no);
             }
         }
@@ -92,7 +94,7 @@ final class ProposalValidator {
      * 원문에 적용한 후보의 근거를 확인한다. workspace_id, results, evidence_run_ids 를 이 순서로 보고 하나라도 없으면 거부한다.
      * 근거 실행은 모두 그 후보의 연습 공간에서 돌린 실행이어야 하므로, 다른 연습 공간의 실행이나 돌린 적 없는 번호를 적으면 거부한다.
      */
-    private void checkEvidence(int no, Map<String, Object> candidate) {
+    private List<RunLedger.Evidence> checkEvidence(int no, Map<String, Object> candidate) {
         String workspaceId = str(candidate.get("workspace_id"));
         if (workspaceId == null) {
             throw new IllegalArgumentException("후보 " + no + " 의 workspace_id 가 없습니다");
@@ -104,11 +106,23 @@ final class ProposalValidator {
         if (evidence.isEmpty()) {
             throw new IllegalArgumentException("후보 " + no + " 의 evidence_run_ids 가 비어 있습니다");
         }
-        Set<String> ran = ledger.runIdsOf(workspaceId);
+        Map<String, RunLedger.Evidence> ran = ledger.evidenceOf(workspaceId).stream()
+                .collect(Collectors.toMap(RunLedger.Evidence::runId, Function.identity()));
         for (String runId : evidence) {
-            if (!ran.contains(runId)) {
+            if (!ran.containsKey(runId)) {
                 throw new IllegalArgumentException(
                         "후보 " + no + " 의 근거 실행 " + runId + " 을 연습 공간 " + workspaceId + " 에서 찾을 수 없습니다");
+            }
+        }
+        return evidence.stream().map(ran::get).toList();
+    }
+
+    /** 합격 후보의 인용 실행은 모두 서버의 실제 채점에서도 통과해야 한다. */
+    private static void requirePassingEvidence(int no, List<RunLedger.Evidence> evidence) {
+        for (RunLedger.Evidence execution : evidence) {
+            if (!execution.passed()) {
+                throw new IllegalArgumentException("후보 " + no + " 의 근거 실행 " + execution.runId()
+                        + " 은 실제 채점에서 실패했습니다 (시나리오 " + execution.scenarioId() + ")");
             }
         }
     }

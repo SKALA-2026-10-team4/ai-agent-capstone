@@ -48,6 +48,8 @@ public class ProposalTools {
             과거 제안서 호환을 위해 metadata_valid 또는 flow_valid가 없으면 그 항목의 기존 판정을 유지하고,
             명시한 새 결과는 Boolean true만 통과한다.
             서비스가 다시 계산하며 valid 와 다르면 저장하지 않는다.
+            합격 후보의 evidence_run_ids 중 서버 장부에 passed=false로 저장된 실행이 있으면 저장하지 않는다.
+            불합격 후보와 원인 증거에는 실패 실행을 보존할 수 있다.
             거부하는 경우: 적용에 실패하지 않은 후보의 evidence_run_ids 가 비었거나 그 후보의 연습 공간에서 run_scenarios 로 돌린 실행이
             아닐 때, proposed 인데 root_cause.proof_run_ids 가 비었거나 돌린 적 없는 실행일 때, recommended_candidate_no 가
             합격 후보가 아닐 때, status 가 합격 후보와 맞지 않을 때.

@@ -95,6 +95,33 @@ class ProposalServiceTest {
         assertThat(stored.getDecidedAt()).isNull();
     }
 
+    /** 제출값이 성공이어도 회귀·재현·의도 실행의 실제 실패를 합격으로 저장하지 않는다. */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"g-01", "f-reproduction", "f-intent"})
+    void rejectsPassingClaimWhenStoredExecutionFailed(String scenarioId) {
+        ledger.record("w_c1", scenarioId, "r_c1000000000000000000000000000002", false);
+
+        assertThatThrownBy(() -> service.save(f1()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("실제 채점에서 실패했습니다")
+                .hasMessageContaining("r_c1000000000000000000000000000002")
+                .hasMessageContaining(scenarioId);
+        then(repository).should(never()).save(any());
+    }
+
+    /** 제출된 valid가 없어도 성공 집계만으로 실제 실패를 우회하지 못한다. */
+    @Test
+    void rejectsStoredFailureWithoutSubmittedValid() {
+        Map<String, Object> proposal = f1();
+        candidate(proposal, 0).remove("valid");
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", false);
+
+        assertThatThrownBy(() -> service.save(proposal))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("실제 채점에서 실패했습니다");
+        then(repository).should(never()).save(any());
+    }
+
     @Test
     void sameThreadReturnsTheFirstProposal() {
         Proposal first = Proposal.create("p_first", "5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b", "proposed", f1(), Map.of(),

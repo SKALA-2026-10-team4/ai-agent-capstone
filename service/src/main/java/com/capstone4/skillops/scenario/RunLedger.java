@@ -1,6 +1,7 @@
 package com.capstone4.skillops.scenario;
 
 import java.util.Set;
+import java.util.List;
 
 /**
  * run_scenarios 가 돌린 모의 실행의 장부다. 실행 번호마다 어느 연습 공간에서 어떤 시험 주문으로 돌렸고 합격했는지 남긴다.
@@ -11,6 +12,12 @@ import java.util.Set;
  * InMemoryRunLedger 를 쓴다.
  */
 public interface RunLedger {
+
+    /** 저장된 실행의 시나리오와 실제 채점 결과다. */
+    record Evidence(String runId, String scenarioId, boolean passed) { }
+
+    /** 한 workspace의 실행 증거를 한 번에 읽는다. 제출된 성공 값은 사용하지 않는다. */
+    List<Evidence> evidenceOf(String workspaceId);
 
     /** 모의 실행 한 번을 남긴다. passed 는 그 실행 한 번의 채점 결과다. */
     void record(String workspaceId, String scenarioId, String runId, boolean passed);

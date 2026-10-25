@@ -2,6 +2,7 @@ package com.capstone4.skillops.scenario;
 
 import java.time.Clock;
 import java.util.Set;
+import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
@@ -34,6 +35,14 @@ public class JpaRunLedger implements RunLedger {
     public Set<String> runIdsOf(String workspaceId) {
         return records.findByWorkspaceId(workspaceId).stream().map(ScenarioRunRecord::getRunId)
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** 실행별 채점 결과를 workspace 쿼리 한 번으로 읽는다. */
+    @Override
+    public List<Evidence> evidenceOf(String workspaceId) {
+        return records.findByWorkspaceId(workspaceId).stream()
+                .map(record -> new Evidence(record.getRunId(), record.getScenarioId(), record.isPassed()))
+                .toList();
     }
 
     /** run_id 기본 키로 그 실행이 장부에 있는지 본다. */

@@ -23,7 +23,8 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * 저장(save)은 Agent 가 보낸 제안서를 그대로 믿지 않는다. 근거로 적은 실행 번호가 이 서비스가 실제로 돌린 모의 실행인지
  * service/src/main/java/com/capstone4/skillops/scenario/RunLedger.java 장부로 확인하고, 합격 후보를 시험 결과로 다시 계산한 뒤에만 저장한다.
- * 시험을 거치지 않은 수정안이 운영자 화면에 올라가지 않게 하려는 것이다.
+ * 합격 후보가 인용한 실행은 장부의 실제 채점 결과도 모두 통과해야 한다.
+ * 필수 평가의 완전성과 제출된 집계 전체를 재구성하는 검증은 별도 평가 계약에서 수행한다.
  * 거부 규칙과 그 순서는 service/src/main/java/com/capstone4/skillops/proposal/ProposalValidator.java 에, 합격 조건은
  * service/src/main/java/com/capstone4/skillops/proposal/ProposalRules.java 의 passes 에, 본문 문장은
  * service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 에 있다.

@@ -65,16 +65,23 @@ public final class TestFixtures {
     }
 
     /**
-     * 테스트용 {@link RunLedger} 다. 메모리에만 둔다. record 는 run_id 와 연습 공간 번호만 남기고 scenario_id 와 passed 는 버리며,
-     * runIdsOf 와 known 은 그 기록에서 찾는다.
+     * 테스트용 {@link RunLedger} 다. 운영 구현처럼 시나리오와 실제 채점 결과도 보존한다.
      */
     public static final class InMemoryRunLedger implements RunLedger {
 
         private final java.util.Map<String, String> workspaceOf = new java.util.LinkedHashMap<>();
+        private final java.util.Map<String, Evidence> evidence = new java.util.LinkedHashMap<>();
 
         @Override
         public void record(String workspaceId, String scenarioId, String runId, boolean passed) {
             workspaceOf.put(runId, workspaceId);
+            evidence.put(runId, new Evidence(runId, scenarioId, passed));
+        }
+
+        /** workspace의 실제 실행 결과를 반환한다. */
+        @Override
+        public java.util.List<Evidence> evidenceOf(String workspaceId) {
+            return runIdsOf(workspaceId).stream().map(evidence::get).toList();
         }
 
         @Override
@@ -91,6 +98,7 @@ public final class TestFixtures {
         /** 장부를 비운다. proposal 테스트가 근거 실행을 찾을 수 없는 경우를 만들 때 쓴다. */
         public void clear() {
             workspaceOf.clear();
+            evidence.clear();
         }
     }
 }

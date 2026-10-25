@@ -54,6 +54,26 @@ class ProposalToolsTest {
                 .containsKey("upstream_status").containsKey("snapshot_id");
     }
 
+    /** 실제 저장 서비스의 실패 증거 거부가 기존 MCP 오류 계약으로 전달된다. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void storedFailureCannotBeSavedThroughLegacyTool() {
+        var repository = mock(com.capstone4.skillops.proposal.ProposalRepository.class);
+        var ledger = new com.capstone4.skillops.scenario.TestFixtures.InMemoryRunLedger();
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", true);
+        ledger.record("w_c1", "g-02", "r_c1000000000000000000000000000002", false);
+        Map<String, Object> proposal = JSON.readValue(
+                java.nio.file.Path.of("src/test/resources/proposal/f1-proposed.json").toFile(), Map.class);
+
+        CallToolResult result = new ProposalTools(new ProposalService(repository, ledger)).saveProposal(proposal);
+
+        assertThat(result.isError()).isTrue();
+        assertThat(mapOf(textOf(result))).containsEntry("code", "INVALID_INPUT")
+                .containsEntry("retryable", false);
+        assertThat(mapOf(textOf(result)).get("message").toString()).contains("실제 채점에서 실패했습니다");
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.never()).save(any());
+    }
+
     /** MCP 결과의 JSON 글을 Map 으로 읽는다. */
     @SuppressWarnings("unchecked")
     private static Map<String, Object> mapOf(String json) {
