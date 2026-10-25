@@ -265,7 +265,8 @@ onMounted(() => {
         </RouterLink>
       </template>
 
-      <div class="list-head" :class="{ spaced: result }">
+      <!-- 사이드바의 '테스트 목록' 메뉴가 /orders#history 로 이 위치를 연다. -->
+      <div id="history" class="list-head" :class="{ spaced: result }">
         <h2>실행 기록</h2>
         <div class="tabs">
           <button class="ghost sm" :class="{ on: listMode === 'recent' }" @click="listMode = 'recent'">최근</button>

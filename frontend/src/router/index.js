@@ -9,7 +9,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { HOME_PATH, LOGIN_PATH, loginRedirect } from './paths'
 
-// 화면은 받은 제안서 목록(첫 화면), 제안서 상세, Skill 편집, 버전 비교, 검증·진단 기록, 주문 실행,
+// 화면은 Skill 편집(첫 화면, 메뉴의 skill 목록), 받은 제안서 목록, 제안서 상세, 버전 비교, 검증·진단 기록, 주문 실행,
 // 실행 상세, 로그인이다. 로그인 화면 말고는 로그인이 필요하다.
 // /skills/:skill? 는 :skill 이 없으면 화면이 세트의 첫 Skill 로 옮긴다.
 // /diagnoses/:threadId? 는 threadId 가 없으면 목록이고, ?change_id= 가 붙으면
@@ -17,6 +17,9 @@ import { HOME_PATH, LOGIN_PATH, loginRedirect } from './paths'
 // meta.public 은 로그인 없이 열리는 화면 표시이며 frontend/src/App.vue 도 이 값으로 메뉴를 뺀다.
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  // 주소에 #id 가 붙으면 그 요소로 스크롤한다. 사이드바 '테스트 목록'(/orders#history)이 쓴다.
+  // 그 밖의 이동은 예전처럼 스크롤 위치를 건드리지 않는다.
+  scrollBehavior: (to) => (to.hash ? { el: to.hash } : undefined),
   routes: [
     { path: '/', redirect: HOME_PATH },
     { path: LOGIN_PATH, name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
