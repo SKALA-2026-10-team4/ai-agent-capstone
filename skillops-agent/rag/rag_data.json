@@ -469,6 +469,12 @@
       "outcome": "scenario",
       "evidence": {},
       "source": "order-agent/docs/scenarios/S2-inventory-output-deletion.md",
+      "qa_cases": [
+        "C-01",
+        "U-01",
+        "G-01",
+        "G-02"
+      ],
       "kind": "case",
       "skills": [
         "inventory-check",
@@ -508,6 +514,9 @@
       "outcome": "scenario",
       "evidence": {},
       "source": "order-agent/docs/scenarios/S3-shipping-before-payment.md",
+      "qa_cases": [
+        "D-01"
+      ],
       "kind": "case",
       "skills": [
         "order-flow",
@@ -545,6 +554,9 @@
       "outcome": "scenario",
       "evidence": {},
       "source": "order-agent/docs/scenarios/S4-missing-notify.md",
+      "qa_cases": [
+        "D-03"
+      ],
       "kind": "case",
       "skills": [
         "order-flow"
@@ -578,6 +590,11 @@
       "outcome": "scenario",
       "evidence": {},
       "source": "order-agent/docs/scenarios/S6-unproduced-output.md",
+      "qa_cases": [
+        "U-01",
+        "U-02",
+        "U-03"
+      ],
       "kind": "case",
       "skills": [
         "inventory-check"

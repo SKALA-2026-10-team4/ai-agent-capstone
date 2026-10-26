@@ -18,6 +18,9 @@ order_agent:
   g-01: &blocked {result: error, category: INVALID_SKILL_FORMAT, skill: null}
   g-02: *blocked
   g-03: *blocked
+  g-04: *blocked
+  g-05: *blocked
+  g-06: *blocked
 
 answer:
   status: [EVALUATED]

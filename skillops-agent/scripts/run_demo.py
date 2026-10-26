@@ -49,13 +49,16 @@ class _FakeChain:
 def _fake_llm(schema):
     """nodes.make_structured_llm 의 대역이다. 출력 모델 이름의 일부로 고정 값을 고른다.
 
-    Hypothes, Intent, Candidates, RankExplan 이 이름에 들어 있는지로 고르고, 그 밖이면 빈
-    SimpleNamespace 를 준다. 칸 이름은 v0 계약 이름이라 지금
+    Hypothes, Expectations, Intent, Candidates, RankExplan 이 이름에 들어 있는지로 고르고, 그 밖이면
+    빈 SimpleNamespace 를 준다. Expectations(사전 검증 전 의도 추론의 _ExpectationsOutput)는 빈
+    expectations 를 돌려줘 의도 시험 없이 사전 검증하게 한다. 나머지 칸 이름은 v0 계약 이름이라 지금
     skillops-agent/skillops_agent/nodes.py 의 모델(change_no, checks, full_text, candidate_no)과
     맞지 않는다.
     """
     name = schema.__name__
-    if "Hypothes" in name:
+    if "Expectations" in name:
+        val = SimpleNamespace(expectations=[])
+    elif "Hypothes" in name:
         val = SimpleNamespace(hypotheses=[
             SimpleNamespace(
                 hunk_index=0, summary="inventory-check 출력 필드명 변경", confidence=0.95

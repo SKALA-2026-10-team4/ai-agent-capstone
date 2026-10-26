@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from langgraph.types import Command
 
 import skillops_agent.main as main
+from skillops_agent import nodes
 from skillops_agent.run_store import RunStore
 
 # 테스트에 쓰는 고정 UUID 와 그 r_ 별칭이다. OTHER_RUN_ID 는 EXECUTION 과 다른 실행이다.
@@ -43,6 +44,8 @@ TRIGGER_KEYS = [
     "run_id",
     "skill",
     "version",
+    "intent",
+    "rag_exclude",
 ]
 
 client = TestClient(main.app)
@@ -285,6 +288,8 @@ def test_run_id_alias_becomes_hyphenated_execution_id(scheduled):
         ("run_id", RUN_ID),
         ("skill", None),
         ("version", None),
+        ("intent", None),
+        ("rag_exclude", []),
     ]
     stored = RunStore().get(body["thread_id"])
     assert list(stored["trigger"].items()) == list(body["trigger"].items())
@@ -349,6 +354,7 @@ def test_valid_triggers_are_accepted_and_scheduled(scheduled, payload):
         "entry_skill_id": "order-flow",
         "diagnosis_only": False,
         "intent_checks": [],
+        "rag_exclude": [],
         **payload,
         "execution_id": EXECUTION if ("execution_id" in payload or "run_id" in payload) else None,
     }
@@ -481,3 +487,137 @@ def test_correct_token_and_health_pass(monkeypatch, scheduled):
     monkeypatch.setattr(main, "SERVICE_TOKEN", "secret")
     assert client.get("/runs", headers={"x-service-token": "secret"}).json() == {"items": []}
     assert client.get("/health").status_code == 200
+
+
+# ── 담당자 의도(intent)와 rag_exclude ───────────────────────────────────────────
+# docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3. intent 는 {text, expectations} 이고 text 는
+# 1~500자, expectations 는 0~10개, scope 는 조건 문법 v2 한 줄이나 null, checks 는 1~10개다. 칸
+# 이름과 타입이 틀리면 422 지만, 문법·scope 키·checks 개수가 틀린 항목은 받고 진단에서 뺀다(2.10
+# V3-2).
+
+OWNER_INTENT = {
+    "text": "선입금 주문만 결제한다",
+    "expectations": [
+        {
+            "scope": "order.payment_method == 'card'",
+            "checks": ["order.final_status in ['HOLD', 'REJECTED']", "payment.status == null"],
+        },
+        {"scope": None, "checks": ["order.total >= 0"]},
+    ],
+}
+
+
+def test_intent_and_rag_exclude_are_kept_in_trigger(scheduled):
+    """의도와 rag_exclude 는 받은 모양 그대로 trigger 에 남는다. scope 를 빼면 null 이다."""
+    intent = {**OWNER_INTENT, "expectations": [{"checks": ["order.shipments == 0"]}]}
+    payload = {
+        "type": "skill_saved",
+        "candidate_snapshot_id": CANDIDATE,
+        "intent": intent,
+        "rag_exclude": ["case-S2"],
+    }
+    res = client.post("/diagnose", json=payload)
+    assert res.status_code == 202
+    trigger = res.json()["trigger"]
+    assert trigger["intent"] == {
+        "text": OWNER_INTENT["text"],
+        "expectations": [{"scope": None, "checks": ["order.shipments == 0"]}],
+    }
+    assert trigger["rag_exclude"] == ["case-S2"]
+    assert list(trigger)[-2:] == ["intent", "rag_exclude"]
+    res = client.post("/diagnose", json={**payload, "change_id": "c-9", "intent": OWNER_INTENT})
+    assert res.status_code == 202
+    assert res.json()["trigger"]["intent"] == OWNER_INTENT
+
+
+def test_text_only_intent_has_empty_expectations(scheduled):
+    res = client.post(
+        "/diagnose",
+        json={"type": "skill_saved", "candidate_snapshot_id": CANDIDATE, "intent": {"text": "x"}},
+    )
+    assert res.status_code == 202
+    assert res.json()["trigger"]["intent"] == {"text": "x", "expectations": []}
+
+
+@pytest.mark.parametrize(
+    ("intent", "message"),
+    [
+        ({"text": ""}, "at least 1 character"),
+        ({"text": "   "}, "intent text must not be blank"),
+        ({"text": "x" * 501}, "at most 500 characters"),
+        ({"expectations": []}, "Field required"),
+        ({"text": "x", "extra": 1}, "Extra inputs are not permitted"),
+        (
+            {"text": "x", "expectations": [{"checks": ["a == 1"]}] * 11},
+            "at most 10 items",
+        ),
+        (
+            {"text": "x", "expectations": [{"checks": ["a == 1"], "why": "?"}]},
+            "Extra inputs are not permitted",
+        ),
+        ({"text": "x", "expectations": [{"scope": 1, "checks": ["a == 1"]}]}, "valid string"),
+    ],
+    ids=[
+        "empty-text",
+        "blank-text",
+        "long-text",
+        "missing-text",
+        "unknown-intent-field",
+        "too-many-expectations",
+        "unknown-expectation-field",
+        "scope-not-string",
+    ],
+)
+def test_invalid_intent_is_rejected(scheduled, intent, message):
+    res = client.post(
+        "/diagnose",
+        json={"type": "skill_saved", "candidate_snapshot_id": CANDIDATE, "intent": intent},
+    )
+    assert res.status_code == 422
+    assert any(message in error["msg"] for error in res.json()["detail"])
+    assert scheduled == []
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"scope": None, "checks": []},
+        {"checks": ["a == 1"] * 11},
+        {"scope": "order.total>=1", "checks": ["a == 1"]},
+        {"checks": ["order.total >= 'big'"]},
+        {"scope": "payment.status == 'X'", "checks": ["a == 1"]},
+    ],
+    ids=[
+        "empty-checks",
+        "too-many-checks",
+        "unreadable-scope",
+        "unreadable-check",
+        "scope-key-not-allowed",
+    ],
+)
+def test_unreadable_intent_items_do_not_reject_the_request(scheduled, item):
+    """읽을 수 없는 expectation 하나가 /diagnose 전체를 422 로 막지 않는다(V3-2).
+
+    받은 모양 그대로 trigger 에 남고, nodes 의 _owner_intent 가 그 항목을 빼고 dropped 로 남긴다.
+    """
+    intent = {"text": "x", "expectations": [{"scope": None, "checks": ["a == 1"]}, item]}
+    res = client.post(
+        "/diagnose",
+        json={"type": "skill_saved", "candidate_snapshot_id": CANDIDATE, "intent": intent},
+    )
+    assert res.status_code == 202
+    trigger = res.json()["trigger"]
+    assert trigger["intent"]["expectations"][1] == {"scope": None, **item}
+    assert len(scheduled) == 1
+    owner = nodes._owner_intent({"trigger": trigger})
+    assert owner["expectations"][0] == {"scope": None, "checks": ["a == 1"]}
+    assert owner["dropped"]
+
+
+def test_rag_exclude_must_be_a_list_of_strings(scheduled):
+    res = client.post(
+        "/diagnose",
+        json={"type": "skill_saved", "candidate_snapshot_id": CANDIDATE, "rag_exclude": "case-S2"},
+    )
+    assert res.status_code == 422
+    assert scheduled == []

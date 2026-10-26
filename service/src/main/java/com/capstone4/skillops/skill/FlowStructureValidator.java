@@ -3,11 +3,17 @@ package com.capstone4.skillops.skill;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+
+import org.yaml.snakeyaml.error.YAMLException;
 
 import com.capstone4.skillops.snapshot.DependencyGraph;
 
-/** 진단용 그래프를 변경하지 않고 실행을 막는 flow 구조 오류를 모은다. */
+/**
+ * 진단용 그래프를 변경하지 않고 실행을 막는 flow 구조 오류를 모은다.
+ * validate 는 그래프만 보고, ruleKeyErrors 는 단계 원문의 실행 규칙(rules) 조건 키가 inputs 에 있는지 본다.
+ */
 public final class FlowStructureValidator {
 
     /** 주문 Agent의 OrderFlowPolicy와 같은 상한이며 공통 fixture 테스트가 두 값을 대조한다. */
@@ -44,6 +50,38 @@ public final class FlowStructureValidator {
         if ((!graph.complete() && unreadable.isEmpty()) || !graph.steps().equals(nodeIds)) {
             errors.add(new Violation(graph.entrySkillId(), "INVALID_FLOW", "INCOMPLETE_ANALYSIS",
                     "모든 실행 단계의 선언을 확인하지 못했습니다"));
+        }
+        return List.copyOf(errors);
+    }
+
+    /**
+     * 읽을 수 있는 단계마다 실행 규칙(rules)의 조건 값 이름이 그 단계의 inputs 에 선언됐는지 본다. 선언되지 않은 값 이름이 있는 단계는
+     * {code: CONTRACT_VIOLATION, reason: RULE_KEY_NOT_INPUT} 오류 하나를 실행 순서대로 낸다. 주문 Agent 의 SkillLoader.validateFlow 가
+     * 업무 도구를 부르기 전에 같은 조건으로 거부한다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.2 절).
+     * rules 형식이 틀린 단계는 metadata_errors 에서 이미 알리므로 여기서는 건너뛴다. 같은 단계는 한 번만 본다.
+     * service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 의 apply 가 validate 결과 뒤에 이어 붙인다.
+     *
+     * @param texts skill 이름별 SKILL.md 원문이다. 그래프 노드의 원문을 여기서 찾는다
+     */
+    public static List<Violation> ruleKeyErrors(DependencyGraph graph, Map<String, String> texts) {
+        List<Violation> errors = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (DependencyGraph.Node node : graph.nodes()) {
+            if (node.parseError() != null || !seen.add(node.skillId()) || texts.get(node.skillId()) == null) {
+                continue;
+            }
+            List<SkillRules.Rule> rules;
+            try {
+                rules = SkillRules.read(SkillFrontmatter.readForExecution(texts.get(node.skillId())).fields());
+            } catch (IllegalArgumentException | YAMLException unreadable) {
+                // 형식 오류는 SkillMetadataValidator 가 rules 또는 frontmatter 오류로 알린다.
+                continue;
+            }
+            String key = SkillRules.undeclaredKey(rules, node.inputs());
+            if (key != null) {
+                errors.add(new Violation(node.skillId(), "CONTRACT_VIOLATION", "RULE_KEY_NOT_INPUT",
+                        "실행 규칙의 조건 값 " + key + " 이 이 단계의 inputs 에 없습니다"));
+            }
         }
         return List.copyOf(errors);
     }

@@ -17,14 +17,17 @@ order_agent:
   g-01: {result: pass}
   g-02: {result: pass}
   g-03: {result: pass}
+  g-04: {result: pass}
+  g-05: {result: pass}
+  g-06: {result: pass}
 
 answer:
   status: [VALIDATED]
 
 evidence:
-  - claim: 표준 주문 3개가 모두 통과한다
-    kind: 관찰
-    where: check 실행 기록
+  - claim: 표준 주문 g-01~g-06 이 모두 통과한다
+    kind: 관찰(g-01~g-03), 코드 근거(g-04~g-06)
+    where: check 실행 기록, scenarios/README.md 의 기준 주문 유도 근거
   - claim: 규칙 모드는 설명을 실행에 쓰지 않는다
     kind: 코드 근거
     where: order-agent/backend/src/main/java/com/capstone4/orderagent/harness/FixedDecisionProvider.java

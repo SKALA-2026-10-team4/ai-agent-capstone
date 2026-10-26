@@ -28,9 +28,12 @@ QUERY_COPY_RATIO = 0.8
 # 복사 검사를 할 최소 질의 길이(공백·기호 뺀 글자 수)다. 너무 짧은 질의는 우연히 겹친다.
 QUERY_COPY_MIN_LEN = 6
 
-# docs/contracts/skill-frontmatter.md 의 frontmatter 키다.
+# docs/contracts/skill-frontmatter.md 의 frontmatter 키다. rules 는 단계 skill 의 선언형 실행
+# 규칙이다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.2). 형식 검사는 주문 Agent 와 service
+# 의 apply_patch 가 맡으므로 여기서는 모르는 키로 보지만 않는다.
 ALLOWED_KEYS = {
     "name", "description", "inputs", "outputs", "depends_on", "owner", "version", "steps",
+    "rules",
 }
 _NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _XML_RE = re.compile(r"<[A-Za-z/][^>]*>")
