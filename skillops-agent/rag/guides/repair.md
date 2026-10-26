@@ -6,7 +6,6 @@ version: v2
 ---
 도구가 만들지 않는 값을 선언에서 빼는 것, 하위 skill 이 요구하는 값을 원인 skill 의 outputs 에 되살리는 것,
 필수 순서·단계를 복구하는 것은 계약 복구다. 결함을 하위 skill 의 inputs·depends_on 수정으로 퍼뜨리지 않는다.
-담당자 의도가 없는 요청이면 계약을 게시본대로 복구하는 후보가 정답이다.
 담당자 의도가 있는 요청이면 서비스 재판정이 두 가지를 불합격시킨다. 담당자가 바꾼 SKILL.md 를 기준본과 바이트까지
 같게 만드는 후보(is_revert), 그리고 rules 를 지우거나 rules[].when 을 바꾸거나 rules·의도 scope 가 쓰는 inputs 를
 지우는 후보(weakens_contract)다. 그때는 깨진 계약만 고치고 담당자가 더한 내용은 남긴다. 본문에만 적은 정책은 rules 로
