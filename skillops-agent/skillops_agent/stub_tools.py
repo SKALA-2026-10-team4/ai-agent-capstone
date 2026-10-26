@@ -22,11 +22,13 @@ get_tools() 가 새 인스턴스를 만들어도, 앞 노드가 만든 workspace
 UUID 와 golden 시나리오 목록은 아래 모듈 상수에서 바꾼다.
 """
 
+from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import uuid4
 
-from .contracts import ContractError, execution_uuid
+from .config import GOLDEN_ORDERS
+from .contracts import ContractError, condition_holds, execution_uuid
 
 # 고정 UUID 세 개다. BASELINE 은 정상 기준 snapshot, CANDIDATE 는 깨진 저장본 snapshot, EXECUTION 은
 # CANDIDATE 에서 실패한 고정 실행이다. 테스트는 StubMCPTools.BASELINE 처럼 클래스 속성으로도 읽는다.
@@ -36,8 +38,31 @@ EXECUTION = "33333333-3333-4333-8333-333333333333"
 # get_snapshot 과 create_workspace 가 아는 snapshot 이다.
 _KNOWN_SNAPSHOTS = (BASELINE, CANDIDATE)
 # run_scenarios 가 받는 golden 시나리오 번호다. skillops-agent/skillops_agent/config.py 의
-# GOLDEN_IDS 기본값과 같아야 노드의 회귀 시험이 이 stub 에서 돈다.
-_GOLDEN_FIXTURE_IDS = ("g-01", "g-02", "g-03")
+# GOLDEN_IDS 기본값(g-01..g-06, docs/plans/2026-10-26-behavior-edit-root-fix.md 2.8)과 같아야 노드의
+# 회귀 시험이 이 stub 에서 돈다.
+_GOLDEN_FIXTURE_IDS = ("g-01", "g-02", "g-03", "g-04", "g-05", "g-06")
+# get_tool_catalog 가 돌려주는 주문 Agent 업무 도구 목록이다. 모양과 값은 주문 Agent 의 GET
+# /api/tools (order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java 의
+# BINDINGS 와 OrderFlowPolicy.INITIAL_INPUT_KEYS)와 같다. description 은 줄였다.
+_TOOL_CATALOG = {
+    "initial_input_keys": [
+        "order.id", "order.items", "order.customer", "order.payment_method", "order.shipping",
+    ],
+    "tools": [
+        {"tool": "order.inspect", "skill": "order-intake", "description": "Read the order.",
+         "produces": ["order.id", "order.customer", "order.items", "order.payment_method",
+                      "order.shipping", "order.total"]},
+        {"tool": "inventory.reserve", "skill": "inventory-check", "description": "Reserve items.",
+         "produces": ["inventory.available", "inventory.reservable_quantity",
+                      "inventory.reserved"]},
+        {"tool": "payment.charge", "skill": "payment", "description": "Mock charge.",
+         "produces": ["payment.status", "payment.id"]},
+        {"tool": "shipping.reserve", "skill": "shipping-reserve", "description": "Reserve ship.",
+         "produces": ["shipping.id", "shipping.eta"]},
+        {"tool": "notify.send", "skill": "notify", "description": "Record notification.",
+         "produces": ["notify.sent", "notify.channel"]},
+    ],
+}
 
 
 def _snapshot_hash(snapshot_id):
@@ -116,7 +141,7 @@ def _planned_scenarios(scenario_ids, replay_run_ids):
 
 
 def _check_scenario(scenario):
-    """시나리오 번호가 golden 세 개나 f-<UUID> 가 아니면 ContractError 를 던진다.
+    """시나리오 번호가 golden 여섯 개나 f-<UUID> 가 아니면 ContractError 를 던진다.
 
     f- 뒤가 UUID 가 아니면 skillops-agent/skillops_agent/contracts.py 의 execution_uuid 가
     ContractError 를 던진다. run_scenarios 가 시나리오마다 실행 직전에 부른다.
@@ -144,6 +169,20 @@ def _scenario_result(scenario, passed, run_ids):
             for i in run_ids
         ],
     }
+
+
+def _intent_scoped(scenario, intent_expectations):
+    """기준 주문이 scope 있는 의도 expectation 하나 이상에 맞는지 본다.
+
+    service 의 run_scenarios 처럼 시험 주문의 처음 값으로 scope 를 평가한다. 처음 값은
+    skillops-agent/skillops_agent/config.py 의 GOLDEN_ORDERS 이고, 표에 없는 시험 주문(f-<UUID>)은
+    맞지 않는 것으로 본다. run_scenarios 가 결과의 intent_scoped 를 정할 때 쓴다.
+    """
+    values = (GOLDEN_ORDERS.get(scenario) or {}).get("values")
+    return bool(values) and any(
+        isinstance(e, dict) and e.get("scope") and condition_holds(e["scope"], values) is True
+        for e in intent_expectations
+    )
 
 
 class StubMCPTools:
@@ -242,6 +281,14 @@ class StubMCPTools:
         raw = content.encode("utf-8")
         return {"snapshot_id": snapshot_id, "path": path, "hash": sha256(raw).hexdigest(),
                 "size": len(raw), "encoding": "utf-8", "content": content}
+
+    async def get_tool_catalog(self) -> dict | None:
+        """주문 Agent 의 업무 도구 목록(_TOOL_CATALOG)을 부를 때마다 새 사본으로 돌려준다.
+
+        이 stub 의 변경(inventory-check outputs 의 inventory.reserved)은 inventory.reserve 가 내는
+        값이라 개발 요청서 판정(skillops-agent/skillops_agent/capability.py)에서 빈틈이 없다.
+        """
+        return deepcopy(_TOOL_CATALOG)
 
     async def get_trace(self, execution_id):
         """실행 기록을 돌려준다. r_ 별칭도 하이픈 UUID 로 바꿔 찾는다.
@@ -344,20 +391,31 @@ class StubMCPTools:
         }
 
     async def run_scenarios(
-        self, workspace_id, scenario_ids, repeat=2, replay_run_ids=None, extra_checks=None
+        self,
+        workspace_id,
+        scenario_ids,
+        repeat=2,
+        replay_run_ids=None,
+        extra_checks=None,
+        intent_expectations=None,
     ):
         """시나리오마다 repeat 번 가짜 trial 을 기록하고 workspace 통과 상태로 결과를 만든다.
 
         시나리오 검사가 workspace 조회보다 먼저라서 모르는 시나리오는 ContractError, 모르는
         workspace 는 KeyError 다. 시나리오마다 검사한 뒤 바로 trial 을 남기므로, 뒤 시나리오가
         틀려도 앞 시나리오의 trial 은 _traces 에 남는다. extra_checks 는 받기만 하고 보지 않는다.
+        intent_expectations 가 오면 통과 여부는 그대로 두고 결과에 intent_scoped 칸만 붙인다
+        (_intent_scoped). 오지 않으면 칸을 붙이지 않아 예전 응답과 같다.
         """
         results = []
         for scenario in _planned_scenarios(scenario_ids, replay_run_ids):
             _check_scenario(scenario)
             passed = self._workspaces[workspace_id]
             runs = [self._record_trial() for _ in range(repeat)]
-            results.append(_scenario_result(scenario, passed, runs))
+            result = _scenario_result(scenario, passed, runs)
+            if intent_expectations:
+                result["intent_scoped"] = _intent_scoped(scenario, intent_expectations)
+            results.append(result)
         return {
             "workspace_id": workspace_id,
             "all_passed": all(r["passed"] for r in results),

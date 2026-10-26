@@ -152,7 +152,15 @@ def test_stub_diff_skill_returns_changes():
 
 
 @pytest.mark.parametrize(
-    "name", ["hypothesize", "extract_intent", "generate_candidates", "rank_and_explain", "style"]
+    "name",
+    [
+        "hypothesize",
+        "infer_expectations",
+        "extract_intent",
+        "generate_candidates",
+        "rank_and_explain",
+        "style",
+    ],
 )
 def test_prompt_files_exist(name):
     text = load_prompt(name)
@@ -166,6 +174,7 @@ def test_style_rules_reach_operator_facing_prompts(name):
     style.md 의 금지 표현 목록과 고친 예문이 채운 글에 그대로 들어 있어야 한다.
     """
     text = load_prompt(name).format(
+        owner_intent="(없음)",
         root_cause={},
         intent={},
         candidates=[],

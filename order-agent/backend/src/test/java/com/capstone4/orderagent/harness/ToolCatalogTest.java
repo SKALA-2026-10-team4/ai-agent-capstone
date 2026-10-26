@@ -95,6 +95,24 @@ class ToolCatalogTest {
         assertThatThrownBy(()->ToolCatalog.definition(null)).isInstanceOf(NullPointerException.class);
     }
 
+    /**
+     * 묶인 도구마다 produces 가 있고 바꿀 수 없으며, tools 목록이 같은 값을 담는다. inventory.release 와 모르는 도구는 UNKNOWN_TOOL 이다.
+     * 처음 입력 키는 OrderFlowPolicy.INITIAL_INPUT_KEYS 그대로다.
+     */
+    @Test void producesAreDeclaredForEveryBoundToolAndListedByTools(){
+        assertThat(ToolCatalog.tools()).extracting(t->t.get("tool")).containsExactlyElementsOf(TOOLS);
+        for(var item:ToolCatalog.tools()){
+            String tool=(String)item.get("tool");
+            assertThat(item.keySet()).containsExactly("tool","skill","description","produces");
+            assertThat(item.get("produces")).isEqualTo(ToolCatalog.produces(tool));
+            assertThat(ToolCatalog.produces(tool)).isNotEmpty();
+            assertThatThrownBy(()->ToolCatalog.produces(tool).add("x")).isInstanceOf(UnsupportedOperationException.class);
+        }
+        for(String unknown:List.of("inventory.release","gift.wrap",""))
+            assertThatThrownBy(()->ToolCatalog.produces(unknown)).isInstanceOf(AgentException.class).hasMessage("UNKNOWN_TOOL");
+        assertThat(ToolCatalog.initialInputKeys()).isSameAs(OrderFlowPolicy.INITIAL_INPUT_KEYS);
+    }
+
     /** 고정 제공자는 select 에 order-flow 를, 그 밖의 목적에는 묶인 도구와 서버 인자를 돌려준다. */
     @Test void fixedProviderSelectsOrderFlowAndRequestsTheBoundToolWithServerArguments(){
         var provider=new FixedDecisionProvider();

@@ -6,9 +6,12 @@ GET 경로다. 응답은 가공하지 않고 그대로 돌려준다. order-agent
 원문 보존을 요구하기 때문이다. 조회가 실패하면 빈 결과로 바꾸지 않고 OrderAgentError 를 던진다. 이
 예외의 code, message, retryable, upstream_status, snapshot_id 칸은
 service/src/main/java/com/capstone4/skillops/mcp/ToolResults.java 가 만드는 C-1 MCP 도구 오류와
-같고, 어느 실행을 조회했는지 담는 execution_id 칸이 더 있다.
+같고, 어느 실행을 조회했는지 담는 execution_id 칸이 더 있다. 업무 도구 목록(GET /api/tools,
+order-agent/backend/src/main/java/com/capstone4/orderagent/controller/ToolController.java)만 예외다.
+get_tool_catalog 는 응답 모양을 검사한 사본을 돌려주고, 읽지 못하면 예외 대신 None 을 돌려준다.
 
-skillops-agent/skillops_agent/tools.py 의 MCPTools가 조회 다섯 개를 자기 httpx client와 함께 부른다.
+skillops-agent/skillops_agent/tools.py 의 MCPTools가 조회 다섯 개와 도구 목록을 자기 httpx client와
+함께 부른다.
 재시도 규칙은 MAX_ATTEMPTS, RETRY_BACKOFF_SECONDS, _is_retryable_status 에서 바꾼다.
 
 사용 예는 다음과 같다.
@@ -172,6 +175,63 @@ async def get_snapshot(snapshot_id: str, *, client: httpx.AsyncClient | None = N
     """
     _require_uuid("snapshot_id", snapshot_id)
     return await _get(f"/api/snapshots/{snapshot_id}", client, snapshot_id=snapshot_id)
+
+
+async def get_tool_catalog(*, client: httpx.AsyncClient | None = None) -> dict | None:
+    """주문 Agent 의 업무 도구 목록을 GET /api/tools 로 읽어 모양을 검사한 사본을 돌려준다.
+
+    order-agent/backend/src/main/java/com/capstone4/orderagent/controller/ToolController.java 의
+    list() 가 이 경로를 받는다. 응답은 {initial_input_keys: [...], tools: [{tool, skill,
+    description, produces: [...]}]} 이다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11). 다른
+    조회와 달리 실패해도 OrderAgentError 를 던지지 않고 None 을 돌려준다. 도구 목록은 개발 요청서
+    판정에만 쓰고, 읽지 못하면 그 판정을 건너뛰고 예전처럼 진단해야 하기 때문이다. 연결 실패, 실패
+    응답(이 API 가 없는 예전 주문 Agent 의 404 포함), 깨진 JSON, 모양이 틀린 응답(_tool_catalog)이
+    모두 None 이다. 재시도는 다른 조회와 같은 규칙(_get_with_retry)을 따른다.
+    skillops-agent/skillops_agent/tools.py 의 MCPTools.get_tool_catalog 를 거쳐
+    skillops-agent/skillops_agent/nodes.py 의 fetch_evidence 가 부른다.
+    """
+    try:
+        body = await _get("/api/tools", client)
+    except (OrderAgentError, httpx.HTTPError, ValueError):
+        return None
+    return _tool_catalog(body)
+
+
+def _key_list(value) -> list[str] | None:
+    """비지 않은 글자만 든 목록이면 그 사본, 아니면 None 이다."""
+    if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
+        return None
+    return list(value)
+
+
+def _tool_catalog(body) -> dict | None:
+    """GET /api/tools 응답을 검사해 칸을 고정한 사본으로 바꾼다. 모양이 틀리면 None 이다.
+
+    initial_input_keys 는 글자 목록, tools 는 도구가 하나 이상인 목록이어야 한다. 도구마다 tool 과
+    skill 은 비지 않은 글자, produces 는 글자 목록(비어도 된다), description 은 없거나 글자다.
+    도구가 하나도 없는 목록은 모든 값을 빈틈으로 잘못 판정하게 하므로 틀린 모양으로 본다.
+    get_tool_catalog 가 부른다.
+    """
+    if not isinstance(body, dict):
+        return None
+    initial = _key_list(body.get("initial_input_keys"))
+    items = body.get("tools")
+    if initial is None or not isinstance(items, list) or not items:
+        return None
+    tools = []
+    for item in items:
+        if not isinstance(item, dict):
+            return None
+        tool, skill, description = item.get("tool"), item.get("skill"), item.get("description", "")
+        produces = _key_list(item.get("produces"))
+        if not (isinstance(tool, str) and tool and isinstance(skill, str) and skill):
+            return None
+        if produces is None or not isinstance(description, str):
+            return None
+        tools.append(
+            {"tool": tool, "skill": skill, "description": description, "produces": produces}
+        )
+    return {"initial_input_keys": initial, "tools": tools}
 
 
 async def _get(

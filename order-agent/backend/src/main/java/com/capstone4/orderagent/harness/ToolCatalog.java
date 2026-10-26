@@ -6,25 +6,30 @@ import com.capstone4.orderagent.entity.enums.ProcessingStepType;
 
 /**
  * 단계 Skill 과 업무 도구를 1:1 로 묶는 바인딩 표다. 단계 Skill 마다 허용 도구 하나, 주문 처리 단계 종류,
- * 모델에 보여 줄 도구 설명, 서버 컨텍스트로 도구 인자를 채우는 규칙을 BINDINGS 한 줄에 둔다.
- * 이 표 하나가 네 가지를 함께 정한다. 첫째, 그 단계에서 부를 수 있는 도구다(ToolDispatcher 의 TOOL_NOT_ALLOWED 검사).
+ * 모델에 보여 줄 도구 설명, 도구가 만드는 출력 키(produces), 서버 컨텍스트로 도구 인자를 채우는 규칙을 BINDINGS 한 줄에 둔다.
+ * 이 표 하나가 다섯 가지를 함께 정한다. 첫째, 그 단계에서 부를 수 있는 도구다(ToolDispatcher 의 TOOL_NOT_ALLOWED 검사).
  * 둘째, fixed 모드 응답과 서버 대조에 쓰는 도구 인자다(FixedDecisionProvider, OrderToolService 의 INVALID_TOOL_ARGUMENTS 검사).
  * 셋째, 그 단계가 실패했을 때 주문에 FAILED 로 남길 처리 단계 종류다(OrderHarness).
  * 넷째, 결정 질문과 DECISION_INPUT 에 실리는 도구 정의다(definition).
+ * 다섯째, GET /api/tools 가 내놓는 도구 목록이다(tools, initialInputKeys). SkillOps Agent 는 이 목록으로 담당자 수정이
+ * 어떤 도구도 만들지 않는 값을 요구하는지(개발 요청서, docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11 절) 판단한다.
  *
  * 주문 흐름에 단계 하나를 추가할 때 고칠 곳은 다음과 같다.
  * 1. order-agent/skills 에 새 Skill 폴더와 SKILL.md 를 만들고 order-agent/skills/order-flow/SKILL.md 의 steps 에 넣은 뒤
  *    order-agent/scripts/publish-skills.py 로 번들을 다시 봉인한다. steps 는 OrderFlowPolicy.MAX_FLOW_STEPS 를 넘을 수 없다.
- * 2. 이 클래스의 BINDINGS 에 Binding 한 줄을 더한다.
+ * 2. 이 클래스의 BINDINGS 에 Binding 한 줄을 더한다. produces 에는 그 도구가 성공 경로에서 출력에 넣는 키를 빠짐없이 적는다.
  * 3. order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java 의 applyTool 에 case 와 처리 메서드를 더한다.
+ *    order-agent/backend/src/test/java/com/capstone4/orderagent/service/OrderToolServiceProducesTest.java 의 FLOW 에도 도구를 더한다.
+ *    그 테스트가 실제 출력 키와 produces 가 같은지 고정한다.
  * 4. 새 주문 처리 단계 종류가 필요하면 enum 값을 더하고 BUSINESS_FLOW 의 알맞은 자리에 넣는다. 거절이나 실패 뒤 SKIPPED 로 남길
  *    단계가 이 순서로 정해진다. 파일은 order-agent/backend/src/main/java/com/capstone4/orderagent/entity/enums/ProcessingStepType.java 다.
  * 5. 새 단계가 반드시 끝나야 하는 마지막 단계라면 OrderFlowPolicy.REQUIRED_FINAL_STEP 을 바꾸고, 새 초기 입력 키가 생기면
  *    OrderFlowPolicy.INITIAL_INPUT_KEYS 주석이 가리키는 복제본까지 맞춘다.
  * 6. 화면에 한글 이름을 보이려면 frontend/src/utils/eventView.js 의 TOOL_LABELS 에 도구를, 새 컨텍스트 키가 생기면 같은 파일의
  *    KEY_LABELS 에 키를 더한다. 새 처리 단계 종류를 더했다면 order-agent/frontend/src/utils/format.js 의 stepText 에도 이름을 더한다.
- * order-agent/backend/src/test/java/com/capstone4/orderagent/harness 의 ToolCatalogTest 와 ToolCatalogStepTypeTest 가 현재 표를 고정하므로
- * 두 테스트의 기대값도 함께 고친다. 게시 번들로 실행 경로를 비교하는
+ * order-agent/backend/src/test/java/com/capstone4/orderagent/harness 의 ToolCatalogTest 와 ToolCatalogStepTypeTest,
+ * order-agent/backend/src/test/java/com/capstone4/orderagent/controller/ToolControllerTest.java 가 현재 표를 고정하므로
+ * 세 테스트의 기대값도 함께 고친다. 게시 번들로 실행 경로를 비교하는
  * order-agent/backend/src/test/java/com/capstone4/orderagent/integration/TraceContractGolden.java 의 기대 줄도 다시 맞춘다.
  */
 public final class ToolCatalog {
@@ -38,10 +43,12 @@ public final class ToolCatalog {
     public static final String RELEASE_TOOL = "inventory.release";
 
     /**
-     * 단계 Skill 하나의 허용 도구, 주문 처리 단계 종류, 모델용 도구 설명, 서버 인자 채우기 규칙이다.
+     * 단계 Skill 하나의 허용 도구, 주문 처리 단계 종류, 모델용 도구 설명, 도구 출력 키, 서버 인자 채우기 규칙이다.
      * description 은 모델에게 그대로 보내는 문장이라 프롬프트처럼 다룬다.
+     * produces 는 OrderToolService 가 그 도구의 성공 경로에서 출력(TOOL_RESULT 의 result.context)에 넣는 키 전부다.
+     * 업무 거절 경로는 이 가운데 일부만 낸다(결제 거절이면 payment.id 가 없다). 모델에 보내지 않으며 definition 에도 넣지 않는다.
      */
-    private record Binding(String skill, String tool, ProcessingStepType orderStep, String description, ArgumentFiller fill) {}
+    private record Binding(String skill, String tool, ProcessingStepType orderStep, String description, List<String> produces, ArgumentFiller fill) {}
     /**
      * 서버 컨텍스트에서 order_id 뒤의 도구 인자를 정해진 순서로 채운다. fixed 모드에서는 넣는 순서가 TOOL_REQUEST 에 보이는
      * 인자 키 순서가 되며 ToolCatalogTest 가 이 순서를 고정한다. 서버 대조는 정규화 해시로 하므로 키 순서와 무관하다.
@@ -54,21 +61,27 @@ public final class ToolCatalog {
      * 겹치면 BY_SKILL 과 BY_TOOL 을 만드는 toUnmodifiableMap 이 클래스 초기화 중에 실패한다.
      */
     private static final List<Binding> BINDINGS = List.of(
+        // order.inspect 는 OrderToolService.context 를 그대로 내므로 produces 가 그 키 전부(처음 입력 키와 order.total)다.
         new Binding("order-intake", "order.inspect", ProcessingStepType.INTAKE,
             "Read the accepted order and server-calculated total. Does not create another order.",
+            List.of("order.id", "order.customer", "order.items", "order.payment_method", "order.shipping", "order.total"),
             (context, args) -> {}),
         new Binding("inventory-check", "inventory.reserve", ProcessingStepType.INVENTORY,
             "Atomically reserve all order items or return OUT_OF_STOCK. Arguments: order_id, items[{sku,qty}].",
+            List.of("inventory.available", "inventory.reservable_quantity", "inventory.reserved"),
             (context, args) -> args.put("items", context.get("order.items"))),
         // 결제 금액은 모델이 아니라 서버 컨텍스트의 order.total 로 채운다. 모델이 다른 금액을 보내면 서버 대조에서 막힌다.
         new Binding("payment", "payment.charge", ProcessingStepType.PAYMENT,
             "Mock charge a reserved order. Arguments: order_id, amount (server total), method (card/prepaid).",
+            List.of("payment.status", "payment.id"),
             (context, args) -> {args.put("amount", context.get("order.total")); args.put("method", context.get("order.payment_method"));}),
         new Binding("shipping-reserve", "shipping.reserve", ProcessingStepType.SHIPPING,
             "Reserve shipment only for a paid and reserved order. Arguments: order_id, country, express.",
+            List.of("shipping.id", "shipping.eta"),
             ToolCatalog::shippingArguments),
         new Binding("notify", "notify.send", ProcessingStepType.NOTIFICATION,
             "Record success notification only after shipment. Arguments: order_id, customer.",
+            List.of("notify.sent", "notify.channel"),
             (context, args) -> args.put("customer", context.get("order.customer"))));
     /** skill 이름과 tool 이름으로 BINDINGS 를 찾는 색인이다. 바꿀 수 없는 Map 이라 null 키로 찾으면 NullPointerException 이 난다. */
     private static final Map<String,Binding> BY_SKILL = BINDINGS.stream().collect(Collectors.toUnmodifiableMap(Binding::skill, b -> b));
@@ -108,6 +121,32 @@ public final class ToolCatalog {
         if(binding==null)throw new AgentException("UNKNOWN_TOOL");
         return Map.of("name",tool,"description",binding.description());
     }
+    /**
+     * 도구가 성공 경로에서 출력에 넣는 키 목록(Binding 의 produces)을 바꿀 수 없는 List 로 돌려준다.
+     * RELEASE_TOOL 과 모르는 도구는 UNKNOWN_TOOL 이다. OrderToolServiceProducesTest 가 실제 출력 키와 대조할 때 부른다.
+     */
+    public static List<String> produces(String tool){
+        Binding binding=BY_TOOL.get(tool);
+        if(binding==null)throw new AgentException("UNKNOWN_TOOL");
+        return binding.produces();
+    }
+    /**
+     * GET /api/tools 의 tools 항목을 BINDINGS 줄 순서로 만든다. 항목 키는 tool, skill, description, produces 이고 이 순서로 넣는다.
+     * 모델에 내놓지 않는 RELEASE_TOOL 은 묶인 단계 Skill 이 없어 넣지 않는다. 줄 순서에는 의미가 없으므로 읽는 쪽은 순서에 기대지 않는다.
+     * order-agent/backend/src/main/java/com/capstone4/orderagent/controller/ToolController.java 가 부른다.
+     */
+    public static List<Map<String,Object>> tools(){
+        return BINDINGS.stream().map(b->{
+            var item=new LinkedHashMap<String,Object>();
+            item.put("tool",b.tool());item.put("skill",b.skill());item.put("description",b.description());item.put("produces",b.produces());
+            return Collections.unmodifiableMap(item);
+        }).toList();
+    }
+    /**
+     * flow 정적 검증이 처음부터 공급된다고 보는 입력 키(OrderFlowPolicy.INITIAL_INPUT_KEYS)를 돌려준다.
+     * OrderFlowPolicy 가 harness 패키지 밖에 열려 있지 않아 GET /api/tools 의 initial_input_keys 를 이 메서드로 내놓는다.
+     */
+    public static List<String> initialInputKeys(){return OrderFlowPolicy.INITIAL_INPUT_KEYS;}
     /**
      * 단계 Skill 이 기록할 주문 처리 단계 종류다. 바인딩이 없는 이름은 RECOVERY 다.
      * OrderHarness 가 단계를 시작할 때와 실패를 기록할 때 불러,

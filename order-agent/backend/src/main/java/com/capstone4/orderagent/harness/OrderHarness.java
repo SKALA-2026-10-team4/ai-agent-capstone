@@ -20,8 +20,8 @@ import org.springframework.stereotype.Component;
  *    (DECISION_INPUT, MODEL_REQUEST, MODEL_RESPONSE, SKILL_SELECTED). MODEL_REQUEST 는 fixed 가 아닌 모드에서만 남는다.
  * 3. 고른 루트 flow 를 로드해 검증한다(SKILL_RESOLVED, SKILL_LOADED, FLOW_VALIDATED).
  * 4. steps 순서대로 단계마다 SKILL_LOADED, SKILL_STARTED, 결정 이벤트, TOOL_REQUEST, TOOL_RESULT, SKILL_COMPLETED,
- *    SKILL_FINISHED 를 남긴다.
- * 5. 모든 단계가 끝나면 주문을 SHIPPED 로 확정하고 EXECUTION_FINISHED 를 남긴다. 도구가 주문을 끝내면 BUSINESS_STOP 을,
+ *    SKILL_FINISHED 를 남긴다. 단계 Skill 의 실행 규칙(rules)이 매치되면 결정 이벤트와 도구 대신 RULE_MATCHED 를 남긴다.
+ * 5. 모든 단계가 끝나면 주문을 SHIPPED 로 확정하고 EXECUTION_FINISHED 를 남긴다. 도구나 실행 규칙이 주문을 끝내면 BUSINESS_STOP 을,
  *    오류가 나면 EXECUTION_ERROR 를 남긴 뒤 EXECUTION_FINISHED 로 닫는다.
  *
  * 이 클래스에는 트랜잭션이 없다. 모델 응답을 기다리는 동안 DB 잠금을 잡지 않도록 trace 기록은
@@ -34,7 +34,8 @@ import org.springframework.stereotype.Component;
  * frontend/src/utils/eventView.js 는 이벤트 종류마다 화면 문장을 만들고 frontend/src/utils/traceRun.js 는 단계 상태를 계산한다.
  * skillops-agent/skillops_agent/contracts.py 는 SKILL_STARTED 의 input 키, SKILL_FINISHED 의 output 키, 첫 EXECUTION_ERROR,
  * TOOL_REQUEST 의 tool 을 읽는다.
- * order-agent/frontend/src/utils/evidenceFormat.js 도 이벤트 종류 이름을 라벨로 바꾼다.
+ * order-agent/frontend/src/utils/evidenceFormat.js 도 이벤트 종류 이름을 라벨로 바꾼다. RULE_MATCHED 는 service 변환기가 읽지 않는 이벤트이며
+ * 같은 단계의 SKILL_FINISHED 가 도구 업무 종료와 같은 모양으로 결과를 전한다.
  * 이름이나 순서를 바꾸면 이 소비자들과 경로별 기대 줄을 함께 고친다. 기대 줄은
  * order-agent/backend/src/test/java/com/capstone4/orderagent/integration/TraceContractGolden.java 에 있다.
  *
@@ -179,7 +180,8 @@ public class OrderHarness {
     }
     /**
      * 단계 Skill 하나를 실행한다. snapshot 에서 단계 파일을 다시 로드해 SKILL_LOADED 를, 선언 입력만 골라 SKILL_STARTED 를 남긴다.
-     * 실행 중 입력 검증(runtime_validation)을 통과하면 묶인 도구 정의와 함께 결정을 요청하고 ToolDispatcher 로 도구를 실행한다.
+     * 실행 중 입력 검증(runtime_validation)을 통과하면 먼저 실행 규칙을 선언 입력으로 평가하고, 매치되면 stopForRule 로 업무 종료해
+     * BUSINESS_STOP 을 돌려준다. 매치되지 않으면 묶인 도구 정의와 함께 결정을 요청하고 ToolDispatcher 로 도구를 실행한다.
      * 도구가 돌려준 주문 상태가 OrderFlowPolicy.CONTINUE_STATUSES 밖이면 실행을 업무 중단으로 닫고 BUSINESS_STOP 을 돌려준다.
      * 계속할 수 있으면 선언 출력이 모두 있는지 보고(MISSING_SKILL_OUTPUT) 그 값만 컨텍스트에 넣은 뒤 SKILL_COMPLETED 와
      * SKILL_FINISHED 를 남긴다. 모델은 선언 입력만 보고 다음 단계도 선언 출력만 받으므로, SKILL.md 의 계약이 실제 데이터 흐름을 정한다.
@@ -195,6 +197,9 @@ public class OrderHarness {
         trace.event(execution,"SKILL_STARTED",skill.id(),Map.of("step_no",progress.stepNo,"version",skill.version(),
             "hash",skill.hash(),"input",inputs));
         loader.validateInputs(skill,progress.context.keySet(),progress.completed,"runtime_validation");
+        // 실행 규칙은 모드와 무관하게 결정 요청 전에 선언 입력만으로 평가한다. 매치되면 도구를 부르지 않고 업무 종료한다.
+        int rule=matchedRule(skill,inputs);
+        if(rule>=0){stopForRule(progress,skill,rule);return StepOutcome.BUSINESS_STOP;}
         // 모델에는 이 단계에 묶인 도구 하나의 정의만 준다.
         var decision=decisions.decide(execution,DecisionProvider.Question.tool(skill,inputs,
             ToolCatalog.definition(ToolCatalog.toolFor(skill.id()))),progress.control);
@@ -230,6 +235,33 @@ public class OrderHarness {
         progress.activeSkill=null;
         trace.event(progress.executionId,"BUSINESS_STOP",skill.id(),Map.of("final_status",finalStatus));
         trace.finish(progress.executionId,"COMPLETED",business.status(progress.orderId),null,progress.control.elapsedMs());
+    }
+    /** 단계 Skill 의 rules 를 위에서부터 inputs 로 평가해 처음 참인 규칙의 번호(0부터)를 돌려준다. 없으면 -1 이다. */
+    private static int matchedRule(SkillLoader.Skill skill,Map<String,Object> inputs){
+        for(int i=0;i<skill.rules().size();i++)if(skill.rules().get(i).condition().holds(inputs))return i;
+        return -1;
+    }
+    /**
+     * 실행 규칙이 매치된 단계를 정상 업무 종료로 기록하고 실행을 COMPLETED 로 닫는다. 규칙 하나만 적용하고 결정 요청과 도구 호출은 하지 않는다.
+     * RULE_MATCHED(skill_id, rule_index, when, then, reason)를 먼저 남기고 OrderToolService.stopByRule 이 주문을 HOLD 나 REJECTED 로 바꾼다.
+     * 결제 전이면 그 트랜잭션이 inventory.release 의 TOOL_REQUEST, TOOL_RESULT 를 남긴다. 이어서 SKILL_FINISHED(status ok, business_stop true,
+     * final_status, rule_reason, 빈 output), BUSINESS_STOP(final_status, rule_reason), EXECUTION_FINISHED 순서다. 도구 업무 종료(stopForBusinessResult)와
+     * 같은 모양에 rule_reason 칸만 더했으므로 service 의 OrderAgentTraceConverter 는 RULE_MATCHED 와 rule_reason 을 몰라도 결과를 그대로 읽는다.
+     * 화면(frontend/src/utils/eventView.js)은 BUSINESS_STOP 의 rule_reason 이 있으면 규칙에 따른 보류·거절로 설명한다.
+     */
+    private void stopForRule(ExecutionProgress progress,SkillLoader.Skill skill,int index){
+        var rule=skill.rules().get(index);
+        var matched=new LinkedHashMap<String,Object>();
+        matched.put("skill_id",skill.id());matched.put("rule_index",index);matched.put("when",rule.when());
+        matched.put("then",rule.then());matched.put("reason",rule.reason());
+        trace.event(progress.executionId,"RULE_MATCHED",skill.id(),matched);
+        String finalStatus=business.stopByRule(progress.orderId,progress.executionId,skill.id(),progress.orderStep,rule.then(),rule.reason());
+        var extra=new LinkedHashMap<String,Object>();
+        extra.put("final_status",finalStatus);extra.put("business_stop",true);extra.put("rule_reason",rule.reason());
+        finishedStep(progress.executionId,skill,progress.stepNo,progress.stepStartedNanos,"ok",Map.of(),extra);
+        progress.activeSkill=null;
+        trace.event(progress.executionId,"BUSINESS_STOP",skill.id(),Map.of("final_status",finalStatus,"rule_reason",rule.reason()));
+        trace.finish(progress.executionId,"COMPLETED",finalStatus,null,progress.control.elapsedMs());
     }
     /**
      * 모든 단계를 마친 실행을 완료로 닫는다. OrderFlowPolicy.REQUIRED_FINAL_STEP 이 완료되지 않았으면 INCOMPLETE_FLOW 다.

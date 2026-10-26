@@ -89,9 +89,12 @@ public class SkillQueryService {
     }
 
     /**
-     * 해석한 Skill 을 응답 메타데이터로 바꾼다. 키 순서는 skill_id, name, version, description, owner, path, hash, inputs, outputs, depends_on, steps 다.
+     * 해석한 Skill 을 응답 메타데이터로 바꾼다. 키 순서는 skill_id, name, version, description, owner, path, hash, inputs, outputs, depends_on, steps, rules 다.
      * front matter 의 name 은 폴더 이름과 같아야 하므로 name 은 늘 skill_id 와 같다. hash 는 원본 바이트의 SHA-256 이라
      * GET /api/snapshots/{id}/files 의 hash 와 같다. flow Skill 은 steps 가 있고 단계 Skill 은 steps 가 빈 목록이다.
+     * rules 는 실행 로더가 읽고 검증한 실행 규칙을 front matter 순서대로 {when, then, reason} 목록으로 담은 추가 칸이며, 규칙이 없거나 flow Skill 이면 빈 목록이다.
+     * 기존 소비자(skillops-agent/skillops_agent/contracts.py 의 check_skill_listing, partial_evidence.py, frontend/src/api/skillSets.js)는
+     * 모르는 칸을 무시하고, skillSets.js 는 이 칸이 있으면 원문 front matter 대신 이 값을 쓴다.
      */
     private Map<String, Object> metadata(SkillLoader.Skill skill) {
         var result = new LinkedHashMap<String, Object>();
@@ -106,6 +109,16 @@ public class SkillQueryService {
         result.put("outputs", skill.outputs());
         result.put("depends_on", skill.dependsOn());
         result.put("steps", skill.steps());
+        result.put("rules", skill.rules().stream().map(SkillQueryService::rule).toList());
+        return result;
+    }
+
+    /** 실행 규칙 한 줄을 when, then, reason 순서의 Map 으로 바꾼다. 해석한 조건(condition)은 응답에 넣지 않는다. */
+    private static Map<String, Object> rule(SkillLoader.Rule rule) {
+        var result = new LinkedHashMap<String, Object>();
+        result.put("when", rule.when());
+        result.put("then", rule.then());
+        result.put("reason", rule.reason());
         return result;
     }
 }

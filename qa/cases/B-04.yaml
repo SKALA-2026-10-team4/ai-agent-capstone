@@ -1,0 +1,96 @@
+# 행동 변경이다. 결제 본문에 '결제 거절 이력 고객은 결제 시도 전 보류한다'를 적고 의도를 함께 저장했다.
+# 결제가 고객 값을 받지 않아 결제에 규칙을 걸려면 inputs 도 고쳐야 한다. 이미 고객 값을 받는 주문 접수에 걸어도 정답이다(R2).
+id: B-04
+group: B
+title: 결제 본문에 '결제 거절 이력 고객은 결제를 시도하지 않고 보류한다'를 적고 의도를 함께 저장함
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "재고 예약 성공을 확인합니다."
+    to: "재고 예약 성공을 확인합니다. 결제 거절 이력이 있는 고객(c_declined)은 결제를 시도하지 않고 보류합니다."
+
+intent:
+  text: 결제 거절 이력 고객(c_declined)은 결제를 시도하지 않고 보류한다
+  expectations:
+    - scope: "order.customer == 'c_declined'"
+      checks: ["order.final_status == 'HOLD'", "payment.status == null"]
+  # g-03 은 지금도 HOLD 로 끝나지만 결제를 시도해 payment.status 가 DECLINED 로 남는다.
+  repro: [g-03]
+
+order_agent:
+  # 의도 없이 돌린 반응이다. 규칙 모드는 본문을 읽지 않으므로 모두 통과한다.
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+  g-04: {result: pass}
+  g-05: {result: pass}
+  g-06: {result: pass}
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [payment]
+  root_cause_kind: incomplete_edit
+  fixable: true
+  rule_skills: [order-intake, inventory-check, payment]
+
+fixes:
+  - name: 결제가 고객 값을 받게 하고 규칙(rules)을 더함
+    change:
+      - file: skills/payment/SKILL.md
+        from: "inputs: [order.id, order.total, order.payment_method, inventory.reserved]"
+        to: "inputs: [order.id, order.total, order.payment_method, inventory.reserved, order.customer]"
+      - file: skills/payment/SKILL.md
+        from: "depends_on: [inventory-check]\n"
+        to: "depends_on: [inventory-check]\nrules:\n  - when: \"order.customer == 'c_declined'\"\n    then: hold\n    reason: DECLINED_HISTORY\n"
+    tests_pass: true
+    valid: true
+  - name: 주문 접수에 규칙(rules)을 더함
+    change:
+      - file: skills/order-intake/SKILL.md
+        from: "depends_on: []\n"
+        to: "depends_on: []\nrules:\n  - when: \"order.customer == 'c_declined'\"\n    then: hold\n    reason: DECLINED_HISTORY\n"
+    tests_pass: true
+    valid: true
+  - name: 되돌리기
+    change:
+      - file: skills/payment/SKILL.md
+        from: "재고 예약 성공을 확인합니다. 결제 거절 이력이 있는 고객(c_declined)은 결제를 시도하지 않고 보류합니다."
+        to: "재고 예약 성공을 확인합니다."
+    tests_pass: false
+    failure: "payment.status == null"
+    valid: false
+
+evidence:
+  - claim: 의도 없이 돌리면 표준 주문 g-01~g-06 이 모두 통과한다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/harness/FixedDecisionProvider.java, scenarios/README.md
+  - claim: 의도 범위 주문은 g-03 하나이고, 수정본에서는 결제를 시도해 payment.status 가 DECLINED 로 남아 떨어진다
+    kind: 코드 근거
+    where: >-
+      order-agent/backend/src/main/java/com/capstone4/orderagent/adapter/PaymentMockAdapter.java 의 DECLINED_CUSTOMER,
+      order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java 의 stopForBusinessResult
+  - claim: 원인은 결제 본문 수정이고 종류는 의도 미실현(incomplete_edit)이다
+    kind: 구성, 정의
+    where: 넣은 수정이 결제 본문 하나이고 수정본은 오류 없이 돈다. docs/plans/2026-10-26-behavior-edit-root-fix.md 2.5
+  - claim: 결제에 규칙을 걸려면 order.customer 를 inputs 에 더해야 한다
+    kind: 코드 근거
+    where: 규칙 조건 키는 그 Skill 의 선언 input 이어야 한다(계획 2.2 의 RULE_KEY_NOT_INPUT). 같은 수정을 inputs 없이 저장하면 B-05 가 된다
+  - claim: 결제에 거는 안과 주문 접수에 거는 안이 모두 의도를 살린다
+    kind: 존재 증명
+    where: >-
+      fixes 의 앞 두 안. order.customer 는 처음부터 주어지는 값이고
+      (order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderFlowPolicy.java 의 INITIAL_INPUT_KEYS) 주문 접수는 이미 입력으로
+      받는다. 개선안은 diff 가 아니라 조건으로 판정한다(R2)
+  - claim: 되돌리기는 불합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1, 계획 2.6
+  - claim: 의도와 확인 조건
+    kind: 정의
+    where: 이 케이스 파일의 intent
+
+current:
+  result: 구현 중(2026-10-26), check 미실행
+  defects: [D1]

@@ -19,6 +19,7 @@ JSON 필드명은 snake_case로 통일한다. 금액은 KRW 원 단위 정수, �
 | POST | `/api/orders` | 주문 접수·처리 |
 | GET | `/api/orders/{order_id}` | 주문 결과·단계 조회 |
 | GET | `/api/orders/by-request/{request_id}` | 응답 유실·중복 요청 복구 |
+| GET | `/api/tools` | 업무 도구와 출력 키(produces)·처음 입력 키 (2026-10-26, 아래 "업무 도구 목록") |
 
 인증은 없는 로컬 데모다. 배포·실제 고객 데이터 사용은 범위 밖이다. 프론트는 상대 경로 `/api/...`만 사용하고 Vite가 `backend:8080`으로 전달한다. 기존 SkillOps 8080을 호출하지 않는다.
 
@@ -131,6 +132,9 @@ order_items.sku·name·unit_price는 주문 시점 값이다. `payment.reference
 |---|---|---|---|
 | 품절 | REJECTED / OUT_OF_STOCK | NOT_ATTEMPTED / null / NOT_ATTEMPTED | INTAKE SUCCESS, INVENTORY REJECTED, 나머지 SKIPPED |
 | 결제 거절 | HOLD / PAYMENT_DECLINED | DECLINED / null / NOT_ATTEMPTED | INTAKE·INVENTORY SUCCESS, PAYMENT REJECTED, RELEASE SUCCESS, SHIPPING·NOTIFICATION SKIPPED |
+| 실행 규칙(rules) | HOLD(hold) 또는 REJECTED(reject) / 규칙 reason | 결제 전 규칙이면 NOT_ATTEMPTED / null / NOT_ATTEMPTED, 결제 뒤 단계 규칙이면 결제는 PAID 그대로 | 규칙 단계 SKIPPED(result_code = reason), 결제 전이면 RELEASE SUCCESS, 뒤 단계 SKIPPED |
+
+message는 상태와 result_code로 정한다. OUT_OF_STOCK·PAYMENT_DECLINED는 위 두 경우의 문구, NO_SELECTION(엔트리 미선택 거절)은 "처리할 Skill 을 고르지 못해 주문을 거절했습니다.", 그 밖의 result_code(실행 규칙 reason)는 "업무 규칙(<reason>)에 따라 주문을 거절했습니다./보류했습니다."다. 주문 화면의 상태 배지(`order-agent/frontend/src/utils/format.js`의 orderStatusLabel)도 같은 구분으로 "업무 규칙(<reason>) · 주문 거절/보류"를 보인다.
 
 SKIPPED 단계의 result_code는 UPSTREAM_REJECTED다. 정상·품절 주문에는 RELEASE 단계가 없으며, 결제 거절 시에만 재고 해제 단계로 추가한다. 단계 개수를 5개로 하드코딩하지 않는다.
 
@@ -203,3 +207,16 @@ order_id는 접수된 주문을 안전하게 확인할 수 있을 때만 반환�
 Skill 목록은 GET /api/snapshots/{snapshot_id}/skills, 본문은 GET /api/snapshots/{snapshot_id}/skills/{skill_id}로 조회한다. 파싱 실패 목록은 partial/parse_errors로 표시하고 원문은 기존 files API에서 확인할 수 있다. 모든 조회는 업무 상태를 변경하지 않는다.
 
 상세 JSON 계약·오류 코드·MCP 변환 범위는 [진단용 조회 API 명세](diagnosis-read-api.md)를 참고한다. 기존 trace는 events 형식을 유지하고 새 단계 관찰 이벤트를 추가했다.
+
+## 업무 도구 목록 (2026-10-26)
+
+`GET /api/tools` → 200. 파라미터 없는 읽기 전용 조회이며 demo 설정과 무관하다. SkillOps Agent가 개발 요청서(어떤 도구도 만들지 않는 값을 요구하는 수정)를 판단할 때 읽는다.
+
+```json
+{
+  "initial_input_keys": ["order.id", "order.items", "order.customer", "order.payment_method", "order.shipping"],
+  "tools": [{"tool": "payment.charge", "skill": "payment", "description": "Mock charge a reserved order. ...", "produces": ["payment.status", "payment.id"]}]
+}
+```
+
+위 예시는 도구 다섯 개 가운데 하나만 적었다. 전체 응답과 필드 뜻, produces의 성공 경로 기준은 [진단용 조회 API 명세](diagnosis-read-api.md) 10절을 따른다.

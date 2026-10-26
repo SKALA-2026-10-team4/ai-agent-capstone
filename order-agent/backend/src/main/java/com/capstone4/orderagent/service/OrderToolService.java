@@ -18,11 +18,13 @@ import static com.capstone4.orderagent.entity.enums.ProcessingStepStatus.*;
  * 모델 응답을 기다리는 동안 DB 잠금을 잡지 않도록 실행 루프는 트랜잭션 없이 돌고, 실제 업무 효과는 여기서 도구 단위로 커밋한다.
  * 실행 루프는 order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java 다.
  * execute 는 업무 효과와 같은 트랜잭션에 멱등 결과와 TOOL_RESULT 를 쓰므로, TOOL_RESULT 가 있으면 그 업무 효과도 커밋된 것이다.
- * OrderHarness 가 initial, status, noSelection, complete, compensateUnpaid 를 부르고
+ * OrderHarness 가 initial, status, noSelection, stopByRule, complete, compensateUnpaid 를 부르고
  * order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolDispatcher.java 가 execute 를 부른다.
  *
  * 도구를 하나 더하려면 applyTool 의 switch 에 case 와 처리 메서드를 더하고
  * order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java 의 BINDINGS 에 한 줄을 더한다.
+ * 처리 메서드가 출력에 넣는 키는 그 Binding 의 produces 와 같아야 하며(GET /api/tools 로 나간다),
+ * order-agent/backend/src/test/java/com/capstone4/orderagent/service/OrderToolServiceProducesTest.java 가 이를 고정한다.
  * 거절 뒤 건너뛸 단계는 order-agent/backend/src/main/java/com/capstone4/orderagent/entity/enums/ProcessingStepType.java 의
  * after 가 BUSINESS_FLOW 순서로 정한다. 단계 추가의 전체 순서는 ToolCatalog 클래스 주석에 있다.
  * 여기서 남기는 TOOL_REQUEST, TOOL_RESULT, TOOL_REPLAY, EXECUTION_FINISHED 의 이름과 data 키는 trace 계약이다.
@@ -201,9 +203,33 @@ public class OrderToolService {
         if(o.isInventoryReserved()&&o.getPaymentStatus()!=PaymentStatus.PAID)release(o,executionId,null,reason);
     }
     /**
+     * 실행 규칙(rules)이 매치된 단계에서 도구를 부르지 않고 주문을 업무 종료한다. then 이 hold 면 HOLD, reject 면 REJECTED 이고 결과 코드는 reason 이다.
+     * execute 처럼 주문 행을 잠그고 RUNNING 실행인지(EXECUTION_NOT_RUNNING), 주문이 PROCESSING 인지(ORDER_NOT_PROCESSING) 먼저 본다.
+     * 결제 전 예약 재고는 compensateUnpaid 와 같은 정책으로 되돌리고(TOOL_REQUEST 의 skill 은 규칙 단계, reason 은 규칙 reason),
+     * 결제 상태는 바꾸지 않는다. 결제 뒤 단계의 규칙이면 결제와 예약은 확정 결과라 그대로 남는다.
+     * 주문 단계 기록에는 규칙 단계 종류를 SKIPPED(결과 코드 reason)로, 업무 순서에서 그 뒤의 단계를 SKIPPED(UPSTREAM_REJECTED)로 남긴다.
+     * 끝난 주문 상태 이름을 돌려준다. OrderHarness.runStep 이 RULE_MATCHED 를 남긴 직후 부른다.
+     */
+    @Transactional(timeout=10)
+    public String stopByRule(UUID orderId,UUID executionId,String skill,ProcessingStepType ruleStep,String then,String reason){
+        var o=orders.lockById(orderId).orElseThrow();
+        requireRunning(executionId,orderId);
+        if(o.getStatus()!=OrderStatus.PROCESSING)throw new AgentException("ORDER_NOT_PROCESSING");
+        var status=switch(then){
+            case SkillLoader.RULE_HOLD -> OrderStatus.HOLD;
+            case SkillLoader.RULE_REJECT -> OrderStatus.REJECTED;
+            default -> throw new IllegalArgumentException("Unknown rule action");
+        };
+        var now=clock.instant();
+        step(o,ruleStep,SKIPPED,reason,status==OrderStatus.HOLD?"업무 규칙에 따라 주문을 보류해 실행하지 않았습니다.":"업무 규칙에 따라 주문을 거절해 실행하지 않았습니다.",now);
+        if(o.isInventoryReserved()&&o.getPaymentStatus()!=PaymentStatus.PAID)release(o,executionId,skill,reason);
+        o.stopByRule(status,reason);skip(o,ProcessingStepType.after(ruleStep));
+        orders.flush();return o.getStatus().name();
+    }
+    /**
      * 예약 재고를 모두 되돌리고 서버 전용 도구 inventory.release 의 TOOL_REQUEST, TOOL_RESULT 와 RELEASE 단계를 남긴다.
-     * chargePayment 가 결제 거절 때(skill payment, reason PAYMENT_DECLINED), compensateUnpaid 가 실패 보상 때
-     * (skill 없음, reason 실패 category) 부른다. 모델이 요청하지 않은 해제도 다른 도구와 같은 TOOL_REQUEST, TOOL_RESULT 모양으로
+     * chargePayment 가 결제 거절 때(skill payment, reason PAYMENT_DECLINED), stopByRule 이 실행 규칙 종료 때(skill 규칙 단계, reason 규칙 reason),
+     * compensateUnpaid 가 실패 보상 때(skill 없음, reason 실패 category) 부른다. 모델이 요청하지 않은 해제도 다른 도구와 같은 TOOL_REQUEST, TOOL_RESULT 모양으로
      * 남기고, 서버가 해제를 실행한 까닭은 TOOL_REQUEST 의 reason 에 적는다.
      */
     private void release(Order o,UUID executionId,String skill,String reason){

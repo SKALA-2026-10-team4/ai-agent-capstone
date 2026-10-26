@@ -13,6 +13,11 @@ ORDER_AGENT_BASE_URL 이다. skillops-agent 폴더에서 다음처럼 실행한�
 snapshot 의 skill 목록에서, 처음 주문 입력과 필수 마지막 단계는 OrderFlowPolicy.java 에서 읽는다.
 ToolCatalog 와 실행 기록이 어긋나면 WARN 을 찍는다. 데이터 만드는 규칙은
 skillops-agent/skillops_agent/rag_data.py 에 있다.
+
+QA 평가셋(qa/run_qa.py)이 만든 제안서는 사례로 쌓지 않는다. 평가 케이스의 정답이 사례집에 들어가
+다음 평가 때 RAG 로 새기 때문이다. run_qa 는 후보 snapshot metadata 에 qa_case(케이스 ID)를 남기므로
+그 표시로 가려낸다. 사람이 쓴 사례(rag/cases.json)는 qa_cases 칸에 정답이 겹치는 QA 케이스를 적고,
+run_qa 가 그 케이스를 평가할 때 사례 id 를 rag_exclude 로 보낸다(qa/README.md 의 RAG 정답 누수).
 """
 
 import argparse
@@ -91,6 +96,31 @@ async def decided_proposals() -> list[dict] | None:
         return None
 
 
+async def without_qa_proposals(details: list[dict]) -> tuple[list[dict], int]:
+    """QA 평가셋이 만든 제안서를 빼고 (남은 제안서, 뺀 수)를 돌려준다.
+
+    제안서의 후보 snapshot(proposal.snapshot_id) metadata 에 qa_case 가 있으면 qa/run_qa.py 가
+    발행한 평가용 수정본이다. snapshot 을 읽지 못하면 QA 것인지 알 수 없으므로 답 누출을 막으려고
+    함께 뺀다. snapshot 번호가 없는 제안서는 그대로 둔다.
+    """
+    kept, skipped = [], 0
+    for detail in details:
+        snapshot_id = (detail.get("proposal") or {}).get("snapshot_id")
+        if snapshot_id:
+            try:
+                snapshot = await order_agent.get_snapshot(snapshot_id)
+            except order_agent.OrderAgentError as exc:
+                print(f"WARN: 제안서 {detail.get('proposal_id')} 의 snapshot 을 읽지 못해 "
+                      f"사례로 쓰지 않습니다 ({exc})")
+                skipped += 1
+                continue
+            if (snapshot.get("metadata") or {}).get("qa_case"):
+                skipped += 1
+                continue
+        kept.append(detail)
+    return kept, skipped
+
+
 async def error_phases(details: list[dict]) -> dict[str, str]:
     """제안서의 실패 실행마다 EXECUTION_ERROR 의 phase 를 읽는다. 읽지 못한 실행은 넣지 않는다."""
     phases = {}
@@ -147,6 +177,10 @@ async def main() -> int:
     if details is None:
         print("INFO: SKILLOPS_RAG_SERVICE_USERNAME/PASSWORD 가 없어 새 제안서 사례는 읽지 않습니다")
     else:
+        details, skipped = await without_qa_proposals(details)
+        if skipped:
+            print(f"INFO: QA 평가셋이 만들었거나 확인할 수 없는 제안서 {skipped}건은 "
+                  "사례로 쓰지 않습니다")
         new_cases = rag_data.cases_from_proposals(details, await error_phases(details))
     proposal_cases = rag_data.merge_proposal_cases(new_cases) if (
         new_cases or rag_data.PROPOSAL_CASES_PATH.exists()) else []

@@ -37,6 +37,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * 운영 화면용 Bearer JWT 보안 설정이다. 세션과 CSRF 없이 요청마다 Authorization 헤더의 HS256 토큰만 본다.
  * 로그인이 필요한 경로는 제안서 결정(OPERATOR 역할만), 제안서 목록과 본문, 승인 기록, 진단 기록, 로그인 사용자 조회뿐이다.
  * 나머지는 인증 없이 둔다. MCP(/mcp)와 다른 담당자의 API 가 인증 때문에 갑자기 막히지 않게 하기 위해서다.
+ * /mcp 는 로그인 대신 서비스 토큰(X-Service-Token)으로 막으며, 그 검사는 같은 패키지의 McpServiceTokenFilter 가 한다.
  * 경로별 권한은 securityFilterChain 한 곳에 모여 있다. 새 API 에 로그인을 요구하려면 그 메서드의 규칙 목록에 한 줄을 더한다.
  * 화면도 같은 규칙을 따른다. frontend/src/views/ProposalView.vue 는 frontend/src/stores/auth.js 의 hasRole('OPERATOR') 가
  * 참일 때만 승인과 거절 단추를 쓸 수 있게 한다.

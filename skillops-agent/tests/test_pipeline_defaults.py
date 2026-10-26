@@ -55,6 +55,7 @@ def test_empty_run_fields_keeps_key_order_and_defaults():
         ("diagnosis_status", "RUNNING"),
         ("diagnosis", None),
         ("preflight_run_ids", []),
+        ("repro_scenario_ids", []),
         ("hypotheses", []),
         ("ablation_runs", []),
         ("root_cause", None),

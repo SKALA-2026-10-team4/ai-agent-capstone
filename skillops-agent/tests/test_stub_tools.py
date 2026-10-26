@@ -472,7 +472,7 @@ async def test_run_scenarios_accepts_explicit_failure_scenarios(stub):
     ("scenario", "message"),
     [
         ("x-01", "^unknown scenario$"),
-        ("g-04", "^unknown scenario$"),
+        ("g-07", "^unknown scenario$"),
         ("f-bad", "^execution_id must be a UUID or r_ \\+ UUID hex$"),
     ],
 )

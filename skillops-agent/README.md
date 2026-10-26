@@ -55,7 +55,7 @@ uv run scripts/build_rag_data.py --execution-id <UUID> # 실행을 직접 지정
 
 - 노드마다 붙인 자료 id 가 진단 기록의 `rag_references` 에 남는다.
 - `SKILLOPS_RAG_ENABLED=false` 면 붙이지 않는다. 자료 파일이 없어도 자료 없이 진단한다.
-- `SKILLOPS_RAG_EXCLUDE=case-S2,…` 로 고르지 않을 id 를 준다. 사례로 평가할 때 같은 케이스의 사례를 빼는 데 쓴다.
+- `SKILLOPS_RAG_EXCLUDE=case-S2,…` 로 고르지 않을 id 를 준다. 사례로 평가할 때 같은 케이스의 사례를 빼는 데 쓴다. `/diagnose` 요청의 `rag_exclude` 목록도 이 값에 더해 뺀다.
 - 자료 파일은 프로세스가 처음 읽을 때 한 번 읽는다. 다시 만들었으면 Agent 를 다시 띄운다.
 
 - 현재 C 계약·실행 입력·설정·미지원 경계는 [B/C 연동 안내](docs/c-contract-integration.md)를 따른다.
@@ -70,3 +70,15 @@ uv run scripts/build_rag_data.py --execution-id <UUID> # 실행을 직접 지정
 - #72 4단계: `flow_errors`로 `flow_valid`를 별도 판정하고 구조 오류 후보의 추천을 막는다. [변경 내역](../docs/changes/2026-10-23-flow-structure-validation.md).
 
 - 진단 결과는 MCP `save_proposal` 로 service 에 제안서로 저장한다. 저장은 승인·반영 완료를 뜻하지 않는다.
+
+## 행동 변경 수정본과 담당자 의도
+
+계획은 [행동 변경 근본 개선](../docs/plans/2026-10-26-behavior-edit-root-fix.md) 2절이다.
+
+- `/diagnose` 는 선택 칸 `intent: {text, expectations: [{scope, checks}]}` 와 `rag_exclude: [id]` 를 받는다. 조건은 문법 v2(`==`, `!=`, `in`, `>`, `>=`, `<`, `<=`)이며 읽을 수 없으면 422 다.
+- 의도가 있으면 기준본 사전 검증은 의도 없이, 수정본 사전 검증과 후보 검증은 `run_scenarios` 의 `intent_expectations` 로 돌린다. 원인 실험에는 붙이지 않는다.
+- 저장 직후 요청에 의도 글(`text`)만 있고 `expectations` 가 비면, `fetch_evidence` 가 수정본 사전 검증 전에 LLM 을 한 번 불러(`prompts/infer_expectations.md`) expectations 를 만든다. 프롬프트에는 의도 글, 변경 hunk, 수정본 frontmatter, scope 값 이름, checks 값 이름(선언 inputs·outputs + 예약 키), 기준 주문 표가 들어간다. Agent 에는 기준 주문을 읽는 도구가 없어 표는 `config.GOLDEN_ORDERS`(기준 주문 파일과 상품 단가를 옮긴 값, 테스트가 두 파일과 대조)에서 만든다. 문법·값 이름이 맞지 않는 줄과 상한(expectations 10개, 항목마다 checks 10개)을 넘는 줄은 이유와 함께 `intent.dropped_checks` 에 남기고, 남은 것을 `intent`(출처 `inferred`)로 두어 `extract_intent` 가 다시 만들지 않는다. LLM 이 실패하거나 쓸 줄이 없으면 예전처럼 의도 시험 없이 사전 검증하고 `diagnosis.intent_note` 에 이유를 남긴다. 담당자가 expectations 를 주었거나 의도가 없으면 이 호출은 없다.
+- 수정본이 오류 없이 돌고 의도 범위 기준 주문만 떨어지면 `diagnosis.finding=INTENT_NOT_REALIZED`, `root_cause.kind=incomplete_edit` 로 원인 실험 없이 후보를 만든다. 의도 없이 결과만 다르면 그 기준 주문(`repro_scenario_ids`)으로 원인 실험을 잇고, 확정하지 못하면 `VALIDATION_FAILED` 다.
+- 의도 expectations(담당자가 준 것 또는 Agent 가 만든 것)가 있으면 LLM 과 별개로 결정적 `encode_rule` 후보(단계 skill 의 `rules`)를 하나 만든다(`skillops_agent/skill_rules.py`). Agent 가 만든 expectations 로 만든 후보도 같은 후보 검증으로 판정한다. 의도가 있으면 되돌리기(`is_revert`)와 계약 약화(`weakens_contract`) 후보는 코드가 불합격시킨다.
+- 기준 주문 기본값은 `g-01`~`g-06` 이다. contract-only 실행기(`scenarios/golden`)로 돌릴 때는 `SKILLOPS_GOLDEN_IDS=g-01` 로 둔다.
+- `SKILLOPS_SERVICE_TOKEN` 이 있으면 MCP 요청에도 `X-Service-Token` 헤더를 붙인다. apply_patch v1.4 의 `metadata_errors.field=rules` 와 `CONTRACT_VIOLATION/RULE_KEY_NOT_INPUT` 은 후보 무효로 읽는다.

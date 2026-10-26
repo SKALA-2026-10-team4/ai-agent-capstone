@@ -80,6 +80,7 @@ POST /api/orders는 선택적 snapshot_id(UUID)를 받는다. 미지정이면 �
 - flow가 필수 단계를 마치지 않았거나 선언 출력이 없으면 성공 처리하지 않는다.
 - 모든 단계 결과를 확인한 뒤 주문 SHIPPED와 실행 완료 기록을 같은 트랜잭션으로 확정한다.
 - 재시작 중단 복구: 미결제 예약만 해제, 확정 결과 보존, trace INTERRUPTED.
+- 실행 규칙(rules) 매치: 도구를 부르지 않고 HOLD 또는 REJECTED(result_code = 규칙 reason). 결제 전이면 예약 해제, 결제 뒤면 결제·예약 보존. 업무 종료라 실행은 COMPLETED.
 
 따라서 MVP 문서의 “모든 Mock 변경을 한 번에 롤백” 설명은 이 확장부터 적용하지 않는다.
 
@@ -117,6 +118,45 @@ order-agent/.env에서 ORDER_AGENT_MODEL_MODE=openai, OPENAI_API_KEY, SKILLOPS_M
   "message": "Skill에 필요한 입력 또는 선행 단계가 충족되지 않았습니다."
 }
 ```
+
+## 실행 규칙과 RULE_MATCHED (2026-10-26)
+
+단계 Skill frontmatter의 `rules`(형식은 [skill-flow.md](skill-flow.md) 9절)는 실행 중 입력 검증 직후, 결정 요청 전에 Harness가 평가한다. 매치되면 그 단계의 DECISION_INPUT·MODEL_RESPONSE·도구 TOOL_REQUEST/TOOL_RESULT는 남지 않고 아래 순서로 끝난다.
+
+```text
+SKILL_LOADED:<skill> → SKILL_STARTED:<skill>
+→ RULE_MATCHED:<skill>   {skill_id, rule_index, when, then, reason}
+→ (결제 전이고 예약이 있으면) TOOL_REQUEST:<skill> {tool: inventory.release, arguments, reason: <규칙 reason>}
+                              TOOL_RESULT:<skill>  {tool: inventory.release, arguments, result: {inventory.reserved: false}}
+→ SKILL_FINISHED:<skill> {final_status, business_stop: true, rule_reason, step_no, version, status: ok, output: {}, duration_ms}
+→ BUSINESS_STOP:<skill>  {final_status, rule_reason}
+→ EXECUTION_FINISHED     {completion: COMPLETED, final_status, error_category: null}
+```
+
+- rule_index는 rules 목록에서 0부터 센 번호다. 처음 참인 규칙 하나만 적용한다.
+- 재고 해제 기록은 결제 거절의 해제와 같은 inventory.release 모양이며 skill_id는 규칙 단계, reason은 규칙 reason이다.
+- 주문 단계 기록: 규칙 단계 종류가 SKIPPED(결과 코드 = reason, "업무 규칙에 따라 주문을 보류/거절해 실행하지 않았습니다."), 해제했다면 RELEASE SUCCESS, 업무 순서의 뒤 단계는 SKIPPED(UPSTREAM_REJECTED). order-intake 규칙은 INTAKE SKIPPED 뒤 업무 단계 전체가 SKIPPED다.
+- 결제 상태는 바꾸지 않는다. 결제 전 규칙이면 payment NOT_ATTEMPTED, 결제 뒤 단계(shipping-reserve, notify)의 규칙이면 승인된 결제가 그대로 남는다. 정책은 결제 전 단계에 걸도록 안내한다.
+- BUSINESS_STOP의 rule_reason은 규칙 종료에만 있는 추가 칸이다(값 = 규칙 reason = 주문 result_code). 재고 부족·결제 거절 같은 도구 업무 종료의 BUSINESS_STOP은 예전처럼 `{final_status}`만 담는다. 운영 화면(`frontend/src/utils/eventView.js`)은 rule_reason이 있으면 "실행 규칙 <reason> 에 따른 보류/거절"로 설명한다.
+- service의 OrderAgentTraceConverter는 모르는 이벤트(RULE_MATCHED)와 BUSINESS_STOP을 읽지 않고, SKILL_FINISHED가 도구 업무 종료(결제 거절)와 같은 모양이라 채점은 그대로다. SkillOps Agent(`skillops-agent/skillops_agent/contracts.py`)도 data의 모르는 칸을 무시한다.
+- 조건 키가 선언 입력이 아니면 flow 정적 검사에서 실패한다. EXECUTION_ERROR data 예:
+
+```json
+{
+  "category": "CONTRACT_VIOLATION",
+  "skill_id": "payment",
+  "phase": "static_validation",
+  "reason": "RULE_KEY_NOT_INPUT",
+  "missing_inputs": [],
+  "missing_dependencies": [],
+  "rule_keys": ["order.customer"],
+  "message": "실행 규칙 조건의 값 이름이 Skill의 선언 입력이 아닙니다: order.customer"
+}
+```
+
+기대 줄은 `order-agent/backend/src/test/java/com/capstone4/orderagent/integration/TraceContractGolden.java`의 RULE_HOLD, RULE_REJECT_AT_INTAKE(DB 테스트), DB 없이 도는 확인은 harness 패키지의 OrderHarnessRuleTest, RuleConditionContractTest(`docs/contracts/examples/condition-cases.json`), SkillRulesContractTest(`docs/contracts/examples/skill-rules-cases.json`)와 service 패키지의 OrderToolServiceRuleStopTest다.
+
+수정 저장 API(POST /api/snapshots/edits)는 선택 칸 `intent`(담당자 의도)를 받아 snapshot metadata와 저장 이벤트 본문에 같은 모양으로 남긴다. 형식은 [skill-edit-save-api.md](skill-edit-save-api.md)를 따른다.
 
 ## 이슈 #39 진단용 조회 API (2026-10-21)
 

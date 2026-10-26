@@ -190,3 +190,47 @@ def test_old_server_without_flow_field_is_rejected(flow_response):
     del flow_response["flow_errors"]
     with pytest.raises(ContractError, match="^invalid apply_patch response$"):
         _check_applied(flow_response, "w_abc", [{"skill": "order-flow"}])
+
+
+# ── apply_patch v1.4 (rules) ───────────────────────────────────────────────────
+# docs/contracts/apply-patch-result.schema.json v1.4 와
+# docs/plans/2026-10-26-behavior-edit-root-fix.md 2.2. rules 형식 오류는
+# metadata_errors(field=rules), 조건 키 미선언은
+# flow_errors(CONTRACT_VIOLATION/RULE_KEY_NOT_INPUT)로 온다. 둘 다 계약 오류(ContractError)가 아니라
+# 후보 무효다.
+
+
+def test_rules_metadata_error_is_accepted_and_invalidates(metadata_response):
+    metadata_response["metadata_errors"][0].update(field="rules", code="INVALID_SKILL_FORMAT")
+    skills = _check_applied(metadata_response, "w_abc", [{"skill": "payment"}])
+    passed = [{"passed": True}]
+    results, valid = _judge(passed, passed, passed, metadata_response, skills, [])
+    assert results["metadata_valid"] is False
+    assert valid is False
+
+
+def test_rule_key_not_input_flow_error_is_accepted_and_invalidates(flow_response):
+    flow_response["flow_errors"][0].update(code="CONTRACT_VIOLATION", reason="RULE_KEY_NOT_INPUT")
+    skills = _check_applied(flow_response, "w_abc", [{"skill": "order-flow"}])
+    passed = [{"passed": True}]
+    results, valid = _judge(passed, passed, passed, flow_response, skills, [])
+    assert results["flow_valid"] is False
+    assert valid is False
+
+
+def test_rule_key_not_input_with_other_code_is_rejected(flow_response):
+    flow_response["flow_errors"][0].update(code="INVALID_FLOW", reason="RULE_KEY_NOT_INPUT")
+    with pytest.raises(ContractError, match="^invalid apply_patch response$"):
+        patch_flow_ok(flow_response)
+
+
+def test_intent_ok_overrides_legacy_intent_results(flow_response):
+    """후보 검증은 의도 판정(_intent_kept)을 intent_ok 로 넘긴다.
+
+    거짓이면 실행이 통과해도 무효다.
+    """
+    flow_response["flow_errors"] = []
+    passed = [{"passed": True}]
+    results, valid = _judge(passed, passed, [], flow_response, {"order-flow"}, [], False)
+    assert results["keeps_intent"] is False
+    assert valid is False
