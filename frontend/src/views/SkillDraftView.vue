@@ -26,11 +26,15 @@
 // frontend/tests/diagnosis.spec.js 가 편집기(textarea), '전체 수정본 저장' 버튼,
 // '자동 검증·진단 진행 확인' 링크로 저장부터 진단 화면 이동까지 확인한다. 그 테스트가 textarea 를
 // 하나로 찾으므로 고급 입력 칸은 펼쳤을 때만 그린다.
+// 제안서 후보를 초안으로 가져온 Skill 은 목록에 '수정안 반영' 꼬리표를 달고, 편집기
+// (frontend/src/components/HighlightedEditor.vue)가 그 후보에서 받아들인 줄을 칠한다. 적용 직전 원문과
+// 출처는 workspace store 의 currentAccepted 에 있다.
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CircleAlert, CircleCheck, FilePen, GitCompareArrows, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, FilePen, GitCompareArrows, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-vue-next'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { markLines } from '@/utils/diffLines'
 import { flowGraphOf, problemCount } from '@/utils/flowGraph'
 import { INTENT_TEXT_MAX, buildIntent, intentHasProblems } from '@/utils/intentInput'
 import {
@@ -42,6 +46,7 @@ import {
   skillPath,
 } from '@/utils/skillSet'
 import DiffView from '@/components/DiffView.vue'
+import HighlightedEditor from '@/components/HighlightedEditor.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import SnapshotPicker from '@/components/SnapshotPicker.vue'
 import { USE_MOCK } from '@/api/client'
@@ -63,11 +68,13 @@ const savedIntent = ref(null)
 const intentBuilt = computed(() => buildIntent(ws.currentIntent.text, ws.currentIntent.expectations))
 const intentBlocked = computed(() => intentHasProblems(intentBuilt.value))
 // 고급 입력(기대 결과) 칸을 펼쳤는지다. 세트를 바꿀 때마다 그 세트에 적어 둔 기대 결과가 있으면 펼친다.
+// 주소에 advanced=1 이 있으면 늘 펼친다. 의도 확인이 필요한 진단에서 '기대 결과 적고 다시 시험' 으로
+// 왔을 때다(frontend/src/views/DiagnosisView.vue 의 retryWithExpectations).
 const showAdvanced = ref(false)
 watch(
   () => ws.snapshotId,
   () => {
-    showAdvanced.value = !!ws.currentIntent.expectations
+    showAdvanced.value = route.query.advanced === '1' || !!ws.currentIntent.expectations
   },
   { immediate: true },
 )
@@ -111,6 +118,12 @@ const skillId = computed(() => route.params.skill || null)
 const skill = computed(() => ws.draftSkills.find((s) => s.skill_id === skillId.value) ?? null)
 const original = computed(() => ws.current?.skills.find((s) => s.skill_id === skillId.value) ?? null)
 const isDraft = computed(() => !!skill.value && skill.value.path in ws.currentDrafts)
+// 지금 Skill 에 제안서 후보를 적용한 기록 { before, proposalId, candidateNo } 이다. 없으면 null 이다.
+const acceptedHere = computed(() => (skill.value && ws.currentAccepted[skill.value.path]) || null)
+// 후보를 적용하기 전과 비교한 줄 수 { add, change, cut } 이다. 안내 문구에 쓴다.
+const acceptedStats = computed(() =>
+  acceptedHere.value ? markLines(acceptedHere.value.before, skill.value.text).stats : null,
+)
 
 // 초안을 반영한 전체 세트의 계약 그래프와 문제 수다. 진입 Skill(order-flow)의 steps 순서로
 // 앞 단계의 출력이 뒤 단계의 입력을 채우는지 본다. 규칙은 order-agent 의 실행 전 검사인
@@ -127,12 +140,14 @@ const missingOf = computed(() => Object.fromEntries(graph.value.missing.map((m) 
 const ruleProblemSkills = computed(() => new Set(ruleProblems.value.map((r) => r.skill_id)))
 /**
  * 목록 항목 하나의 상태 점과 꼬리표를 정한다. 아래 listItems 가 항목마다 부른다.
- * 형식 오류, 연결 끊김(계약 위반), 규칙 입력 없음, 초안, 원본 순서로 보고 처음 맞는 것을 쓴다.
+ * 형식 오류, 연결 끊김(계약 위반), 규칙 입력 없음, 수정안 반영(제안서 후보를 가져온 초안), 초안, 원본
+ * 순서로 보고 처음 맞는 것을 쓴다.
  */
 function stateOf(s) {
   if (s.error) return { tone: 'err', label: '형식 오류' }
   if (missingOf.value[s.skill_id]) return { tone: 'err', label: '연결 끊김' }
   if (ruleProblemSkills.value.has(s.skill_id)) return { tone: 'err', label: '규칙 입력 없음' }
+  if (ws.currentAccepted[s.path]) return { tone: 'ok', label: '수정안 반영' }
   if (s.path in ws.currentDrafts) return { tone: 'warn', label: '초안' }
   return { tone: 'none', label: '원본' }
 }
@@ -310,7 +325,8 @@ function create() {
         <div>
           <h2>
             {{ skill.skill_id }}
-            <span class="tag" :class="isDraft ? 'warn' : 'none'">{{ isDraft ? (original ? '초안' : '새 Skill 초안') : '원본' }}</span>
+            <span v-if="acceptedHere" class="tag ok">수정안 반영</span>
+            <span v-else class="tag" :class="isDraft ? 'warn' : 'none'">{{ isDraft ? (original ? '초안' : '새 Skill 초안') : '원본' }}</span>
           </h2>
           <p class="muted small">
             {{ skill.description || '설명 없음' }}
@@ -370,18 +386,28 @@ function create() {
         <p>형식 오류({{ skill.error }}) — {{ skill.error_message ?? '맨 위 --- 구분선과 name 이 폴더 이름과 같은지 확인해 주세요.' }}</p>
       </div>
 
+      <div v-if="acceptedHere" class="callout accepted">
+        <Sparkles :size="18" />
+        <p>
+          <strong>제안서 후보 {{ acceptedHere.candidateNo }}번</strong>에서 가져온 부분을 칠해 두었어요.
+          <span v-if="acceptedStats.change" class="pill change">바꾼 줄 {{ acceptedStats.change }}</span>
+          <span v-if="acceptedStats.add" class="pill add">더한 줄 {{ acceptedStats.add }}</span>
+          <span v-if="acceptedStats.cut" class="pill cut">지운 곳 {{ acceptedStats.cut }}</span>
+          <RouterLink :to="`/proposals/${acceptedHere.proposalId}`">제안서 보기</RouterLink>
+        </p>
+      </div>
       <div class="tabs" role="tablist">
         <button class="ghost sm" :class="{ on: tab === 'edit' }" @click="tab = 'edit'"><FilePen :size="14" /> 편집</button>
         <button class="ghost sm" :class="{ on: tab === 'diff' }" :disabled="!isDraft" @click="tab = 'diff'">
           <GitCompareArrows :size="14" /> 원본과 비교 <span v-if="changedLines" class="n">{{ changedLines }}</span>
         </button>
       </div>
-      <textarea
+      <HighlightedEditor
         v-if="tab === 'edit' || !isDraft"
-        :value="skill.text"
-        spellcheck="false"
-        rows="22"
-        @input="edit($event.target.value)"
+        :key="skill.path"
+        :text="skill.text"
+        :before="acceptedHere?.before ?? null"
+        @input="edit"
       />
       <DiffView v-else :before="original?.text ?? ''" :after="skill.text" before-label="원본" after-label="내 초안" />
     </section>
@@ -611,6 +637,47 @@ function create() {
 .tag.warn {
   background: var(--warn-soft);
   color: var(--warn);
+}
+
+.dot.ok {
+  background: var(--ok);
+}
+
+.tag.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.callout.accepted {
+  margin-bottom: 10px;
+  background: var(--ok-soft);
+  border-color: color-mix(in srgb, var(--ok) 25%, transparent);
+}
+
+.callout.accepted > svg {
+  color: var(--ok);
+}
+
+.pill {
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.pill.add {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.pill.change {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.pill.cut {
+  background: var(--err-soft);
+  color: var(--err);
 }
 
 .tag.err {

@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { diffLines } from 'diff'
-import { countChanges, linesFromPatch, linesFromTexts, pairRows, toDiffLines } from '../src/utils/diffLines.js'
+import { countChanges, linesFromPatch, linesFromTexts, markLines, pairRows, toDiffLines } from '../src/utils/diffLines.js'
 
 // 예시 patch 를 담은 mock 제안서다.
 const proposal = JSON.parse(readFileSync(new URL('../src/mocks/proposal-f1.json', import.meta.url), 'utf8'))
@@ -126,4 +126,33 @@ test('예전 DiffView 식과 같은 결과', () => {
     assert.deepStrictEqual(lines, oldLines(props))
     assert.deepStrictEqual(pairRows(lines), oldRows(oldLines(props)))
   }
+})
+
+test('markLines 는 바뀐 줄, 끼어든 줄, 지워진 자리를 after 줄마다 표시한다', () => {
+  const before = 'a\nb\nc\nd\n'
+  const after = 'a\nB\nc\nnew\n'
+  const { lines, stats } = markLines(before, after)
+  assert.deepEqual(lines.map((l) => [l.text, l.mark, l.cut]), [
+    ['a', null, false],
+    ['B', 'change', false],
+    ['c', null, false],
+    ['new', 'change', false],
+  ])
+  assert.deepEqual(stats, { add: 0, change: 2, cut: 0 })
+})
+
+test('markLines 는 순수 추가를 add 로, 대신 들어온 줄 없는 삭제를 다음 줄의 cut 으로 본다', () => {
+  const { lines, stats } = markLines('a\nx\nb\n', 'a\nb\nrules:\n  - when: "k == 1"\n')
+  assert.deepEqual(lines.map((l) => [l.text, l.mark, l.cut]), [
+    ['a', null, false],
+    ['b', null, true],
+    ['rules:', 'add', false],
+    ['  - when: "k == 1"', 'add', false],
+  ])
+  assert.deepEqual(stats, { add: 2, change: 0, cut: 1 })
+})
+
+test('markLines 는 파일 끝에서 지운 줄을 마지막 줄의 cut 으로 남기고 같으면 표시가 없다', () => {
+  assert.deepEqual(markLines('a\nb\n', 'a\n').lines, [{ text: 'a', mark: null, cut: true }])
+  assert.deepEqual(markLines('a\n', 'a\n').stats, { add: 0, change: 0, cut: 0 })
 })
