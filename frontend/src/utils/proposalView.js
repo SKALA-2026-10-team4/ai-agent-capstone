@@ -36,7 +36,9 @@ export const matchesStatusFilter = (p, filter) => {
 // 시험 결과를 항목으로 나눠 보여 준다. 추천 후보는 시험 결과 줄 끝에 붙인다. 후보를 부르는 말은 상세 본문
 // (service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 의 '후보 1번')과 맞춘다.
 // 값은 목록 응답(ProposalController 의 ProposalSummary)에 있는 root_cause_skill, candidate_count,
-// valid_candidate_nos, recommended_candidate_no 만 쓴다. 원인 Skill 을 모르면 확인 중으로 쓴다.
+// valid_candidate_nos, recommended_candidate_no 만 쓴다. 원인 Skill 이 없으면 원인 분석 없음으로 쓴다. 일반 수정안(proposed)은
+// service 가 저장할 때 root_cause 를 필수로 받으므로(ProposalValidator), 비는 경우는 원인 분석을 하지 않는
+// 서버 검증 수정안(POST /api/verified-proposals, analysis_status NOT_PERFORMED)이다.
 // 후보가 0개면 시험할 후보 자체가 없는 것이다. SKILL.md 수정만으로 풀 수 없어 후보 대신 개발 요청서를 낸
 // no_valid_fix(frontend/src/mocks/proposal-w1.json)가 이렇게 온다.
 export const proposalHighlights = (p) => {
@@ -46,7 +48,7 @@ export const proposalHighlights = (p) => {
   if (!p.candidate_count) result = '시험할 후보 없음'
   else if (passed) result = `후보 ${p.candidate_count}개 중 ${passed}개 통과${recommended}`
   return [
-    { label: '원인', value: p.root_cause_skill ? `${p.root_cause_skill} Skill 변경` : '확인 중' },
+    { label: '원인', value: p.root_cause_skill ? `${p.root_cause_skill} Skill 변경` : '원인 분석 없음' },
     { label: '시험 결과', value: result },
   ]
 }
@@ -54,12 +56,14 @@ export const proposalHighlights = (p) => {
 // 후보 종류(candidates[].kind)의 화면 이름이다. 앞의 셋은
 // service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 의 이름과 같고,
 // encode_rule 은 본문·의도의 정책을 SKILL.md 의 실행 규칙 rules 로 옮기는 후보다
-// (docs/plans/2026-10-26-behavior-edit-root-fix.md 2.6 절).
+// (docs/plans/2026-10-26-behavior-edit-root-fix.md 2.6 절). snapshot 은 서버가 이미 검증한 Skill 세트를 통째로
+// 후보로 내는 서버 검증 수정안의 후보다(service/src/main/java/com/capstone4/skillops/proposal/VerifiedProposalService.java).
 export const CANDIDATE_KIND_LABEL = {
   same_skill: '바뀐 Skill만 고치기',
   linked_skills: '주고받는 값까지 함께 고치기',
   run_order: '실행 순서 다시 짜기',
   encode_rule: '실행 규칙으로 옮기기',
+  snapshot: '검증된 Skill 세트',
 }
 // 후보 종류의 화면 이름을 돌려준다. 표에 없으면 원래 값, 값이 없으면 null 이다.
 export const candidateKindLabel = (kind) => (kind ? (CANDIDATE_KIND_LABEL[kind] ?? kind) : null)
