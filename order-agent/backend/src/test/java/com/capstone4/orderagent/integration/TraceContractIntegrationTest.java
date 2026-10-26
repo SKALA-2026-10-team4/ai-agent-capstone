@@ -82,6 +82,19 @@ class TraceContractIntegrationTest {
     @Test void paymentDeclineHoldsAndReleases(){
         assertRun("payment-declined",order(input(null,"c_declined",LANTERN)),TraceContractGolden.PAYMENT_DECLINED);
     }
+    /** payment 의 hold 실행 규칙이 카드 주문에 매치되면 결제 도구 없이 예약을 되돌리고 HOLD 로 업무 종료한다. 결제는 시도하지 않은 상태로 남는다. */
+    @Test void ruleHoldAtPaymentReleasesAndStops(){
+        UUID snapshot=publishEdited("skills/payment/SKILL.md","depends_on: [inventory-check]\n",
+            "depends_on: [inventory-check]\nrules:\n  - when: \"order.payment_method != 'prepaid'\"\n    then: hold\n    reason: PREPAID_ONLY\n",Map.of());
+        assertRun("rule-hold",order(input(snapshot)),TraceContractGolden.RULE_HOLD);
+    }
+    /** order-intake 의 reject 실행 규칙은 해외 배송 주문을 업무 도구 없이 REJECTED 로 끝내고 업무 단계를 모두 SKIPPED 로 둔다. */
+    @Test void ruleRejectAtIntakeStopsBeforeAnyTool(){
+        UUID snapshot=publishEdited("skills/order-intake/SKILL.md","depends_on: []\n",
+            "depends_on: []\nrules:\n  - when: \"order.shipping.country != 'KR'\"\n    then: reject\n    reason: DOMESTIC_ONLY\n",Map.of());
+        var overseas=new CreateOrderRequest("c_1001",List.of(new CreateOrderRequest.Item(LANTERN,1)),"card",new CreateOrderRequest.Shipping("US",false),snapshot);
+        assertRun("rule-reject-at-intake",order(overseas),TraceContractGolden.RULE_REJECT_AT_INTAKE);
+    }
     /** 정적 계약 위반은 도구를 부르기 전에 실패하고 위반 단계를 FAILED 로 기록한다. */
     @Test void staticContractViolationFailsBeforeTools(){
         assertRun("static-contract-violation",order(input(snapshots.demo("broken-contract").id())),TraceContractGolden.STATIC_CONTRACT_VIOLATION);

@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import com.capstone4.skillops.proposal.ProposalDocument.Fact;
 import com.capstone4.skillops.proposal.ProposalDocument.Section;
@@ -28,9 +29,17 @@ import com.capstone4.skillops.proposal.ProposalRules.OldOrders;
  * service/src/main/java/com/capstone4/skillops/proposal/ProposalService.java 가 제안서를 저장할 때 write 를 한 번 불러 결과를
  * proposals.document 칸에 보관하고, 화면(frontend/src/components/ProposalDocument.vue)이 그 본문을 그대로 그린다.
  *
- * 목차와 문장 틀은 이 클래스에 고정되어 있다. 목차는 개요, 발생 경위, 원인, 변경 의도(intent 가 있을 때만), 수정안과 시험 결과,
- * 추천과 결정 요청, 참고 정보 순서다. LLM 이 만든 값은 고치지 않고 옮겨 적기만 한다. 그런 값은 변경 의도 절의 인용 글(intent.text)과
- * 의도 확인 조건(intent.checks), 후보 카드의 AI 설명(explanation)이다. 금지 표현 검사는 후보 설명만 보고, 찾은 표현은 tone_warnings 에 남긴다.
+ * 목차와 문장 틀은 이 클래스에 고정되어 있다. 목차는 개요, 발생 경위, 원인, 변경 의도(intent 가 있을 때만), 개발 요청
+ * (development_request 가 있을 때만), 임시 대안(development_request.interim 이 있을 때만), 수정안과 시험 결과,
+ * 서비스 재판정(server_overrides 가 있을 때만), 추천과 결정 요청, 참고 정보 순서다. Agent 나 LLM 이 만든 값은 고치지 않고 옮겨 적기만 한다.
+ * 그런 값은 변경 의도 절의 인용 글(intent.text)과 의도 확인 조건(intent.checks, intent.expectations), 후보 카드의 AI 설명(explanation),
+ * 개발 요청 절의 제목과 방법, 임시 대안 절의 요약(interim.summary)과 patch 다.
+ * 금지 표현 검사는 후보 설명과 개발 요청서의 제목·임시 대안 요약만 보고, 찾은 표현은 tone_warnings 에 남긴다.
+ * 원인 종류(root_cause.kind)가 incomplete_edit 이면 "수정이 의도를 실행 규칙으로 담지 못했다"는 문장 틀을 쓴다
+ * (docs/plans/2026-10-26-behavior-edit-root-fix.md 2.5 절). 새 칸이 없는 제안서의 문장은 바뀌지 않는다.
+ * 개발 요청서(development_request)가 있으면 SKILL.md 수정만으로는 고칠 수 없는 진단이다(같은 문서 2.11 절). 개요는 개발 요청서를
+ * 만들었다고 끝맺고, 결정 요청은 도구를 개발한 뒤 다시 저장해 달라고 쓴다. 개발 요청서가 없는 no_valid_fix 는 Skill 을 고치면 된다고
+ * 단정하지 않고, 승인할 안이 없다는 사실과 어느 절을 보고 고칠 방법을 정할지만 쓴다.
  * 문장은 능동문으로 쓰고, 변수 바로 뒤에는 받침에 따라 바뀌는 조사를 붙이지 않는다("payment 단계에서", "후보 1번의").
  *
  * 문장 틀은 service/src/main/java/com/capstone4/skillops/proposal/ToneCheck.java 의 금지 표현에 걸리지 않아야 한다.
@@ -40,8 +49,9 @@ import com.capstone4.skillops.proposal.ProposalRules.OldOrders;
  *
  * 튜닝 지점은 다음과 같다. 목차 순서와 조건부 절은 Writer 의 document 에, 시험 범위 판정은 coverageOf 에 있다.
  * 개요 네 문장은 summarySentences 가 순서대로 모으는 summaryOccurrence, summaryCause, summaryTrials, summaryRequest 에 있다.
- * 후보 카드 문장은 candidateParagraphs 와, trialParagraphs 가 부르는 네 문장 메서드에 있다. 결정 요청 문장은 proposedDecision 과
- * noFixDecision 에 있다.
+ * 후보 카드 문장은 candidateParagraphs 와, trialParagraphs 가 부르는 네 문장 메서드에 있다. 결정 요청 문장은 proposedDecision,
+ * noFixDecision, developmentDecision 에 있다. 개발 요청 절은 developmentRequestSection 과 gapParagraph, optionLine 에, 임시 대안 절은
+ * interimSection 에 있다.
  * 시각 형식과 시간대는 WHEN, 후보 종류 이름은 KIND, 금지 표현 목록은 ToneCheck 의 PHRASES 에 있다.
  */
 public final class ProposalDocumentWriter {
@@ -51,16 +61,48 @@ public final class ProposalDocumentWriter {
             .withZone(ZoneId.of("Asia/Seoul"));
 
     /**
-     * 후보 종류(kind)를 운영자 말로 바꾼 이름이다. 키는 skillops-agent/skillops_agent/state.py 의 Candidate.kind 타입에 적힌 세 값과
+     * 후보 종류(kind)를 운영자 말로 바꾼 이름이다. 키는 skillops-agent/skillops_agent/state.py 의 Candidate.kind 타입에 적힌 네 값과
      * 같아야 한다. 표에 없는 종류는 받은 이름을 그대로 쓰므로, 종류를 더하면 이 표에도 이름을 더한다.
      */
     static final Map<String, String> KIND = Map.of(
             "same_skill", "바뀐 Skill만 고치기",
             "linked_skills", "주고받는 값까지 함께 고치기",
-            "run_order", "실행 순서 다시 짜기");
+            "run_order", "실행 순서 다시 짜기",
+            "encode_rule", "업무 정책을 실행 규칙으로 옮기기");
+
+    /** 원인 종류(root_cause.kind) 가운데 수정본이 오류 없이 돌지만 담당자 의도가 실행되지 않은 경우의 값이다. */
+    static final String INCOMPLETE_EDIT = "incomplete_edit";
+
+    /**
+     * server_overrides 의 field 를 운영자 말로 바꾼 이름이다. 키는 service/src/main/java/com/capstone4/skillops/proposal/ProposalJudge.java
+     * 가 쓰는 field 값과 같다. 표에 없는 field 는 받은 이름을 그대로 쓴다.
+     */
+    static final Map<String, String> OVERRIDE_FIELD = Map.ofEntries(
+            Map.entry("root_cause.repro_scenario_ids", "재현 근거"),
+            Map.entry("results.evidence_matches", "근거 일치"),
+            Map.entry("results.fixes_failure", "실패 해결"),
+            Map.entry("results.keeps_old_orders", "기준 주문 통과"),
+            Map.entry("results.keeps_intent", "의도 지킴"),
+            Map.entry("results.no_broken_links", "Skill 연결"),
+            Map.entry("results.metadata_valid", "필수 정보"),
+            Map.entry("results.flow_valid", "실행 구조"),
+            Map.entry("is_revert", "수정 되돌림"),
+            Map.entry("weakens_contract", "계약 약화"),
+            Map.entry("valid", "판정"),
+            Map.entry("status", "제안서 상태"),
+            Map.entry("recommended_candidate_no", "추천 후보"));
 
     /** 실패 정보에 단계 이름이 없을 때 단계 이름 자리에 넣는 말이다. 문장은 "확인되지 않은 단계에서"가 된다. */
     private static final String UNKNOWN_STEP = "확인되지 않은";
+
+    /** 개발 요청서가 있는 제안서의 개요 마지막 문장이다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11 절). */
+    static final String DEVELOPMENT_SUMMARY = "SKILL.md 수정만으로는 해결할 수 없어 개발 요청서를 만들었습니다.";
+
+    /**
+     * 개발 요청서가 있고 후보가 없을 때 개요와 수정안 절 소개가 함께 쓰는 문장이다. SkillOps Agent 는 필요한 값을 만드는 도구가 없으면
+     * 후보를 일부러 만들지 않으므로 "만들지 못했다"고 쓰지 않는다.
+     */
+    private static final String NO_TOOL_NO_CANDIDATES = "필요한 값을 만드는 업무 도구가 없어 SkillOps는 수정안을 만들지 않았습니다.";
 
     /** 정적 메서드 write 만 쓰는 클래스라서 인스턴스를 만들지 않는다. */
     private ProposalDocumentWriter() {
@@ -105,6 +147,14 @@ public final class ProposalDocumentWriter {
         private final Map<String, Object> root;
         /** 제안서의 intent 묶음이다. null 이면 변경 의도 절을 넣지 않는다. */
         private final Map<String, Object> intent;
+        /** 의도의 기대 결과(intent.expectations)다. 없으면 빈 목록이다. */
+        private final List<Map<String, Object>> expectations;
+        /** 진단 요청(trigger)에 담당자 의도(intent)가 있었는지 나타낸다. 되돌리기와 계약 약화를 쓸 수 없다고 적는 기준이다. */
+        private final boolean ownerIntent;
+        /** 원인 종류가 incomplete_edit 인지 나타낸다. 원인과 실패 해결 문장이 이 값으로 갈린다. */
+        private final boolean incompleteEdit;
+        /** service 가 저장할 때 서버 값으로 바꾼 칸 목록(server_overrides)이다. 없으면 빈 목록이다. */
+        private final List<Map<String, Object>> overrides;
         /** 후보 목록이다. Map 이 아닌 원소와 null 은 ProposalRules 의 maps 가 미리 뺐다. */
         private final List<Map<String, Object>> candidates;
         /** 모든 확인을 통과한 후보 수다. ProposalRules 의 passes 로 다시 센다. */
@@ -113,12 +163,19 @@ public final class ProposalDocumentWriter {
         private final long tested;
         /** 후보 수와 시험한 후보 수로 정한 시험 범위다. */
         private final TrialCoverage coverage;
-        /** 의도 확인 조건(intent.checks)이 하나라도 있었는지 나타낸다. 없으면 의도를 확인했다고 쓰지 않는다. */
+        /** 의도 확인 조건(intent.checks 나 intent.expectations)이 하나라도 있었는지 나타낸다. 없으면 의도를 확인했다고 쓰지 않는다. */
         private final boolean hasChecks;
         /** 실패 시각을 WHEN 형식으로 바꾼 글이다. failure.at 을 읽지 못하면 제안서를 만든 시각을 쓴다. */
         private final String when;
         /** 주문이 멈춘 단계(failure.skill)의 이름이다. 모르면 UNKNOWN_STEP 을 쓴다. */
         private final String failedStep;
+        /**
+         * 제안서의 개발 요청서(development_request) 묶음이다. 없으면 null 이고, 있으면 개발 요청 절을 넣고 개요와 결정 요청의 문장을
+         * 개발 요청에 맞게 고른다. 형식은 저장할 때 ProposalValidator 가 이미 확인했다.
+         */
+        private final Map<String, Object> devRequest;
+        /** 개발 요청서의 임시 대안(development_request.interim)이다. 없으면 null 이고, 있으면 임시 대안 절을 넣는다. */
+        private final Map<String, Object> interim;
 
         /**
          * 제안서에서 여러 절이 함께 쓰는 값을 한 번에 꺼내고 계산한다.
@@ -134,14 +191,20 @@ public final class ProposalDocumentWriter {
             this.failure = map(proposal.get("failure"));
             this.root = map(proposal.get("root_cause"));
             this.intent = map(proposal.get("intent"));
+            this.expectations = intent == null ? List.of() : maps(intent.get("expectations"));
+            this.ownerIntent = trigger != null && map(trigger.get("intent")) != null;
+            this.incompleteEdit = root != null && INCOMPLETE_EDIT.equals(str(root.get("kind")));
+            this.overrides = maps(proposal.get("server_overrides"));
             this.candidates = maps(proposal.get("candidates"));
             this.passing = candidates.stream().filter(ProposalRules::passes).count();
             this.tested = candidates.stream().filter(ProposalRules::tested).count();
             this.coverage = coverageOf(candidates.size(), tested);
-            this.hasChecks = intent != null && !strings(intent.get("checks")).isEmpty();
+            this.hasChecks = intent != null && (!strings(intent.get("checks")).isEmpty() || !expectations.isEmpty());
             this.when = WHEN.format(failedAt());
             String step = failure == null ? null : str(failure.get("skill"));
             this.failedStep = step == null ? UNKNOWN_STEP : step;
+            this.devRequest = map(proposal.get(ProposalValidator.DEVELOPMENT_REQUEST));
+            this.interim = devRequest == null ? null : map(devRequest.get("interim"));
         }
 
         /**
@@ -174,7 +237,8 @@ public final class ProposalDocumentWriter {
         /**
          * 본문 전체를 목차 순서대로 만든다. 목차 순서를 바꾸거나 절을 더하려면 이 메서드를 고친다.
          * 변경 의도 절은 intent 가 있을 때만 넣는다. 이 절이 없으면 화면(frontend/src/views/ProposalView.vue)에 의도 확인 체크가 나오지 않아
-         * 운영자가 승인할 수 없다. 개요 절의 문단과 본문의 summary 는 같은 글이다.
+         * 운영자가 승인할 수 없다. 개발 요청 절은 development_request 가 있을 때만, 임시 대안 절은 그 안에 interim 이 있을 때만 넣는다.
+         * 개요 절의 문단과 본문의 summary 는 같은 글이다.
          */
         ProposalDocument document() {
             String summary = String.join(" ", summarySentences());
@@ -185,7 +249,16 @@ public final class ProposalDocumentWriter {
             if (intent != null) {
                 sections.add(intentSection());
             }
+            if (devRequest != null) {
+                sections.add(developmentRequestSection());
+                if (interim != null) {
+                    sections.add(interimSection());
+                }
+            }
             sections.add(candidatesSection());
+            if (!overrides.isEmpty()) {
+                sections.add(overridesSection());
+            }
             sections.add(decisionSection());
             sections.add(referenceSection());
             return new ProposalDocument(title(), summary, List.copyOf(sections), toneWarnings());
@@ -216,6 +289,9 @@ public final class ProposalDocumentWriter {
          * 문장을 고른다. 실패 기록이 없으면 실패한 실행 기록 없이 진단이 끝났다고 쓴다.
          */
         private String summaryOccurrence() {
+            if (failure == null && incompleteEdit) {
+                return "Skill 수정본으로 기준 주문을 시험했더니 오류 없이 끝났지만, 담당자의 의도대로 처리되지 않은 주문이 있었습니다.";
+            }
             if (failure == null) {
                 return "실패한 실행 기록 없이 진단이 끝났습니다.";
             }
@@ -238,6 +314,10 @@ public final class ProposalDocumentWriter {
          * 빈 글자면 빈 칸이 그대로 문장에 들어간다(골든 파일 root_skill_blank 가 고정한다).
          */
         private String summaryCause() {
+            if (root != null && incompleteEdit) {
+                return "원인은 " + root.get("skill") + " Skill의 수정이 담당자의 의도를 실행 규칙으로 담지 못한 데 있습니다. "
+                        + "수정본은 오류 없이 돌지만 의도대로 처리되지 않는 기준 주문이 있습니다.";
+            }
             if (root != null) {
                 return "원인은 " + root.get("skill") + " Skill의 변경에 있습니다. 이 변경만 되돌려 다시 돌렸더니 같은 주문이 끝까지 처리됐습니다.";
             }
@@ -247,10 +327,11 @@ public final class ProposalDocumentWriter {
         /**
          * 개요 셋째 문장으로 수정안을 몇 개 만들어 몇 개를 시험했고 몇 개가 통과했는지 쓴다.
          * 문장은 시험 범위(coverage)로 고르고, 모두 시험한 경우에는 status 가 proposed 인지에 따라 다시 고른다.
+         * 후보가 없을 때 개발 요청서가 있으면 일부러 만들지 않았다고 쓴다(NO_TOOL_NO_CANDIDATES).
          */
         private String summaryTrials() {
             return switch (coverage) {
-                case NO_CANDIDATES -> "시험할 수정안은 만들지 못했습니다.";
+                case NO_CANDIDATES -> devRequest != null ? NO_TOOL_NO_CANDIDATES : "시험할 수정안은 만들지 못했습니다.";
                 case NONE_TESTED -> nothingTested();
                 case SOME_TESTED -> "SkillOps가 수정안 " + candidates.size() + "개를 만들었고, 그중 " + tested + "개를 실제 주문 흐름에서 시험했습니다. "
                         + (passing > 0 ? "모든 확인을 통과한 안은 " + passing + "개입니다." : "모든 확인을 통과한 안은 없습니다.");
@@ -262,12 +343,20 @@ public final class ProposalDocumentWriter {
         }
 
         /**
-         * 개요 마지막 문장으로 운영자에게 바라는 일을 쓴다. status 가 proposed 이면 추천 후보의 승인 여부를 정해 달라고 하고,
-         * 아니면 담당자가 직접 고쳐야 한다고 쓴다. 추천 번호는 받은 값 그대로 쓴다.
+         * 개요 마지막 문장으로 운영자에게 바라는 일을 쓴다. status 가 proposed 이면 추천 후보의 승인 여부를 정해 달라고 한다. 추천 번호는
+         * 받은 값 그대로 쓴다. 아니면 개발 요청서가 있을 때 SKILL.md 수정만으로는 해결할 수 없어 개발 요청서를 만들었다고 쓴다.
+         * 개발 요청서도 없으면 Skill 을 고치면 해결된다고 단정하지 않는다. 승인할 안이 없다는 사실과, 시험한 후보가 있으면 시험 결과를,
+         * 없으면 원인과 발생 경위를 보고 고칠 방법을 정해 달라고 쓴다.
          */
         private String summaryRequest() {
-            return proposed ? "아래 내용을 확인한 뒤 후보 " + proposal.get("recommended_candidate_no") + "번의 승인 여부를 정해 주세요."
-                    : "담당자가 Skill을 직접 고쳐야 합니다.";
+            if (proposed) {
+                return "아래 내용을 확인한 뒤 후보 " + proposal.get("recommended_candidate_no") + "번의 승인 여부를 정해 주세요.";
+            }
+            if (devRequest != null) {
+                return DEVELOPMENT_SUMMARY;
+            }
+            return tested > 0 ? "승인할 수 있는 안이 없습니다. 아래 시험 결과에서 통과하지 못한 확인을 보고 고칠 방법을 정해 주세요."
+                    : "승인할 수 있는 안이 없습니다. 아래 원인과 발생 경위를 보고 고칠 방법을 정해 주세요.";
         }
 
         /** 후보는 있지만 하나도 원문에 적용하지 못해 시험하지 못했다는 문장이다. 개요와 수정안 절 소개가 같은 문장을 쓴다. */
@@ -292,7 +381,10 @@ public final class ProposalDocumentWriter {
          */
         private List<String> whatHappenedParagraphs(List<String> missing) {
             List<String> paragraphs = new ArrayList<>();
-            if (failure == null) {
+            if (failure == null && incompleteEdit) {
+                paragraphs.add("담당자가 Skill 편집 화면에서 수정본을 저장했습니다. 저장 직후 SkillOps가 이 수정본으로 기준 주문을 모의 실행했고, "
+                        + "주문은 오류 없이 끝났지만 담당자의 의도와 다르게 처리된 주문이 있었습니다.");
+            } else if (failure == null) {
                 paragraphs.add("실패한 실행 기록을 찾지 못했습니다.");
             } else if (savedTrigger) {
                 paragraphs.add("담당자가 Skill 편집 화면에서 수정본을 저장했습니다. 저장 직후 SkillOps가 이 수정본으로 기준 주문을 모의 실행했고, "
@@ -320,6 +412,9 @@ public final class ProposalDocumentWriter {
                 add(facts, "받지 못한 값", missing.isEmpty() ? null : String.join(", ", missing));
                 add(facts, "오류 메시지", str(failure.get("message")));
                 add(facts, "실패한 실행", str(failure.get("execution_id")));
+            }
+            if (incompleteEdit) {
+                add(facts, "의도대로 처리되지 않은 주문", joined(root.get("repro_scenario_ids")));
             }
             add(facts, "수정 전 Skill 세트", str(proposal.get("baseline_snapshot_id")));
             add(facts, "수정 후 Skill 세트", str(proposal.get("snapshot_id")));
@@ -353,6 +448,13 @@ public final class ProposalDocumentWriter {
                 paragraphs.add("주문은 " + failedStep + " 단계에서 멈췄지만 원인은 " + rootSkill + " Skill에 있습니다.");
             }
             paragraphs.add(rootSkill + " Skill에서 아래 부분이 바뀌었습니다.");
+            if (incompleteEdit) {
+                paragraphs.add("SkillOps는 이 수정본으로 기준 주문을 돌렸습니다. 주문은 오류 없이 끝났지만 담당자의 의도대로 처리되지 않은 "
+                        + "주문이 있었고, 그래서 이 수정이 의도를 다 담지 못했다고 판단했습니다.");
+                paragraphs.add("본문에 적은 정책은 주문 Agent가 그대로 실행하지 않습니다. "
+                        + "의도대로 처리하려면 Skill의 실행 규칙(rules)에 정책을 옮겨야 합니다.");
+                return paragraphs;
+            }
             paragraphs.add("SkillOps는 이 변경만 되돌린 연습 공간에서 실패한 주문을 다시 돌렸습니다. "
                     + "그러자 주문이 끝까지 처리됐고, 그래서 이 변경을 원인으로 확정했습니다.");
             return paragraphs;
@@ -368,6 +470,7 @@ public final class ProposalDocumentWriter {
             add(facts, "바뀌기 전", str(root.get("before")));
             add(facts, "바뀐 뒤", str(root.get("after")));
             add(facts, "원인 확인 실행", joined(root.get("proof_run_ids")));
+            add(facts, incompleteEdit ? "의도대로 처리되지 않은 주문" : "재현에 쓴 주문", joined(root.get("repro_scenario_ids")));
             return facts;
         }
 
@@ -376,12 +479,128 @@ public final class ProposalDocumentWriter {
          * 조건이 없으면 의도를 확인할 조건을 만들지 못했다고 쓴다.
          */
         private Section intentSection() {
-            List<String> checks = strings(intent.get("checks"));
-            List<String> paragraphs = List.of(
-                    "SkillOps는 이번 변경의 의도를 아래와 같이 이해했습니다.",
-                    checks.isEmpty() ? "의도를 확인할 조건은 만들지 못했습니다." : "수정안을 시험할 때 아래 조건이 지켜지는지도 함께 확인했습니다.",
-                    "이 해석이 실제 의도와 다르면 승인하지 말고 거절해 주세요.");
-            return quotedSection("intent", "변경 의도", paragraphs, str(intent.get("text")), checks);
+            List<String> items = new ArrayList<>(strings(intent.get("checks")));
+            expectations.forEach(e -> items.add(expectationLine(e)));
+            List<String> paragraphs = new ArrayList<>();
+            paragraphs.add("SkillOps는 이번 변경의 의도를 아래와 같이 이해했습니다.");
+            if (!expectations.isEmpty()) {
+                paragraphs.add("owner".equals(str(intent.get("source")))
+                        ? "아래 기대 결과는 담당자가 수정본을 저장할 때 직접 적었습니다."
+                        : "담당자가 기대 결과를 적지 않아 SkillOps가 의도 문장과 바뀐 내용으로 기대 결과를 만들었습니다.");
+            }
+            paragraphs.add(items.isEmpty() ? "의도를 확인할 조건은 만들지 못했습니다." : "수정안을 시험할 때 아래 조건이 지켜지는지도 함께 확인했습니다.");
+            paragraphs.add("이 해석이 실제 의도와 다르면 승인하지 말고 거절해 주세요.");
+            return quotedSection("intent", "변경 의도", paragraphs, str(intent.get("text")), items);
+        }
+
+        /**
+         * 기대 결과 하나를 글머리표 한 줄로 만든다. scope 가 있으면 "조건 &lt;scope&gt; 에 맞는 주문: &lt;check&gt;, ..." 이고,
+         * 없으면 "모든 주문: &lt;check&gt;, ..." 이다. 조건 원문은 LLM 이나 담당자가 쓴 그대로 옮긴다.
+         */
+        private static String expectationLine(Map<String, Object> expectation) {
+            String scope = str(expectation.get("scope"));
+            String checks = String.join(", ", strings(expectation.get("checks")));
+            return scope == null ? "모든 주문: " + checks : "조건 " + scope + " 에 맞는 주문: " + checks;
+        }
+
+        /**
+         * 개발 요청 절을 만든다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11 절). development_request 가 있을 때만 부른다.
+         * 문단은 어떤 값이 빠졌는지(gapParagraph), 그 값은 SKILL.md 로 만들 수 없다는 설명, 방법 소개, (새 도구 방법이 있으면) 새 도구
+         * 이름이 예시라는 안내 순서다. 방법(options)은 한 줄씩 글머리표(optionLine)로 쓴다. 사실은 요청 제목, 필요한 값, 필요로 하는 Skill,
+         * 바꿀 곳(change_points), 근거 실행(evidence_run_ids) 순서이며 값이 없는 줄은 add 가 뺀다.
+         */
+        private Section developmentRequestSection() {
+            List<Map<String, Object>> gaps = maps(devRequest.get("gaps"));
+            List<Map<String, Object>> options = maps(devRequest.get("options"));
+            List<String> paragraphs = new ArrayList<>();
+            paragraphs.add(gapParagraph(gaps));
+            paragraphs.add("이런 값은 SKILL.md를 고쳐서는 만들 수 없으므로 업무 도구를 넓히거나 새로 만들어야 합니다.");
+            paragraphs.add(options.isEmpty() ? "SkillOps가 제안할 개발 방법은 찾지 못했습니다." : "SkillOps가 제안하는 개발 방법은 아래와 같습니다.");
+            if (options.stream().anyMatch(o -> "new_tool".equals(str(o.get("type"))))) {
+                paragraphs.add("새 도구 이름은 SkillOps가 붙인 예시이므로 개발할 때 바꿔도 됩니다.");
+            }
+            List<Fact> facts = new ArrayList<>();
+            add(facts, "요청 제목", str(devRequest.get("title")));
+            add(facts, "필요한 값", distinctJoined(gaps, "key"));
+            add(facts, "필요로 하는 Skill", distinctJoined(gaps, "needed_by"));
+            add(facts, "바꿀 곳", joined(devRequest.get("change_points")));
+            add(facts, "근거 실행", joined(devRequest.get("evidence_run_ids")));
+            return newSection("development_request", "개발 요청", paragraphs, null,
+                    options.stream().map(Writer::optionLine).toList(), facts, List.of(), null);
+        }
+
+        /**
+         * 빠진 값이 어떤 빈틈인지 쓴다. missing_value 는 주문이 들어올 때 받는 값에도 없고 어떤 도구도 만들지 않는 값이고,
+         * tool_output_missing 은 담당자가 outputs 에 적었지만 어떤 도구도 내놓지 않는 값이다(빈틈 판정은 Agent 가 주문 Agent
+         * GET /api/tools 로 한다). 두 종류가 다 있으면 두 문장을 잇는다.
+         */
+        private static String gapParagraph(List<Map<String, Object>> gaps) {
+            List<String> sentences = new ArrayList<>();
+            if (gaps.stream().anyMatch(g -> "missing_value".equals(str(g.get("kind"))))) {
+                sentences.add("담당자 수정이 쓰는 값 가운데 주문이 들어올 때 받는 값에도 없고 어떤 업무 도구도 만들지 않는 값이 있습니다.");
+            }
+            if (gaps.stream().anyMatch(g -> "tool_output_missing".equals(str(g.get("kind"))))) {
+                sentences.add("담당자 수정이 내놓겠다고 적은 값 가운데 그 단계의 업무 도구도, 다른 업무 도구도 만들지 않는 값이 있습니다.");
+            }
+            return sentences.isEmpty() ? "담당자 수정이 쓰는 값 가운데 어떤 업무 도구도 만들지 않는 값이 있습니다." : String.join(" ", sentences);
+        }
+
+        /**
+         * 개발 방법 하나를 글머리표 한 줄로 만든다. 조각을 " · " 로 잇고 값이 없는 조각은 뺀다. 변수 뒤에 조사를 붙이지 않으려고
+         * "이름: 값" 모양으로 쓴다.
+         * extend_tool 은 "기존 도구 넓히기 · 도구: &lt;tool&gt; · 단계: &lt;skill&gt; · 더 내놓을 값: &lt;add_produces&gt;" 이고,
+         * new_tool 은 "새 도구 만들기 · 예시 이름: &lt;suggested_name&gt; · 실행 위치: &lt;place_before&gt; 단계 앞 · 받을 수 있는 값:
+         * &lt;available_inputs&gt; · 내놓을 값: &lt;produces&gt;" 이다. 모르는 type 은 받은 이름만 쓴다.
+         */
+        private static String optionLine(Map<String, Object> option) {
+            List<String> parts = new ArrayList<>();
+            String type = str(option.get("type"));
+            if ("extend_tool".equals(type)) {
+                parts.add("기존 도구 넓히기");
+                part(parts, "도구", str(option.get("tool")));
+                part(parts, "단계", str(option.get("skill")));
+                part(parts, "더 내놓을 값", joined(option.get("add_produces")));
+            } else if ("new_tool".equals(type)) {
+                String placeBefore = str(option.get("place_before"));
+                parts.add("새 도구 만들기");
+                part(parts, "예시 이름", str(option.get("suggested_name")));
+                part(parts, "실행 위치", placeBefore == null ? null : placeBefore + " 단계 앞");
+                part(parts, "받을 수 있는 값", joined(option.get("available_inputs")));
+                part(parts, "내놓을 값", joined(option.get("produces")));
+            } else {
+                parts.add(String.valueOf(type));
+            }
+            return String.join(" · ", parts);
+        }
+
+        /** 방법 한 줄의 "이름: 값" 조각을 더한다. 값이 없으면 넣지 않는다. */
+        private static void part(List<String> parts, String label, String value) {
+            if (value != null) {
+                parts.add(label + ": " + value);
+            }
+        }
+
+        /**
+         * 임시 대안 절을 만든다. development_request.interim 이 있을 때만 부른다. 문단은 업무 도구가 생기기 전에 쓰는 안이라는 소개,
+         * Agent 가 쓴 요약(interim.summary, 없으면 뺀다), 근거 실행이 있는지, 자동으로 들어가지 않는다는 안내 순서다.
+         * patch 는 인용 글(quote)로 옮겨 적고, 근거 실행(interim.proof_run_ids)은 사실 한 줄로 쓴다.
+         * 근거 실행은 원인 실험(변경을 되돌린 연습 공간)에서 이 변경을 넣고 돌린 실행이다(2.11 절).
+         */
+        private Section interimSection() {
+            List<String> paragraphs = new ArrayList<>();
+            paragraphs.add("업무 도구가 생기기 전까지 쓸 수 있는 임시 대안입니다.");
+            String summary = str(interim.get("summary"));
+            if (summary != null) {
+                paragraphs.add(summary);
+            }
+            String proofs = joined(interim.get("proof_run_ids"));
+            paragraphs.add(proofs == null ? "이 임시 대안을 시험한 실행은 없습니다."
+                    : "SkillOps는 원인 실험에서 이 변경을 넣고 주문을 다시 돌렸고, 그 실행을 근거로 남겼습니다.");
+            paragraphs.add("임시 대안은 자동으로 들어가지 않습니다. 쓰려면 담당자가 확인한 뒤 Skill 편집 화면에서 직접 넣어 주세요.");
+            List<Fact> facts = new ArrayList<>();
+            add(facts, "근거 실행", proofs);
+            return newSection("interim", "임시 대안", paragraphs, str(interim.get("patch")), List.of(), facts, List.of(),
+                    null);
         }
 
         /** 수정안과 시험 결과 절을 만든다. 소개 문단 뒤에 후보마다 카드(candidatePart)를 하나씩 품는다. */
@@ -393,7 +612,7 @@ public final class ProposalDocumentWriter {
         /** 수정안 절의 소개 문단을 만든다. 문장은 시험 범위(coverage)로 고르며, summaryTrials 와 같은 판정을 쓰므로 두 문장이 어긋나지 않는다. */
         private List<String> candidatesIntro() {
             return switch (coverage) {
-                case NO_CANDIDATES -> List.of("시험할 수정안을 만들지 못했습니다.");
+                case NO_CANDIDATES -> List.of(devRequest != null ? NO_TOOL_NO_CANDIDATES : "시험할 수정안을 만들지 못했습니다.");
                 case NONE_TESTED -> List.of(nothingTested());
                 case SOME_TESTED -> trialsIntro("SkillOps가 수정안 " + candidates.size() + "개를 만들었고, 원문에 적용할 수 있는 " + tested
                         + "개를 각각 따로 마련한 연습 공간에서 시험했습니다.");
@@ -427,7 +646,7 @@ public final class ProposalDocumentWriter {
             Integer no = integer(candidate.get("candidate_no"));
             String heading = candidateHeading(no, str(candidate.get("kind")));
             String error = str(candidate.get("validation_error"));
-            return candidateCard(heading, candidateParagraphs(error, map(candidate.get("results"))),
+            return candidateCard(heading, candidateParagraphs(candidate, error, map(candidate.get("results"))),
                     candidateFacts(candidate, error), no);
         }
 
@@ -444,22 +663,25 @@ public final class ProposalDocumentWriter {
          * 후보 카드 문단을 고른다. 원문에 적용하지 못한 후보와 시험 결과가 없는 후보는 한 문장으로 끝내고,
          * 시험한 후보는 기준별 결과를 쓴다.
          */
-        private List<String> candidateParagraphs(String error, Map<String, Object> results) {
+        private List<String> candidateParagraphs(Map<String, Object> candidate, String error, Map<String, Object> results) {
             if (error != null) {
                 return List.of("이 수정안은 지금 Skill 원문과 맞지 않아 적용하지 못했고, 그래서 시험하지 않았습니다.");
             }
             if (results == null) {
                 return List.of("이 수정안은 시험하지 못했습니다.");
             }
-            return trialParagraphs(results);
+            return trialParagraphs(candidate, results);
         }
 
         /**
          * 시험한 후보의 기준별 결과 문단을 만든다. 실패 해결, 기준 주문, 의도, Skill 사이 연결 순서이며, 기준 주문 문장은 total 을 알 때만 넣는다.
          * 필수 정보 결과가 있으면 해당 문장도 덧붙이며 합격 조건(ProposalRules의 passes)과 같은 칸을 읽는다.
          */
-        private List<String> trialParagraphs(Map<String, Object> results) {
+        private List<String> trialParagraphs(Map<String, Object> candidate, Map<String, Object> results) {
             List<String> paragraphs = new ArrayList<>();
+            if (Boolean.FALSE.equals(results.get("evidence_matches"))) {
+                paragraphs.add("제안서의 수정 내용이 연습 공간에서 시험한 수정과 맞지 않아 이 시험 결과를 쓸 수 없습니다.");
+            }
             paragraphs.add(fixesFailureSentence(results));
             OldOrders oldOrders = ProposalRules.oldOrders(results);
             if (oldOrders.total() != null) {
@@ -472,6 +694,13 @@ public final class ProposalDocumentWriter {
             }
             if (results.containsKey("flow_valid")) {
                 paragraphs.add(flowSentence(results));
+            }
+            // 되돌리기와 계약 약화는 담당자 의도가 있는 진단에서만 불합격 사유다. 의도가 없으면 문장을 넣지 않는다.
+            if (ownerIntent && bool(candidate.get("is_revert"))) {
+                paragraphs.add("이 수정안은 담당자가 바꾼 Skill을 수정 전으로 되돌립니다. 담당자 의도가 있는 진단에서는 쓸 수 없습니다.");
+            }
+            if (ownerIntent && bool(candidate.get("weakens_contract"))) {
+                paragraphs.add("이 수정안은 실행 규칙이나, 규칙과 의도가 쓰는 입력을 지웁니다. 담당자 의도가 있는 진단에서는 쓸 수 없습니다.");
             }
             return paragraphs;
         }
@@ -488,8 +717,15 @@ public final class ProposalDocumentWriter {
                     : "실행 순서의 구조 또는 단계 선언에 오류가 있어 이 후보를 사용할 수 없습니다.";
         }
 
-        /** 실패했던 주문을 다시 돌렸을 때 끝까지 처리됐는지(results.fixes_failure) 쓴다. */
-        private static String fixesFailureSentence(Map<String, Object> results) {
+        /**
+         * 실패했던 주문을 다시 돌렸을 때 끝까지 처리됐는지(results.fixes_failure) 쓴다. 원인이 incomplete_edit 이면 재현 주문은
+         * 의도대로 처리되지 않던 기준 주문이므로, 의도대로 처리됐는지로 쓴다.
+         */
+        private String fixesFailureSentence(Map<String, Object> results) {
+            if (incompleteEdit) {
+                return bool(results.get("fixes_failure")) ? "의도대로 처리되지 않던 주문이 이제 의도대로 처리됐습니다."
+                        : "의도대로 처리되지 않던 주문이 여전히 의도와 다르게 처리됐습니다.";
+            }
             return bool(results.get("fixes_failure")) ? "실패했던 주문을 다시 돌렸더니 끝까지 처리됐습니다."
                     : "실패했던 주문을 다시 돌렸지만 여전히 멈췄습니다.";
         }
@@ -545,9 +781,65 @@ public final class ProposalDocumentWriter {
             return passes(candidate) ? (rank == null ? "적용 가능" : "적용 가능 · " + rank + "순위") : "적용 불가";
         }
 
-        /** 추천과 결정 요청 절을 만든다. status 가 proposed 인지에 따라 문단을 고른다. */
+        /**
+         * 서비스 재판정 절을 만든다. server_overrides 가 있을 때만 넣는다. 바꾼 칸마다 "후보 N번 · 칸 이름" 과
+         * "Agent 값 → 서비스 값" 을 사실 한 줄로 남긴다. 제안서 전체의 칸(status, 추천 후보)은 후보 번호 없이 쓴다.
+         */
+        private Section overridesSection() {
+            List<Fact> facts = new ArrayList<>();
+            for (Map<String, Object> entry : overrides) {
+                Integer no = integer(entry.get("candidate_no"));
+                String field = String.valueOf(entry.get("field"));
+                String label = (no == null ? "" : "후보 " + no + "번 · ") + OVERRIDE_FIELD.getOrDefault(field, field);
+                add(facts, label, "Agent " + valueText(entry.get("agent_value")) + " → 서비스 " + valueText(entry.get("server_value")));
+            }
+            return section("server_overrides", "서비스 재판정", List.of(
+                    "SkillOps 서비스가 실행 기록과 연습 공간 기록으로 판정을 다시 계산했습니다. "
+                            + "Agent가 보낸 값과 다른 칸은 서비스가 계산한 값으로 바꿔 저장했습니다."),
+                    facts);
+        }
+
+        /** 재판정 값을 글로 만든다. 참·거짓은 참·거짓으로, 값이 없으면 없음으로, 기준 주문 묶음은 통과 수/전체 수로, 목록은 쉼표로 이어 쓴다. */
+        private static String valueText(Object value) {
+            if (value == null) {
+                return "없음";
+            }
+            if (value instanceof Boolean b) {
+                return b ? "참" : "거짓";
+            }
+            Map<String, Object> oldOrders = map(value);
+            if (oldOrders != null) {
+                return oldOrders.get("passed") + "/" + oldOrders.get("total");
+            }
+            if (value instanceof List<?> items) {
+                return items.isEmpty() ? "없음" : items.stream().map(String::valueOf).collect(Collectors.joining(", "));
+            }
+            return String.valueOf(value);
+        }
+
+        /**
+         * 추천과 결정 요청 절을 만든다. status 가 proposed 이면 proposedDecision, 아니면 개발 요청서가 있을 때 developmentDecision,
+         * 없을 때 noFixDecision 의 문단을 쓴다.
+         */
         private Section decisionSection() {
-            return section("decision", "추천과 결정 요청", proposed ? proposedDecision() : noFixDecision(), List.of());
+            List<String> paragraphs = proposed ? proposedDecision() : devRequest != null ? developmentDecision() : noFixDecision();
+            return section("decision", "추천과 결정 요청", paragraphs, List.of());
+        }
+
+        /**
+         * 개발 요청서가 있는 no_valid_fix 의 결정 요청 문단이다. 승인할 안이 없는 까닭, 도구를 개발한 뒤 다시 저장하는 방법,
+         * (임시 대안이 있으면) 그동안 쓸 수 있는 임시 대안, 거절해서 닫는 방법 순서다.
+         */
+        private List<String> developmentDecision() {
+            List<String> paragraphs = new ArrayList<>();
+            paragraphs.add("SKILL.md를 고치는 것만으로는 해결할 수 없어 승인할 수정안이 없습니다.");
+            paragraphs.add("개발 요청 절의 내용으로 업무 도구를 넓히거나 새로 만든 뒤 Skill 수정본을 다시 저장해 주세요. "
+                    + "저장하면 SkillOps가 같은 검증을 다시 시작합니다.");
+            if (interim != null) {
+                paragraphs.add("도구가 생기기 전까지는 임시 대안 절의 변경을 담당자가 Skill 편집 화면에서 직접 넣어 쓸 수 있습니다.");
+            }
+            paragraphs.add("이 제안서는 확인한 뒤 거절해서 닫을 수 있습니다.");
+            return paragraphs;
         }
 
         /**
@@ -586,8 +878,8 @@ public final class ProposalDocumentWriter {
         }
 
         /**
-         * 후보 설명(explanation)마다 ToneCheck 의 findIn 으로 금지 표현을 찾아 위치와 함께 모은다. 글은 고치지 않는다.
-         * 금지 표현을 검사할 글을 늘리려면 이 메서드를 고친다.
+         * 후보 설명(explanation)마다, 그리고 개발 요청서가 있으면 그 제목(title)과 임시 대안 요약(interim.summary)에서 ToneCheck 의
+         * findIn 으로 금지 표현을 찾아 위치와 함께 모은다. 글은 고치지 않는다. 금지 표현을 검사할 글을 늘리려면 이 메서드를 고친다.
          */
         private List<ToneWarning> toneWarnings() {
             List<ToneWarning> warnings = new ArrayList<>();
@@ -595,6 +887,14 @@ public final class ProposalDocumentWriter {
                 String where = "candidates[" + integer(candidate.get("candidate_no")) + "].explanation";
                 ToneCheck.findIn(str(candidate.get("explanation")))
                         .forEach(phrase -> warnings.add(new ToneWarning(where, phrase)));
+            }
+            if (devRequest != null) {
+                ToneCheck.findIn(str(devRequest.get("title")))
+                        .forEach(phrase -> warnings.add(new ToneWarning("development_request.title", phrase)));
+            }
+            if (interim != null) {
+                ToneCheck.findIn(str(interim.get("summary")))
+                        .forEach(phrase -> warnings.add(new ToneWarning("development_request.interim.summary", phrase)));
             }
             return List.copyOf(warnings);
         }
@@ -641,6 +941,12 @@ public final class ProposalDocumentWriter {
         private static String joined(Object values) {
             List<String> ids = strings(values);
             return ids.isEmpty() ? null : String.join(", ", ids);
+        }
+
+        /** 묶음 목록에서 field 칸의 글을 처음 나온 순서대로 겹치지 않게 모아 ", " 로 잇는다. 하나도 없으면 null 을 돌려줘 add 가 그 줄을 빼게 한다. */
+        private static String distinctJoined(List<Map<String, Object>> rows, String field) {
+            List<String> values = rows.stream().map(row -> str(row.get(field))).filter(Objects::nonNull).distinct().toList();
+            return values.isEmpty() ? null : String.join(", ", values);
         }
 
         /** 사실 한 줄을 목록에 더한다. 값이 없거나 빈 글자면 그 줄을 넣지 않으므로 화면에 빈 칸이 생기지 않는다. */

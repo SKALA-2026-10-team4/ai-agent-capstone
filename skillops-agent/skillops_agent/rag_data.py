@@ -344,7 +344,10 @@ def case_item(case: dict) -> dict:
     """사례 하나에 조회용 메타데이터(skills, fields, error_categories)와 프롬프트용 text 를 붙인다.
 
     load_cases 와 cases_from_proposals 가 같은 모양으로 만들도록 함께 쓴다. correct_fix 가 없는
-    사례(반려된 제안서)는 '올바른 수정' 을 적지 않는다.
+    사례(반려된 제안서)는 '올바른 수정' 을 적지 않는다. qa_cases 는 이 사례가 정답을 담고 있는 QA
+    케이스 id 목록(예: case-S2 → C-01, U-01, G-01, G-02)이다. 조회에는 쓰지 않고 그대로 남겨,
+    qa/run_qa.py 가 평가하는 케이스의 사례 id 를 /diagnose 의 rag_exclude 로 보낼 때 읽는다. 없으면
+    빈 목록이다(docs/plans/2026-10-26-behavior-edit-root-fix.md 3절 W4.6).
     """
     symptom, change = case["symptom"], case["change"]
     fix = f" 올바른 수정: {case['correct_fix']}." if case.get("correct_fix") else ""
@@ -362,6 +365,7 @@ def case_item(case: dict) -> dict:
         "skills": sorted({case["root_skill"], symptom["failed_skill"]}),
         "fields": sorted(set(symptom.get("missing_inputs") or [])),
         "error_categories": [symptom["error_category"]],
+        "qa_cases": list(case.get("qa_cases") or []),
         "text": text,
     }
 

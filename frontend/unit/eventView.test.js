@@ -22,6 +22,14 @@ const SNAP = 'f47e7062-1111-4222-8333-444455556666'
 const won = (n) => `${n.toLocaleString()}원`
 const ev = (kind, data) => ({ kind, data })
 
+// 실행 규칙 항목(when · then · reason)을 만든다. 칸 이름 then 을 객체 글자로 쓰면 lint
+// (unicorn/no-thenable)가 막으므로 이름 목록으로 만든다. extra 는 앞에 덧붙일 칸이다.
+const RULE_FIELDS = ['when', 'then', 'reason']
+const ruleOf = (when, then, reason, extra = {}) => {
+  const values = [when, then, reason]
+  return { ...extra, ...Object.fromEntries(RULE_FIELDS.map((k, i) => [k, values[i]])) }
+}
+
 test('keyLabel·toolLabel: 아는 이름은 화면 이름으로, 모르는 이름은 그대로', () => {
   assert.equal(keyLabel('order.id'), '주문 번호')
   assert.equal(keyLabel('inventory.reservable_quantity'), '예약 가능 수량')
@@ -391,7 +399,7 @@ test('describe: 모르는 종류는 종류 이름을 제목으로, data 가 없�
   })
 })
 
-test('EVENT_LABELS: 이벤트 종류 23개의 한글 라벨', () => {
+test('EVENT_LABELS: 이벤트 종류 24개의 한글 라벨', () => {
   assert.deepStrictEqual(EVENT_LABELS, {
     EXECUTION_STARTED: '실행 시작',
     SNAPSHOT_FIXED: '실행 파일 고정',
@@ -405,6 +413,7 @@ test('EVENT_LABELS: 이벤트 종류 23개의 한글 라벨', () => {
     SKILL_RESOLVED: 'Skill 이름 해석',
     SKILL_LOADED: '실제 파일 로드',
     SKILL_STARTED: '단계 시작',
+    RULE_MATCHED: '업무 규칙 적용',
     SKILL_FINISHED: '단계 끝',
     FLOW_VALIDATED: '흐름 계약 검사',
     TOOL_REQUEST: '도구 요청',
@@ -426,4 +435,45 @@ test('isErrorEvent: 종류 이름에 ERROR 나 REJECTED 가 들어 있으면 오
   assert.deepStrictEqual(errors, ['DECISION_ERROR', 'EXECUTION_ERROR', 'SKILL_LOAD_REJECTED', 'TOOL_ERROR'])
   assert.equal(isErrorEvent({ kind: 'BUSINESS_STOP' }), false)
   assert.equal(isErrorEvent({ kind: 'CUSTOM_REJECTED_X' }), true)
+})
+
+test('describe: 실행 규칙 적용(RULE_MATCHED)과 규칙으로 멈춘 단계·업무 종료', () => {
+  const data = ruleOf("order.payment_method != 'prepaid'", 'hold', 'PREPAID_ONLY', { skill_id: 'payment', rule_index: 0 })
+  assert.deepStrictEqual(describeEvent(ev('RULE_MATCHED', data)), {
+    title: '규칙 PREPAID_ONLY 에 걸려 보류했다',
+    note: '1번째 규칙 · 업무 도구를 부르지 않았다',
+    fields: [
+      { label: '조건', value: "order.payment_method != 'prepaid'" },
+      { label: '결정', value: 'hold' },
+    ],
+  })
+  assert.deepStrictEqual(
+    describeEvent(ev('RULE_MATCHED', ruleOf("order.shipping.country != 'KR'", 'reject', 'DOMESTIC_ONLY', { rule_index: 1 }))),
+    {
+      title: '규칙 DOMESTIC_ONLY 에 걸려 거절했다',
+      note: '2번째 규칙 · 업무 도구를 부르지 않았다',
+      fields: [
+        { label: '조건', value: "order.shipping.country != 'KR'" },
+        { label: '결정', value: 'reject' },
+      ],
+    },
+  )
+  assert.equal(describeEvent(ev('RULE_MATCHED', ruleOf(undefined, 'hold', 'A'))).note, '업무 도구를 부르지 않았다')
+  assert.equal(isErrorEvent({ kind: 'RULE_MATCHED' }), false)
+  assert.deepStrictEqual(
+    describeEvent(
+      ev('SKILL_FINISHED', { step_no: 3, status: 'ok', business_stop: true, final_status: 'HOLD', rule_reason: 'PREPAID_ONLY', duration_ms: 2, output: {} }),
+    ),
+    { title: '3단계에서 업무 규칙대로 멈췄다: HOLD (규칙 PREPAID_ONLY)', note: '2 ms', fields: [] },
+  )
+  assert.deepStrictEqual(describeEvent(ev('BUSINESS_STOP', { final_status: 'REJECTED', rule_reason: 'DOMESTIC_ONLY' })), {
+    title: '업무 규칙대로 멈췄다: REJECTED',
+    note: '실행 규칙 DOMESTIC_ONLY 에 따른 거절',
+    fields: [],
+  })
+  assert.deepStrictEqual(describeEvent(ev('BUSINESS_STOP', { final_status: 'HOLD', rule_reason: 'PREPAID_ONLY' })), {
+    title: '업무 규칙대로 멈췄다: HOLD',
+    note: '실행 규칙 PREPAID_ONLY 에 따른 보류',
+    fields: [],
+  })
 })

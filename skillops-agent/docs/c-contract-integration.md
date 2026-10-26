@@ -48,7 +48,7 @@ POST /diagnose. 서비스 토큰이 설정되면 X-Service-Token 필요.
 4. 매 workspace는 create_workspace(snapshot_id=후보)로 만든다. graph entry는 실패 skill이 아니라 order-flow다.
 5. 원본 후보의 실패가 같은 category로 재현되는지 먼저 검사한다. 이어 단일 hunk의 줄 위치·문맥을 보존한 역patch로 원인 실험을 한다.
 6. 후보 patch의 base_version은 실패 snapshot에서 복사한 workspace 버전과 일치해야 한다.
-7. 회귀는 g-01~g-03, 재현은 f-<execution UUID>로 실행한다. 결과 개수·반복별 실행 ID·실패 참조·전체 판정이 일치해야 한다.
+7. 회귀는 g-01~g-06(2026-10-26 행동 변경 계획 2.8, 이전 g-01~g-03), 재현은 f-<execution UUID>로 실행한다. 실행 오류 없이 결과만 다른 기준 주문은 그 기준 주문을 재현으로 쓴다(`repro_scenario_ids`). 결과 개수·반복별 실행 ID·실패 참조·전체 판정이 일치해야 한다.
 8. 의도 checks는 재현 주문에 별도 extra_checks로 전달하여 C Judge가 타입별 판정한다. 실패/회귀의 모든 반복을 확인한다. 회귀의 정상 거절 주문에 재현 전용 조건을 일괄 적용하지 않는다.
 9. 도구 증거는 TOOL_REQUEST.data.tool에서 읽는다. C가 반환한 r_ 별칭은 UUID로 변환한 뒤 HTTP trace를 조회한다.
 10. 계약 연결·재현·회귀·의도를 모두 통과해야 valid다. MCP 오류·잘못된 응답·미실행은 ERROR이며 원인 확정/수정 성공으로 처리하지 않는다.

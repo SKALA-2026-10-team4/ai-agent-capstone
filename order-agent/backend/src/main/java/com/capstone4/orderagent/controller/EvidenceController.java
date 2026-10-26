@@ -91,27 +91,31 @@ public class EvidenceController {
     public record PublishRequest(String fixture){}
     /**
      * GET /api/skill-changes/{id}: Skill 수정 저장 이벤트(change_id)가 service 로 전달됐는지 돌려준다. SkillChangeDispatcher.status 가
-     * outbox 행에 delivery_status(PENDING 또는 ACCEPTED)를 붙여 만들고, 없는 변경이면 SKILL_CHANGE_NOT_FOUND(404)다.
+     * outbox 행에 delivery_status(PENDING, ACCEPTED, 받는 쪽이 본문을 거절해 다시 보내지 않으면 FAILED)를 붙여 만들고, 없는 변경이면 SKILL_CHANGE_NOT_FOUND(404)다.
      * frontend/src/api/diagnoses.js 의 getChangeDelivery 가 부르고, frontend/src/views/DiagnosisView.vue 는 thread_id 가 생기면 그 진단 화면으로 옮긴다.
      */
     @GetMapping("/skill-changes/{id}")
     public Map<String,Object> changeDelivery(@PathVariable UUID id){return dispatcher.status(id);}
     /**
-     * POST /api/snapshots/edits 본문이다. JSON 키는 baseline_snapshot_id, baseline_hash, changes 이고 changes 는 SKILL.md 경로와 새 본문의 짝이다.
+     * POST /api/snapshots/edits 본문이다. JSON 키는 baseline_snapshot_id, baseline_hash, changes, intent 이고 changes 는 SKILL.md 경로와 새 본문의 짝이다.
      * baseline_hash 는 사용자가 편집을 시작한 snapshot 의 해시이며, 지금 저장된 해시와 다르면 BASELINE_HASH_MISMATCH 다.
+     * intent 는 선택 칸인 담당자 의도({text, expectations:[{scope, checks}]})다. 모양은 SnapshotService.EditIntent 가 정하고,
+     * 모양이 틀리거나 scope·checks 를 조건 문법 v2 로 읽을 수 없거나 scope 의 값 이름이 시험 주문의 다섯 처음 값이 아니면 INVALID_SKILL_EDITS,
+     * 모르는 키가 있으면 MALFORMED_JSON 이다. frontend/src/api/orderAgent.js 의 saveSkillEdits 가 보낸다.
      */
-    public record EditRequest(UUID baselineSnapshotId,String baselineHash,Map<String,String> changes){}
+    public record EditRequest(UUID baselineSnapshotId,String baselineHash,Map<String,String> changes,SnapshotService.EditIntent intent){}
     /**
      * POST /api/snapshots/edits: 사용자가 고친 SKILL.md 들을 기준 snapshot 위에 덮어 새 snapshot 으로 저장하고 201 을 돌려준다.
      * SnapshotService.saveEdits 가 검사, 저장, 진단 요청 outbox 기록을 한 트랜잭션으로 하고 editResponse 가 응답을 만든다.
      * 계약이 깨진 Skill 도 진단할 수 있도록 저장은 막지 않고 검증은 실행이 맡으므로 validation_status 는 늘 QUEUED 다.
+     * 담당자 의도(intent)를 보냈으면 응답 metadata 의 intent 와 service 로 보내는 저장 이벤트의 intent 에 같은 값이 담긴다.
      * frontend/src/api/orderAgent.js 의 saveSkillEdits(frontend/src/stores/workspace.js 가 부른다)와 skillops-agent/scripts/b_c_contract_smoke.py 가 부른다.
      * 남긴 이벤트는 SkillChangeDispatcher 가 service 의 POST /internal/skill-changes 로 보내 자동 진단을 시작하게 한다.
      */
     @PostMapping("/snapshots/edits")
     @ResponseStatus(org.springframework.http.HttpStatus.CREATED)
     public Map<String,Object> saveEdits(@RequestBody EditRequest request){
-        return editResponse(snapshots.saveEdits(request.baselineSnapshotId(),request.baselineHash(),request.changes()));
+        return editResponse(snapshots.saveEdits(request.baselineSnapshotId(),request.baselineHash(),request.changes(),request.intent()));
     }
     // TODO(B/C-2 연동): 실제 진단 후보는 검증을 마친 workspace 참조로 받아 SnapshotService 에 연결한다.
     // 아래 fixture API 는 미리 준비한 시연 데이터만 고정하며, 진단하거나 수정안을 만드는 기능이 아니다.

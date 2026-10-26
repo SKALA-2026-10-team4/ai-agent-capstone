@@ -13,7 +13,7 @@ import java.util.Objects;
  * 의도 확인 표시(service/src/main/java/com/capstone4/skillops/proposal/Proposal.java 의 withIntentConfirmed)가
  * 같은 방식으로 칸을 읽도록 이 클래스를 쓴다.
  * 합격 조건을 바꾸려면 passes 를 고친다. 이때 Agent 가 같은 식으로 valid 를 정하는 skillops-agent/skillops_agent/nodes.py 의 _judge 도
- * 함께 고쳐야 한다. 둘이 다르면 save_proposal 이 valid 불일치로 제안서를 거부한다.
+ * 함께 고친다. 둘이 다르면 save_proposal 이 서버 값으로 덮고 server_overrides 에 남긴다(ProposalJudge).
  */
 final class ProposalRules {
 
@@ -27,8 +27,9 @@ final class ProposalRules {
      * (keeps_old_orders 의 passed 와 total 이 같고 total 이 1 이상), 의도 확인 조건이 지켜지고(keeps_intent), 끊긴 Skill 연결이
      * 없어야 한다(no_broken_links). metadata_valid와 flow_valid가 있으면 각각 Boolean true여야 한다.
      * 과거 저장 제안서와 구버전 생산자 호환을 위해 해당 칸의 누락은 기존 판정을 유지한다.
+     * 서버만 쓰는 evidence_matches(후보 patches 와 연습 공간 기록이 맞는지)도 있으면 Boolean true 여야 한다.
      * 최신 Python은 검사 결과를 반드시 보낸다. 참·거짓 칸은 Boolean true만 참으로 본다.
-     * ProposalValidator 의 checkCandidates 가 저장할 때, ProposalDocumentWriter 가 합격 수와 판정 글을 쓸 때 부른다.
+     * ProposalJudge 의 judge 가 서버 값으로 덮은 뒤 valid 를 정할 때, ProposalDocumentWriter 가 합격 수와 판정 글을 쓸 때 부른다.
      */
     static boolean passes(Map<String, Object> candidate) {
         if (!tested(candidate)) {
@@ -40,7 +41,8 @@ final class ProposalRules {
         return bool(results.get("fixes_failure")) && total != null && total > 0 && total.equals(oldOrders.passed())
                 && bool(results.get("keeps_intent")) && bool(results.get("no_broken_links"))
                 && (!results.containsKey("metadata_valid") || bool(results.get("metadata_valid")))
-                && (!results.containsKey("flow_valid") || bool(results.get("flow_valid")));
+                && (!results.containsKey("flow_valid") || bool(results.get("flow_valid")))
+                && (!results.containsKey("evidence_matches") || bool(results.get("evidence_matches")));
     }
 
     /**

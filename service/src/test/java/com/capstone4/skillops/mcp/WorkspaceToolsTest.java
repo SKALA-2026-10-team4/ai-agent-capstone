@@ -12,9 +12,11 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.mcp.annotation.provider.tool.SyncMcpToolProvider;
 
+import com.capstone4.skillops.scenario.IntentExpectation;
 import com.capstone4.skillops.scenario.ScenarioRunReport;
 import com.capstone4.skillops.scenario.ScenarioRunner;
 import com.capstone4.skillops.snapshot.OrderAgentException;
+import com.capstone4.skillops.workspace.WorkspaceFrozenException;
 import com.capstone4.skillops.workspace.WorkspaceService;
 import com.capstone4.skillops.workspace.WorkspaceService.BrokenLink;
 import com.capstone4.skillops.workspace.WorkspaceService.ChangedSkill;
@@ -126,11 +128,11 @@ class WorkspaceToolsTest {
     @Test
     @SuppressWarnings("unchecked")
     void runScenariosReturnsV1Report() {
-        when(runner.run("w_abc", List.of("g-01"), null, null, 2)).thenReturn(new ScenarioRunReport("w_abc", false, List.of(
+        when(runner.run("w_abc", List.of("g-01"), null, null, null, 2)).thenReturn(new ScenarioRunReport("w_abc", false, List.of(
                 new ScenarioRunReport.ScenarioResult("g-01", null, false, List.of("r_1", "r_2"), List.of(
                         new ScenarioRunReport.Failure("r_1", "payment", "최종 상태 기대 SHIPPED, 실제 FAILED"))))));
 
-        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, null, 2);
+        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, null, null, 2);
 
         assertThat(result.isError()).isFalse();
         Map<String, Object> body = mapOf(textOf(result));
@@ -138,7 +140,9 @@ class WorkspaceToolsTest {
         assertThat(body.get("workspace_id")).isEqualTo("w_abc");
         assertThat(body.get("all_passed")).isEqualTo(false);
         Map<String, Object> first = ((List<Map<String, Object>>) body.get("results")).getFirst();
-        assertThat(first.keySet()).containsExactly("scenario_id", "replay_of_run_id", "passed", "run_ids", "failures");
+        assertThat(first.keySet()).containsExactly("scenario_id", "replay_of_run_id", "passed", "run_ids", "failures",
+                "intent_scoped");
+        assertThat(first.get("intent_scoped")).isEqualTo(false);
         assertThat(first.get("replay_of_run_id")).isNull();
         assertThat(first.get("run_ids")).isEqualTo(List.of("r_1", "r_2"));
         assertThat(((List<?>) first.get("failures")).getFirst()).isEqualTo(Map.of(
@@ -271,12 +275,13 @@ class WorkspaceToolsTest {
         Map<String, Object> schema = spec.tool().inputSchema();
         assertThat((List<String>) schema.get("required")).containsExactly("workspace_id");
         assertThat(((Map<String, Object>) schema.get("properties")).keySet())
-                .containsExactlyInAnyOrder("workspace_id", "scenario_ids", "replay_run_ids", "extra_checks", "repeat");
+                .containsExactlyInAnyOrder("workspace_id", "scenario_ids", "replay_run_ids", "extra_checks",
+                        "intent_expectations", "repeat");
         String alias = "r_5bc11dca57c14517950ca0aec8ed67e2";
-        when(runner.run("w_abc", null, List.of(alias), null, null)).thenReturn(new ScenarioRunReport("w_abc", true,
+        when(runner.run("w_abc", null, List.of(alias), null, null, null)).thenReturn(new ScenarioRunReport("w_abc", true,
                 List.of(new ScenarioRunReport.ScenarioResult("f-5bc11dca-57c1-4517-950c-a0aec8ed67e2", alias, true,
                         List.of("r_1"), List.of()))));
-        when(runner.run("w_abc", List.of("g-01"), null, null, 2)).thenReturn(new ScenarioRunReport("w_abc", true, List.of()));
+        when(runner.run("w_abc", List.of("g-01"), null, null, null, 2)).thenReturn(new ScenarioRunReport("w_abc", true, List.of()));
 
         CallToolResult replay = spec.callHandler().apply(null, CallToolRequest.builder().name("run_scenarios")
                 .arguments(Map.of("workspace_id", "w_abc", "replay_run_ids", List.of(alias))).build());
@@ -310,10 +315,11 @@ class WorkspaceToolsTest {
 
     @Test
     void invalidInputBecomesStructuredError() {
-        when(runner.run(any(), any(), any(), any(), any())).thenThrow(
+        when(runner.run(any(), any(), any(), any(), any(), any())).thenThrow(
                 new IllegalArgumentException("확인 조건을 읽을 수 없습니다: payment.status = PAID (예: payment.status == 'PAID')"));
 
-        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, List.of("payment.status = PAID"), null);
+        CallToolResult result = tools.runScenarios("w_abc", List.of("g-01"), null, List.of("payment.status = PAID"), null,
+                null);
 
         assertThat(result.isError()).isTrue();
         Map<String, Object> error = mapOf(textOf(result));
@@ -337,6 +343,71 @@ class WorkspaceToolsTest {
         assertThat(error.get("code")).isEqualTo("INTERNAL_ERROR");
         assertThat(error.get("message")).isEqualTo("payment 의 SKILL.md 맨 위 칸에 version 이 없습니다");
         assertThat(error.get("retryable")).isEqualTo(false);
+    }
+
+    /**
+     * B 의 Agent 가 보내는 intent_expectations({scope, checks} 목록)가 MCP 를 거쳐 IntentExpectation 으로 들어오고,
+     * 결과의 intent_scoped 가 그대로 나가는지 본다.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void runScenariosTakesIntentExpectationsThroughMcp() {
+        SyncToolSpecification spec = new SyncMcpToolProvider(List.of(tools)).getToolSpecifications().stream()
+                .filter(s -> s.tool().name().equals("run_scenarios")).findFirst().orElseThrow();
+        Map<String, Object> properties = (Map<String, Object>) spec.tool().inputSchema().get("properties");
+        Map<String, Object> items = (Map<String, Object>) ((Map<String, Object>) properties.get("intent_expectations"))
+                .get("items");
+        assertThat(((Map<String, Object>) items.get("properties")).keySet()).containsExactlyInAnyOrder("scope", "checks");
+        List<IntentExpectation> expectations = List.of(
+                new IntentExpectation("order.payment_method == 'card'", List.of("order.final_status in ['HOLD', 'REJECTED']")),
+                new IntentExpectation(null, List.of("payment.status == null")));
+        when(runner.run("w_abc", List.of("g-01"), null, null, expectations, 2)).thenReturn(new ScenarioRunReport("w_abc",
+                true, List.of(new ScenarioRunReport.ScenarioResult("g-01", null, true, List.of("r_1", "r_2"), List.of(),
+                        true))));
+        Map<String, Object> card = new java.util.LinkedHashMap<>();
+        card.put("scope", "order.payment_method == 'card'");
+        card.put("checks", List.of("order.final_status in ['HOLD', 'REJECTED']"));
+        Map<String, Object> everywhere = new java.util.LinkedHashMap<>();
+        everywhere.put("scope", null);
+        everywhere.put("checks", List.of("payment.status == null"));
+
+        CallToolResult result = spec.callHandler().apply(null, CallToolRequest.builder().name("run_scenarios")
+                .arguments(Map.of("workspace_id", "w_abc", "scenario_ids", List.of("g-01"), "repeat", 2,
+                        "intent_expectations", List.of(card, everywhere)))
+                .build());
+
+        assertThat(result.isError()).isFalse();
+        Map<String, Object> first = ((List<Map<String, Object>>) mapOf(textOf(result)).get("results")).getFirst();
+        assertThat(first.get("intent_scoped")).isEqualTo(true);
+    }
+
+    /** 고정된 연습 공간에 넣은 수정은 INVALID_INPUT 이 아니라 WORKSPACE_FROZEN 오류다. */
+    @Test
+    void frozenWorkspaceBecomesWorkspaceFrozenError() {
+        when(workspaces.apply(any(), any())).thenThrow(new WorkspaceFrozenException("w_abc"));
+
+        CallToolResult result = tools.applyPatch("w_abc", List.of(new PatchInput("payment", 1, "diff")));
+
+        assertThat(result.isError()).isTrue();
+        Map<String, Object> error = mapOf(textOf(result));
+        assertThat(error.keySet()).containsExactly("code", "message", "retryable", "upstream_status", "snapshot_id");
+        assertThat(error.get("code")).isEqualTo("WORKSPACE_FROZEN");
+        assertThat(error.get("retryable")).isEqualTo(false);
+        assertThat((String) error.get("message")).contains("w_abc").contains("create_workspace");
+    }
+
+    /** 도구 설명은 기준 주문 g-01~g-06, 조건 문법 v2, 의도 채점, 고정 규칙, rules 검사를 실제 동작대로 알린다. */
+    @Test
+    void descriptionsDescribeIntentRulesAndFreeze() {
+        var specs = new SyncMcpToolProvider(List.of(tools)).getToolSpecifications();
+        String run = specs.stream().filter(s -> s.tool().name().equals("run_scenarios")).findFirst().orElseThrow()
+                .tool().description();
+        String apply = specs.stream().filter(s -> s.tool().name().equals("apply_patch")).findFirst().orElseThrow()
+                .tool().description();
+
+        assertThat(run).contains("g-01~g-06").contains("intent_expectations").contains("intent_scoped")
+                .contains("order.final_status").contains("WORKSPACE_FROZEN");
+        assertThat(apply).contains("RULE_KEY_NOT_INPUT").contains("field rules").contains("WORKSPACE_FROZEN");
     }
 
     /** 도구 결과 JSON 글을 키 순서가 남는 Map 으로 읽는다. */

@@ -21,9 +21,13 @@ intent:
   checks: ["payment.status == null"]
 
 order_agent:
-  g-01: {result: check_failed, reason: "payment.status == 'PAID'"}
+  # 확인 조건 payment.status == 'PAID' 는 정상 배송 주문(g-01, g-04~g-06)에만 있다.
+  g-01: &unpaid {result: check_failed, reason: "payment.status == 'PAID'"}
   g-02: {result: pass}
   g-03: {result: pass}
+  g-04: *unpaid
+  g-05: *unpaid
+  g-06: *unpaid
 
 answer:
   status: [VALIDATION_FAILED, EVALUATED]

@@ -1,7 +1,8 @@
 // 화면들이 함께 보는 작업 상태를 담는 Pinia 스토어다. 지금 보고 있는 snapshot, 그 Skill 세트,
-// 브라우저에만 있는 초안, 고정 이력, 최근 실행 목록을 둔다. 초안은 브라우저에 보관하고 담당자가
-// 명시적으로 저장할 때 새 snapshot 으로 발행한다. snapshotId, pinned, drafts 는 localStorage 에
-// 저장하는데, mock 과 실서버는 서로의 snapshot id 를 모르므로 저장소 키를 나눈다. 화면 쪽
+// 브라우저에만 있는 초안과 변경 의도 입력, 고정 이력, 최근 실행 목록을 둔다. 초안은 브라우저에
+// 보관하고 담당자가 명시적으로 저장할 때 새 snapshot 으로 발행한다. snapshotId, pinned, drafts,
+// intents 는 localStorage 에 저장하는데, mock 과 실서버는 서로의 snapshot id 를 모르므로 저장소
+// 키를 나눈다. 화면 쪽
 // 사용처는 frontend/src/components/SnapshotPicker.vue(선택과 고정),
 // frontend/src/views/SkillDraftView.vue(초안 편집과 저장),
 // frontend/src/views/OrderView.vue(실행 목록), frontend/src/views/ExecutionView.vue(실행 당시
@@ -54,6 +55,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const pinned = ref(saved.pinned ?? [])
   // snapshot id 마다 { 경로: 초안 원문 } 이다.
   const drafts = ref(saved.drafts ?? {})
+  // snapshot id 마다 변경 의도 입력 { text, expectations } 이다. text 는 의도 한 줄, expectations 는
+  // 고급 입력 칸의 글 그대로다. frontend/src/views/SkillDraftView.vue 가 고치고, 저장하면 지운다.
+  const intents = ref(saved.intents ?? {})
   // 최근 실행 목록(GET /api/executions 의 items)이다.
   const executions = ref([])
 
@@ -93,18 +97,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /**
    * 지금 snapshot 의 초안을 서버에 저장한다. frontend/src/api/orderAgent.js 의 saveSkillEdits 가
-   * POST /api/snapshots/edits 로 기준 snapshot id 와 hash, 바뀐 원문을 보낸다. 저장된 snapshot 은
-   * 고정 이력에 내 수정본(user-edit)으로 넣고, 같은 세트를 계속 보고 있으며 남은 초안이 없으면 새
-   * snapshot 을 고른다. 돌려준 응답의 change_id 로 frontend/src/views/SkillDraftView.vue 가 진단
-   * 화면 링크를 만든다. 실패하면 초안을 그대로 두고 예외를 던진다.
+   * POST /api/snapshots/edits 로 기준 snapshot id 와 hash, 바뀐 원문, 그리고 intent 가 있으면 담당자
+   * 변경 의도를 보낸다. intent 는 frontend/src/utils/intentInput.js 의 buildIntent 결과이고 null 이면
+   * 보내지 않는다. 저장된 snapshot 은 고정 이력에 내 수정본(user-edit)으로 넣고, 그 세트의 의도
+   * 입력을 지운다. 같은 세트를 계속 보고 있으며 남은 초안이 없으면 새 snapshot 을 고른다. 돌려준
+   * 응답의 change_id 로 frontend/src/views/SkillDraftView.vue 가 진단 화면 링크를 만든다. 실패하면
+   * 초안과 의도 입력을 그대로 두고 예외를 던진다.
    */
-  async function saveDrafts() {
+  async function saveDrafts(intent = null) {
     const { id, base, changes } = savableChanges()
     saving.value = true
     try {
-      const savedSnapshot = await saveSkillEdits(id, base.snapshot.hash, changes)
+      const savedSnapshot = await saveSkillEdits(id, base.snapshot.hash, changes, intent)
       // 요청이 오가는 동안 생긴 편집은 다른 snapshot 의 편집까지 모두 남긴다.
       const remaining = dropSavedDrafts(id, changes)
+      if (intent) clearIntentDraft(id)
       remember({ snapshot_id: savedSnapshot.snapshot_id, fixture: 'user-edit', created_at: savedSnapshot.created_at })
       if (snapshotId.value === id && !Object.keys(remaining).length) await select(savedSnapshot.snapshot_id)
       return savedSnapshot
@@ -113,12 +120,33 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  // snapshotId, pinned, drafts 가 바뀔 때마다 localStorage 에 쓴다.
+  // 지금 snapshot 의 변경 의도 입력 { text, expectations } 이다. 적은 적이 없으면 빈 입력이다.
+  const currentIntent = computed(() => intents.value[snapshotId.value] ?? { text: '', expectations: '' })
+
+  // 지금 snapshot 의 변경 의도 입력에서 field('text' 나 'expectations')를 value 로 바꾼다. 두 칸이 모두
+  // 비면 기록을 지운다. frontend/src/views/SkillDraftView.vue 의 의도 입력 칸이 부른다.
+  function setIntentDraft(field, value) {
+    const id = snapshotId.value
+    const next = { ...currentIntent.value, [field]: value }
+    const rest = { ...intents.value }
+    if (next.text || next.expectations) rest[id] = next
+    else delete rest[id]
+    intents.value = rest
+  }
+
+  // snapshot id 의 변경 의도 입력을 지운다. 저장에 성공한 뒤 saveDrafts 가 부른다.
+  function clearIntentDraft(id) {
+    const rest = { ...intents.value }
+    delete rest[id]
+    intents.value = rest
+  }
+
+  // snapshotId, pinned, drafts, intents 가 바뀔 때마다 localStorage 에 쓴다.
   watch(
-    [snapshotId, pinned, drafts],
+    [snapshotId, pinned, drafts, intents],
     () => {
       try {
-        const state = { snapshotId: snapshotId.value, pinned: pinned.value, drafts: drafts.value }
+        const state = { snapshotId: snapshotId.value, pinned: pinned.value, drafts: drafts.value, intents: intents.value }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
       } catch {
         // 저장소를 못 쓰는 환경이면 새로고침 때 초안이 사라질 뿐이다.
@@ -324,6 +352,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     saveDrafts,
     current,
     currentDrafts,
+    currentIntent,
+    setIntentDraft,
     draftSkills,
     knownSnapshots,
     ensureSet,

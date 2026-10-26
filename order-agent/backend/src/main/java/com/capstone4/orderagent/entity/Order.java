@@ -7,8 +7,8 @@ import jakarta.persistence.*;
 
 /**
  * 주문 집합체다. orders 테이블 한 행과 그 항목(order_items), 처리 단계 기록(order_processing_steps)을 함께 다루고 상태 전이 규칙을 메서드 안의 가드로 지킨다.
- * 주문은 CREATED 로 접수되고 PROCESSING 을 거쳐 SHIPPED(정상 완료), REJECTED(재고 부족이나 엔트리 미선택), HOLD(결제 거절),
- * FAILED(실행 오류나 재시작 중단) 가운데 하나로 끝난다. CREATED 에서 PROCESSING 으로 가는 전이만은 엔티티가 아니라
+ * 주문은 CREATED 로 접수되고 PROCESSING 을 거쳐 SHIPPED(정상 완료), REJECTED(재고 부족, 엔트리 미선택, 실행 규칙 reject),
+ * HOLD(결제 거절, 실행 규칙 hold), FAILED(실행 오류나 재시작 중단) 가운데 하나로 끝난다. CREATED 에서 PROCESSING 으로 가는 전이만은 엔티티가 아니라
  * order-agent/backend/src/main/java/com/capstone4/orderagent/repository/OrderRepository.java 의 claim 이 조건부 UPDATE 로 한다.
  * 업무 결과를 바꾸는 메서드는 대부분 PROCESSING 일 때만 허용하고 어기면 IllegalStateException 을 던져, 그 도구 트랜잭션 전체를 되돌리게 한다.
  * version 칼럼은 JPA 낙관적 잠금에 쓰고, claim 은 직접 1 을 올린다.
@@ -91,6 +91,16 @@ public class Order {
     public void hold() {
         requireProcessing(); paymentStatus = PaymentStatus.DECLINED;
         status = OrderStatus.HOLD; resultCode = "PAYMENT_DECLINED";
+    }
+    /**
+     * 단계 Skill 의 실행 규칙(rules)이 매치된 주문을 HOLD 나 REJECTED 로 끝내고 결과 코드를 규칙의 reason 으로 남긴다.
+     * hold 와 달리 결제 상태는 건드리지 않으므로, 결제 전 규칙이면 NOT_ATTEMPTED 로, 결제 뒤 단계의 규칙이면 PAID 로 남는다.
+     * 다른 상태를 주면 IllegalArgumentException 이다. OrderToolService.stopByRule 이 결제 전 예약 재고를 되돌린 뒤 부른다.
+     */
+    public void stopByRule(OrderStatus status, String reason) {
+        requireProcessing();
+        if (status != OrderStatus.HOLD && status != OrderStatus.REJECTED) throw new IllegalArgumentException("Rule stop must be HOLD or REJECTED");
+        this.status = status; resultCode = reason;
     }
     /** Mock 결제 승인과 그 참조를 남긴다. 주문은 PROCESSING 그대로이며, PAID 는 이후 실패해도 자동으로 되돌리지 않는 확정 결과다. */
     public void paid(String reference) { requireProcessing(); paymentStatus = PaymentStatus.PAID; paymentReference = reference; }

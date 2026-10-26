@@ -11,8 +11,8 @@ RunStore, StubMCPTools)만 쓰므로 내부 도우미 이름을 바꿔도 깨지
   한도를 보지 않는 순서를 고정한다.
 - skillops-agent/skillops_agent/nodes.py 의 노드를 보호한다. 진행 메시지, step_count, 도구 호출
   순서와 인자, 반복 횟수, 프롬프트에 들어가는 값, 후보 형식 검사, 순위와 설명 대체, 의도 조건
-  필터, 사전 검증(VALIDATED, BASELINE_FAILED, VALIDATION_FAILED), diagnosis_only, 계약 오류 문구와
-  검사 순서, proposal_payload 의 경계를 고정한다.
+  필터, 사전 검증(VALIDATED, BASELINE_FAILED, 결과 불일치의 원인 실험과 VALIDATION_FAILED),
+  diagnosis_only, 계약 오류 문구와 검사 순서, proposal_payload 의 경계를 고정한다.
 - graph.py 의 guarded 와 skillops-agent/skillops_agent/run_store.py 가 노드마다 저장한 진행 기록,
   최종 상태, 오류 기록, 키 순서를 고정한다.
 흐름이나 config.py 의 튜닝 값을 의도적으로 바꾸면 HAPPY_NODES, HYPOTHESIS_LOOP, REPAIR_LOOP,
@@ -38,7 +38,7 @@ BASELINE = StubMCPTools.BASELINE
 CANDIDATE = StubMCPTools.CANDIDATE
 EXECUTION = StubMCPTools.EXECUTION
 REPLAY = f"f-{EXECUTION}"
-GOLDEN = ["g-01", "g-02", "g-03"]
+GOLDEN = ["g-01", "g-02", "g-03", "g-04", "g-05", "g-06"]
 
 # 정상 경로에서 실행되는 노드 11개의 순서다.
 # skillops-agent/skillops_agent/graph.py 의 FLOW 를 바꾸면 함께 고친다.
@@ -410,6 +410,8 @@ async def test_happy_path_candidate_intent_and_proposal_shape(stub, llm):
         ("checks", ["payment.status == 'PAID'"]),
         ("dropped_checks", []),
         ("confirmed", None),
+        ("source", "inferred"),
+        ("expectations", []),
     ]
     [candidate] = result["candidates"]
     assert list(candidate) == [
@@ -422,13 +424,15 @@ async def test_happy_path_candidate_intent_and_proposal_shape(stub, llm):
         "evidence_run_ids",
         "rank",
         "explanation",
+        "is_revert",
+        "weakens_contract",
         "validation_error",
         "metadata_errors",
         "flow_errors",
     ]
     assert list(candidate["results"].items()) == [
         ("fixes_failure", True),
-        ("keeps_old_orders", {"passed": 3, "total": 3}),
+        ("keeps_old_orders", {"passed": 6, "total": 6}),
         ("keeps_intent", True),
         ("no_broken_links", True),
         ("metadata_valid", True),
@@ -440,7 +444,8 @@ async def test_happy_path_candidate_intent_and_proposal_shape(stub, llm):
     assert candidate["workspace"].startswith("w_")
     assert candidate["valid"] is True and candidate["validation_error"] is None
     assert candidate["rank"] == 1 and candidate["explanation"] == "trial evidence"
-    assert len(candidate["evidence_run_ids"]) == 10
+    assert candidate["is_revert"] is False and candidate["weakens_contract"] is False
+    assert len(candidate["evidence_run_ids"]) == 16
     assert result["recommended"] == 0
     [patch] = candidate["patches"]
     assert list(patch.items()) == [
@@ -524,7 +529,9 @@ async def test_happy_path_tool_calls_in_order(stub, llm, monkeypatch):
         "apply_patch",
         "run_scenarios",
         "get_trace",
+        "list_skills",
         "get_dependency_graph",
+        "get_skill",
         "get_skill",
         "get_skill",
         "get_skill",
@@ -544,7 +551,7 @@ async def test_happy_path_tool_calls_in_order(stub, llm, monkeypatch):
     assert [len(args) for args, _ in by_name["get_trace"][1:]] == [1, 1, 1]
     assert all(args[0].startswith("r_") for args, _ in by_name["get_trace"][1:])
     assert by_name["get_snapshot"] == [((CANDIDATE,), {}), ((BASELINE,), {})]
-    assert by_name["list_skills"] == [((CANDIDATE,), {})]
+    assert by_name["list_skills"] == [((CANDIDATE,), {})] * 2
     assert by_name["diff_skill"] == [(("inventory-check", BASELINE, CANDIDATE), {})]
     assert by_name["create_workspace"] == [((), {"snapshot_id": CANDIDATE})] * 3
     assert by_name["get_dependency_graph"] == [
@@ -554,6 +561,7 @@ async def test_happy_path_tool_calls_in_order(stub, llm, monkeypatch):
         ((CANDIDATE, "order-flow"), {}),
         ((CANDIDATE, "inventory-check"), {}),
         ((CANDIDATE, "payment"), {}),
+        ((BASELINE, "inventory-check"), {}),
     ]
     assert all(len(args) == 2 and not kwargs for args, kwargs in by_name["apply_patch"])
     [ablation_patch] = by_name["apply_patch"][0][0][1]
@@ -740,7 +748,7 @@ async def test_candidate_retry_stops_after_three_rounds(stub, llm, monkeypatch):
     prompts = llm.prompts_for("_CandidatesOutput")
     assert len(prompts) == 3
     feedback = (
-        "1(same_skill): fixes_failure=True, keeps_old_orders={'passed': 3, 'total': 3}, "
+        "1(same_skill): fixes_failure=True, keeps_old_orders={'passed': 6, 'total': 6}, "
         "keeps_intent=True, error=None"
     )
     assert feedback not in prompts[0]
@@ -907,10 +915,12 @@ async def test_none_llm_outputs_use_documented_fallbacks(stub, llm):
         "checks": [],
         "dropped_checks": [],
         "confirmed": None,
+        "source": "inferred",
+        "expectations": [],
     }
     assert messages_of(result, "extract_intent") == ["의도 추출 완료 (조건 0개, 버린 조건 0개)"]
     [candidate] = result["candidates"]
-    assert len(candidate["evidence_run_ids"]) == 8
+    assert len(candidate["evidence_run_ids"]) == 14
     assert candidate["results"]["keeps_intent"] is True
     evidence = candidate["evidence_run_ids"]
     assert candidate["explanation"] == f"rank 1: {evidence[0]}, {evidence[1]}"
@@ -987,7 +997,7 @@ async def test_saved_change_validated_without_llm(stub, no_llm, monkeypatch):
     assert list(result["skill_versions"]) == ["order-flow", "inventory-check", "payment"]
     reports = [r for name, _, _, r in calls if name == "run_scenarios"]
     assert result["preflight_run_ids"] == run_ids_of(reports[1])
-    assert len(result["preflight_run_ids"]) == 6
+    assert len(result["preflight_run_ids"]) == 12
     assert [name for name, *_ in calls] == [
         "get_snapshot",
         "get_snapshot",
@@ -1024,7 +1034,7 @@ async def test_saved_change_with_failing_baseline_stops_before_candidate(
     [report] = [r for name, _, _, r in calls if name == "run_scenarios"]
     assert result["preflight_run_ids"] == run_ids_of(report)
     assert result["diagnosis"]["failures"] == [f for r in report["results"] for f in r["failures"]]
-    assert len(result["diagnosis"]["failures"]) == 6
+    assert len(result["diagnosis"]["failures"]) == 12
     assert result["snapshot_id"] == CANDIDATE
     assert result["baseline_snapshot_id"] == BASELINE
     assert result["changes"] == [] and result["diff"] is None
@@ -1035,31 +1045,83 @@ async def test_saved_change_with_failing_baseline_stops_before_candidate(
 
 
 @pytest.mark.asyncio
-async def test_saved_change_failing_without_execution_error_is_validation_failed(
-    stub, no_llm, monkeypatch
+async def test_saved_change_failing_without_execution_error_continues_ablation(
+    stub, llm, monkeypatch
 ):
+    """실행 오류 없이 결과만 다른 기준 주문은 멈추지 않고 그 주문을 재현으로 원인 실험을 잇는다.
+
+    docs/plans/2026-10-26-behavior-edit-root-fix.md 2.5. 재현 주문 f-<실행> 은 FAILED 실행에만 쓰고,
+    실행 기록이 없으므로 오류 종류 대조는 건너뛴다. root_cause 는 kind=change 와 그 기준 주문을
+    repro_scenario_ids 로 남긴다.
+    """
     calls = record_tools(monkeypatch, stub)
     result = await run(saved_trigger())
+    assert result["error"] is None
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert nodes_of(result) == HAPPY_NODES
+    assert result["execution_id"] is None and result["trace"] is None
+    assert result["repro_scenario_ids"] == GOLDEN
+    assert list(result["diagnosis"]) == ["explanation", "failures"]
+    assert result["diagnosis"]["explanation"].startswith("기대 결과와 실제 업무 결과가 다릅니다.")
+    reports = [r for name, _, _, r in calls if name == "run_scenarios"]
+    assert result["preflight_run_ids"] == run_ids_of(reports[1])
+    assert result["diagnosis"]["failures"] == [
+        f for r in reports[1]["results"] for f in r["failures"]
+    ]
+    # 사전 검증은 떨어진 기준 주문마다 첫 실패 실행의 기록을 읽어 실행 오류가 없는지 본다.
+    preflight_traces = [args for name, args, *_ in calls if name == "get_trace"][:6]
+    assert preflight_traces == [
+        (execution_uuid(r["failures"][0]["run_id"]),) for r in reports[1]["results"]
+    ]
+    assert scenario_calls(calls) == [
+        (GOLDEN, {"repeat": 2, "extra_checks": None}),
+        (GOLDEN, {"repeat": 2, "extra_checks": None}),
+        (GOLDEN, {"repeat": 1, "extra_checks": None}),
+        (GOLDEN, {"repeat": 1, "extra_checks": None}),
+        (GOLDEN, {"repeat": 2, "extra_checks": None}),
+        (GOLDEN, {"repeat": 2, "extra_checks": ["payment.status == 'PAID'"]}),
+    ]
+    [ablation] = result["ablation_runs"]
+    root_cause = result["root_cause"]
+    assert root_cause["kind"] == "change"
+    assert root_cause["repro_scenario_ids"] == GOLDEN
+    assert root_cause["proof_run_ids"] == ablation["control_run_ids"] + ablation["run_ids"]
+    assert len(root_cause["proof_run_ids"]) == 12
+    [candidate] = result["candidates"]
+    assert candidate["valid"] is True
+    # 재현 주문이 기준 주문이라 회귀 실행을 재현 근거로 쓴다. 회귀 12개와 의도 조건 12개다.
+    assert len(candidate["evidence_run_ids"]) == 24
+    [hypothesis_prompt] = llm.prompts_for("_HypothesesOutput")
+    assert "CONTRACT_VIOLATION" in hypothesis_prompt
+    saved = stub.saved[-1]
+    assert saved["failure"] is None
+    assert saved["root_cause"]["repro_scenario_ids"] == GOLDEN
+
+
+@pytest.mark.asyncio
+async def test_saved_change_mismatch_without_confirmed_cause_is_validation_failed(
+    stub, llm, monkeypatch
+):
+    """결과 불일치 원인 실험이 재시도 한도까지 원인을 확정하지 못하면 제안서 없이 끝난다."""
+    ablation_never_confirms(monkeypatch, stub)
+    calls = record_tools(monkeypatch, stub)
+    result = await run(saved_trigger())
+    assert result["error"] is None
     assert result["diagnosis_status"] == "VALIDATION_FAILED"
-    assert nodes_of(result) == ["init", "fetch_evidence"]
+    assert nodes_of(result) == ["init", "fetch_evidence"] + HYPOTHESIS_LOOP * 3
+    assert result["hypothesis_retry"] == 3
+    assert result["root_cause"] is None and result["proposal"] is None
+    assert stub.saved == []
     assert list(result["diagnosis"]) == ["explanation", "failures"]
     assert result["diagnosis"]["explanation"] == (
-        "기대 결과와 실제 업무 결과가 다릅니다. "
-        "실행 오류 없이 끝나 자동 원인 확정은 진행하지 않습니다."
+        "기대 결과와 실제 업무 결과가 다릅니다. 실행 오류 없이 끝났고, "
+        "변경을 하나씩 되돌린 원인 실험으로도 원인 변경을 확정하지 못했습니다."
     )
     reports = [r for name, _, _, r in calls if name == "run_scenarios"]
-    assert len(reports) == 2
-    assert result["preflight_run_ids"] == run_ids_of(reports[1])
-    assert len(result["preflight_run_ids"]) == 6
-    candidate_failures = [f for r in reports[1]["results"] for f in r["failures"]]
-    assert result["diagnosis"]["failures"] == candidate_failures
-    assert len(candidate_failures) == 6
-    assert result["snapshot_id"] == CANDIDATE
-    assert result["baseline_snapshot_id"] == BASELINE
-    assert result["trace"] is None and result["changes"] == [] and result["diff"] is None
-    assert result["skill_versions"] == {} and result["execution_id"] is None
-    first_failure = reports[1]["results"][0]["failures"][0]["run_id"]
-    assert calls[-1][:3] == ("get_trace", (execution_uuid(first_failure),), {})
+    assert result["diagnosis"]["failures"] == [
+        f for r in reports[1]["results"] for f in r["failures"]
+    ]
+    assert len(result["diagnosis"]["failures"]) == 12
 
 
 @pytest.mark.asyncio
@@ -1075,7 +1137,7 @@ async def test_saved_change_with_failed_trace_continues_diagnosis(stub, llm, mon
     assert result["trace"]["execution_id"] == replaced["execution"]
     reports = [r for name, _, _, r in calls if name == "run_scenarios"]
     assert result["preflight_run_ids"] == run_ids_of(reports[1])
-    assert len(result["preflight_run_ids"]) == 6
+    assert len(result["preflight_run_ids"]) == 12
     replay = f"f-{replaced['execution']}"
     assert scenario_calls(calls)[2:] == [
         ([replay], {"repeat": 1, "extra_checks": None}),
@@ -1213,6 +1275,7 @@ async def test_run_store_keeps_progress_and_final_state(stub, llm):
         "changes",
         "diagnosis",
         "preflight_run_ids",
+        "repro_scenario_ids",
         "hypotheses",
         "ablation_runs",
         "root_cause",
@@ -1246,16 +1309,17 @@ async def test_run_store_records_node_error(stub, llm, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_store_keeps_init_values_for_early_preflight_stop(stub, no_llm):
+async def test_run_store_keeps_init_values_for_early_preflight_stop(stub, no_llm, monkeypatch):
     """사전 검증에서 일찍 멈춰도 init 이 채운 기본값이 RunStore 기록에 남는다."""
+    broken_workspaces(monkeypatch, stub)
     thread, _ = RunStore().accept({"type": "skill_saved", "candidate_snapshot_id": CANDIDATE})
     await run({**saved_trigger(), "pipeline_thread_id": thread})
     record = RunStore().get(thread)
-    assert record["diagnosis_status"] == "VALIDATION_FAILED"
+    assert record["diagnosis_status"] == "BASELINE_FAILED"
     assert record["trace"] is None and record["diff"] is None
     assert record["changes"] == [] and record["skill_versions"] == {}
-    assert record["execution_id"] is None
-    assert len(record["preflight_run_ids"]) == 6
+    assert record["execution_id"] is None and record["repro_scenario_ids"] == []
+    assert len(record["preflight_run_ids"]) == 12
     assert [e["node"] for e in record["events"]] == ["init", "fetch_evidence"]
 
 

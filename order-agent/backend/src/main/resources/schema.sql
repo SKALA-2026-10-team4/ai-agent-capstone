@@ -101,3 +101,5 @@ CREATE TABLE IF NOT EXISTS skill_change_events (
     last_error TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+-- Additive: set when the receiver rejects the row's payload (4xx such as 400/409/422); the dispatcher stops resending it.
+ALTER TABLE skill_change_events ADD COLUMN IF NOT EXISTS failed_at TIMESTAMP WITH TIME ZONE;

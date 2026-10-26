@@ -22,6 +22,30 @@ export const DIAGNOSIS_LABEL = {
 // 보여 준다. 진단 상세의 제목과 목록의 각 줄이 쓴다.
 export const diagnosisLabel = (status) => DIAGNOSIS_LABEL[status] ?? status
 
+// 진단 결과(diagnosis.finding)마다 화면 이름과 설명이다. 진단 상태를 늘리지 않고 이 칸으로 무엇을
+// 찾았는지 알린다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.5 절). INTENT_NOT_REALIZED 는
+// 수정본이 오류 없이 돌지만 담당자 의도 범위의 기준 주문이 의도대로 처리되지 않은 경우다. NEEDS_TOOL 은
+// 담당자가 새로 넣은 값을 어떤 업무 도구도 만들지 않아 SKILL.md 수정만으로는 고칠 수 없는 경우이고,
+// SkillOps 가 후보 대신 개발 요청서와 임시 대안을 낸다(2.11 절).
+export const FINDING = {
+  INTENT_NOT_REALIZED: {
+    label: '의도가 아직 실행되지 않음',
+    note: '수정본은 오류 없이 돌았지만 의도한 주문이 아직 의도대로 처리되지 않아요. 본문 문장만으로는 주문 Agent 가 정책을 실행하지 않으므로, SkillOps 가 실행 규칙(rules)으로 옮기는 수정안을 시험해요.',
+  },
+  NEEDS_TOOL: {
+    label: '도구 개발 필요',
+    note: '수정본이 쓰는 값을 지금 어떤 업무 도구도 만들지 않아 SKILL.md 수정만으로는 고칠 수 없어요. SkillOps 가 수정안 대신 개발 요청서와 임시 대안을 만들어요.',
+  },
+}
+// 진단 결과의 화면 이름을 돌려준다. 표에 없으면 원래 값, 값이 없으면 null 이다.
+export const findingLabel = (finding) => (finding ? (FINDING[finding]?.label ?? finding) : null)
+// 진단 결과의 설명을 돌려준다. 표에 없거나 값이 없으면 null 이다.
+export const findingNote = (finding) => (finding ? (FINDING[finding]?.note ?? null) : null)
+
+// 담당자 의도(intent)를 고른다. 저장된 제안서의 intent(출처와 기대 결과 포함)를 먼저 쓰고, 없으면
+// 진단 결과의 intent, 그것도 없으면 접수 요청(trigger)에 담당자가 보낸 intent 를 쓴다. 없으면 null 이다.
+export const intentOf = (run) => run?.proposal?.intent ?? run?.intent ?? run?.trigger?.intent ?? null
+
 // 아직 끝나지 않아 다시 읽어야 하는 진단 상태다.
 // skillops-agent/skillops_agent/run_store.py 의 ACTIVE_STATUSES 와 같은 두 값이다.
 export const IN_PROGRESS_STATUSES = ['QUEUED', 'RUNNING']

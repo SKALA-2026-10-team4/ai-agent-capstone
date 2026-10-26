@@ -13,10 +13,17 @@ import java.util.Map;
  * SKILL_FINISHED 에 남기는 status 와 같은 글자다. skipped 는 ContractOnlyFlowRunner 만 쓴다.
  *
  * @param runId       모의 실행 번호다. run_scenarios 결과의 run_ids 에 들어간다
- * @param finalStatus SHIPPED, REJECTED, HOLD, FAILED 가운데 하나다
+ * @param finalStatus SHIPPED, REJECTED, HOLD, FAILED 가운데 하나다. 실행 기록에 없으면 null 이다
  * @param steps       거친 단계를 순서대로 담는다
+ * @param error       어느 단계의 것인지 모르는 실행 오류의 한 줄이다(예: skill 없는 EXECUTION_ERROR 의 INVALID_FLOW). 없으면 null 이다.
+ *                    단계에 붙은 오류는 Step.error 에 있다. ScenarioGrader 가 불합격 이유 맨 앞에 "실행 오류:" 로 붙인다
  */
-public record RunOutcome(String runId, String finalStatus, List<Step> steps) {
+public record RunOutcome(String runId, String finalStatus, List<Step> steps, String error) {
+
+    /** 단계 밖 실행 오류가 없는 결과를 만든다. ContractOnlyFlowRunner 와 테스트가 쓴다. */
+    public RunOutcome(String runId, String finalStatus, List<Step> steps) {
+        this(runId, finalStatus, steps, null);
+    }
 
     /** 끝까지 처리돼 배송이 잡힌 최종 상태다. */
     public static final String SHIPPED = "SHIPPED";
