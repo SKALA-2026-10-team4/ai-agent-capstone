@@ -1,5 +1,6 @@
 package com.capstone4.skillops.scenario;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -19,12 +20,21 @@ import com.capstone4.skillops.workspace.WorkspaceSkill;
  * 입력은 주문을 하나라도 돌리기 전에 모두 검사하고, 재현 주문의 원래 주문도 그 전에 모두 꺼내 둔다.
  * 잘못된 입력으로 일부만 돌고 비용이 나가지 않게 하려는 것이다.
  * run 본문의 호출 순서가 곧 오류 우선순위다. 여러 입력이 함께 틀리면 먼저 검사한 쪽의 오류 문구가 나간다.
- * 순서는 repeat 범위, 빈 입력, extra_checks 문법, 연습 공간, 시험 주문 번호와 재현 번호, 실행기의 재현 지원, 원래 주문 꺼내기다.
+ * 순서는 repeat 범위, 빈 입력, extra_checks 문법, intent_expectations 개수와 문법, 연습 공간, 시험 주문 번호와 재현 번호,
+ * 실행기의 재현 지원, 원래 주문 꺼내기, 의도 scope 문맥(상품 단가 읽기)이다. 모두 통과하면 연습 공간을 고정하고(WorkspaceService.freeze)
+ * 돌리기 시작한다. 고정된 연습 공간은 apply_patch 를 WORKSPACE_FROZEN 으로 거부한다.
+ *
+ * 담당자 의도(intent_expectations)의 채점 규칙은 IntentPlan 과 withIntent 에 있다(docs/plans/2026-10-26-behavior-edit-root-fix.md
+ * 2.4 절). 실행마다 장부에 scenario_id, passed, intent_scoped, checks_hash, intent_matches(채점에 붙은 expectation 의 자리)를
+ * 남기고, save_proposal 재판정이 이 장부로 후보를 다시 판정한다.
+ * 같은 연습 공간에 apply_patch 와 run_scenarios 가 동시에 오면 WorkspaceService 가 연습 공간 번호별 잠금으로 apply 와 freeze 를
+ * 차례로 세우고, 이 클래스는 고정한 뒤 원문을 다시 읽는다. 잠금은 서비스 프로세스 하나 안에서만 통하므로 service 를 여러 개 띄우면
+ * 이 경합은 막지 못한다(알려진 한계).
  * service/src/test/java/com/capstone4/skillops/scenario/ScenarioRunnerTest.java 와
  * service/src/test/java/com/capstone4/skillops/scenario/ScenarioRunnerReplayTest.java 가 이 순서를 고정하므로,
  * 단계를 더하거나 옮기면 두 테스트의 순서 검사도 함께 고친다.
  *
- * service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 의 runScenarios() 가 MCP 입력 다섯 개를 그대로 run 에 넘긴다.
+ * service/src/main/java/com/capstone4/skillops/mcp/WorkspaceTools.java 의 runScenarios() 가 MCP 입력 여섯 개를 그대로 run 에 넘긴다.
  * 그 메서드는 Spring AI MCP Server 가 @McpTool 로 등록해 run_scenarios 도구로 노출한다.
  * 예외는 service/src/main/java/com/capstone4/skillops/mcp/WorkspaceToolResults.java 의 run() 이 도구 오류로 바꾸며,
  * IllegalArgumentException 은 INVALID_INPUT, 그 밖의 RuntimeException 은 INTERNAL_ERROR 가 된다.
@@ -76,35 +86,48 @@ public class ScenarioRunner {
         this.ledger = ledger;
     }
 
+    /** 의도 없이 돌린다. {@code run(workspaceId, scenarioIds, replayRunIds, extraChecks, null, repeat)} 과 같고 테스트가 쓴다. */
+    public ScenarioRunReport run(String workspaceId, List<String> scenarioIds, List<String> replayRunIds,
+            List<String> extraChecks, Integer repeat) {
+        return run(workspaceId, scenarioIds, replayRunIds, extraChecks, null, repeat);
+    }
+
     /**
      * 입력을 모두 검사하고 재현 주문의 원래 주문까지 꺼낸 뒤, 시험 주문을 넣은 순서대로 하나씩 돌려 결과 묶음을 만든다.
      * 본문의 호출 순서가 검사 순서이자 오류 우선순위이므로, 단계를 바꿀 때는 이 순서를 고친다.
      * 잘못된 입력은 아무것도 돌리기 전에 IllegalArgumentException 으로 끝난다.
      * 돌리는 도중 실행기가 예외를 던지면 예외가 그대로 올라가고 결과 묶음은 만들지 않는다. 그 전에 채점한 실행은 장부에 남는다.
      *
-     * @param scenarioIds  기준 주문 번호(g-01 등)나 재현 주문 f-&lt;execution_id&gt; 다. 결과는 넣은 순서대로 나온다
-     * @param replayRunIds 재현할 실행 번호다. execution_id(UUID)나 run_id(r_ 와 32자리 16진수)를 받고, 결과는 scenario_ids 뒤에 온다
-     * @param extraChecks  이번 호출에만 모든 시험 주문에 덧붙이는 확인 조건이다. 문법은 Check 를 따른다
-     * @param repeat       시험 주문마다 돌릴 횟수다. null 이면 DEFAULT_REPEAT 다
+     * @param scenarioIds        기준 주문 번호(g-01 등)나 재현 주문 f-&lt;execution_id&gt; 다. 결과는 넣은 순서대로 나온다
+     * @param replayRunIds       재현할 실행 번호다. execution_id(UUID)나 run_id(r_ 와 32자리 16진수)를 받고, 결과는 scenario_ids 뒤에 온다
+     * @param extraChecks        이번 호출에만 모든 시험 주문에 덧붙이는 확인 조건이다. 문법은 Check 를 따른다
+     * @param intentExpectations 담당자 의도의 기대 결과 0~10개다. null 이나 빈 목록이면 의도 없이 채점한다. 규칙은 IntentPlan 에 있다
+     * @param repeat             시험 주문마다 돌릴 횟수다. null 이면 DEFAULT_REPEAT 다
      */
     public ScenarioRunReport run(String workspaceId, List<String> scenarioIds, List<String> replayRunIds,
-            List<String> extraChecks, Integer repeat) {
-        // 검사 단계다. 이 순서가 오류 우선순위이고, withOriginalOrders 까지 끝나야 모의 실행을 시작한다.
+            List<String> extraChecks, List<IntentExpectation> intentExpectations, Integer repeat) {
+        // 검사 단계다. 이 순서가 오류 우선순위이고, withIntent 까지 끝나야 모의 실행을 시작한다.
         int times = repeatTimes(repeat);
         List<String> ids = orEmpty(scenarioIds);
         List<String> replays = orEmpty(replayRunIds);
         requireSomethingToRun(ids, replays);
         List<Check> checks = parseChecks(extraChecks);
+        IntentPlan intent = IntentPlan.parse(intentExpectations);
         Map<String, WorkspaceSkill> skills = workspaces.skillsOf(workspaceId);
         List<Planned> planned = plan(ids, replays);
         requireReplaySupport(planned);
-        List<Planned> ready = withOriginalOrders(planned);
+        List<Planned> ready = withIntent(withOriginalOrders(planned), intent);
+        String checksHash = intent.checksHash(checks);
 
+        // 시험을 시작한 연습 공간은 고정한다. 이후의 apply_patch 는 WORKSPACE_FROZEN 으로 거부되어, 장부의 실행과 연습 공간의 수정이 어긋나지 않는다.
+        // 검사 단계에서 읽은 원문은 그 뒤 고정 전에 끝난 apply_patch 를 모를 수 있으므로, 고정한 뒤 원문을 다시 읽어 돌린다.
+        workspaces.freeze(workspaceId);
+        skills = workspaces.skillsOf(workspaceId);
         List<ScenarioRunReport.ScenarioResult> results = new ArrayList<>();
         // harness 실행기의 모의 실행은 도는 동안 주문 Agent 의 실제 재고를 잡으므로 병렬로 돌리지 않고 차례로 하나씩 돌린다.
         // 병렬로 바꾸려면 HarnessFlowRunner 의 공정 락도 함께 본다. 두 곳이 함께 실행 순서를 정한다.
         for (Planned scenario : ready) {
-            results.add(runScenario(workspaceId, skills, checks, times, scenario));
+            results.add(runScenario(workspaceId, skills, checks, checksHash, times, scenario));
         }
         return report(workspaceId, results);
     }
@@ -218,32 +241,69 @@ public class ScenarioRunner {
     }
 
     /**
+     * 시험 주문마다 담당자 의도를 채점 기준에 반영한다. 의도가 없으면 그대로 돌려준다. 규칙은 이렇다.
+     * scope 가 null 인 checks 는 모든 시험 주문에 더한다. 기준 주문이 scope 에 맞으면 시험 주문 파일의 expect 대신
+     * Expectation.inScope(맞는 checks)로 채점하고 intent_scoped 를 참으로 둔다. 맞지 않으면 expect 를 그대로 쓴다.
+     * 재현 주문은 불변식에 맞는 checks 를 더하고, 맞는 것이 있으면 intent_scoped 를 참으로 둔다.
+     * 어느 경우든 채점에 붙은 expectation 의 자리(IntentPlan.matchedIndices, scope 가 null 인 것 포함)를 장부 intent_matches 로 남긴다.
+     * scope 는 시험 주문의 처음 값(IntentPlan.scopeContextOf)으로 평가한다. scope 가 order.total 을 쓰면 상품 단가를 여기서 한 번만
+     * 읽으며, 주문 Agent 에 닿지 못하면 OrderAgentRunClient 의 IllegalStateException 이 아무것도 돌리기 전에 올라간다.
+     */
+    private List<Planned> withIntent(List<Planned> planned, IntentPlan intent) {
+        if (intent.isEmpty()) {
+            return planned;
+        }
+        boolean withTotal = intent.needsTotal();
+        Map<String, BigDecimal> prices = withTotal ? pricesOrEmpty(orderAgent.unitPrices()) : Map.of();
+        List<Check> unscoped = intent.unscopedChecks();
+        return planned.stream().map(p -> {
+            Map<String, Object> scopeContext = IntentPlan.scopeContextOf(p.order(), withTotal, prices);
+            List<Check> scoped = intent.scopedChecks(scopeContext);
+            List<Integer> matches = intent.matchedIndices(scopeContext);
+            if (p.isReplay()) {
+                return p.withExpectation(p.expectation().plus(scoped).plus(unscoped), !scoped.isEmpty(), matches);
+            }
+            if (scoped.isEmpty()) {
+                return p.withExpectation(p.expectation().plus(unscoped), false, matches);
+            }
+            return p.withExpectation(Expectation.inScope(scoped).plus(unscoped), true, matches);
+        }).toList();
+    }
+
+    /** 단가를 못 읽어 null 이 오면 빈 맵으로 본다. 그때 order.total 은 null 이 된다. */
+    private static Map<String, BigDecimal> pricesOrEmpty(Map<String, BigDecimal> prices) {
+        return prices == null ? Map.of() : prices;
+    }
+
+    /**
      * 시험 주문 하나를 times 번 돌린다. 실행마다 바로 채점하고 장부에 남기며, 한 번이라도 떨어지면 그 시험 주문은 불합격이다.
      * 돌린 실행 번호는 모두 run_ids 에 담겨 제안서의 근거로 쓰인다.
      */
     private ScenarioRunReport.ScenarioResult runScenario(String workspaceId, Map<String, WorkspaceSkill> skills,
-            List<Check> checks, int times, Planned scenario) {
+            List<Check> checks, String checksHash, int times, Planned scenario) {
         List<String> runIds = new ArrayList<>();
         List<ScenarioRunReport.Failure> failures = new ArrayList<>();
         for (int i = 0; i < times; i++) {
             RunOutcome outcome = flowRunner.runDryRun(
                     new FlowRunner.DryRunRequest(scenario.scenarioId(), scenario.order(), workspaceId, skills));
             runIds.add(outcome.runId());
-            GradeResult grade = gradeAndRecord(workspaceId, scenario, checks, outcome);
+            GradeResult grade = gradeAndRecord(workspaceId, scenario, checks, checksHash, outcome);
             if (!grade.passed()) {
                 failures.add(failureOf(outcome.runId(), grade));
             }
         }
         return new ScenarioRunReport.ScenarioResult(scenario.scenarioId(), scenario.replayOfRunId(),
-                failures.isEmpty(), List.copyOf(runIds), List.copyOf(failures));
+                failures.isEmpty(), List.copyOf(runIds), List.copyOf(failures), scenario.intentScoped());
     }
 
     /** 실행 한 번을 채점하고 곧바로 장부에 남긴다. 실행마다 기록하므로 뒤 실행이 예외로 끝나도 앞서 돌린 실행은 장부에 남는다. */
-    private GradeResult gradeAndRecord(String workspaceId, Planned scenario, List<Check> checks, RunOutcome outcome) {
+    private GradeResult gradeAndRecord(String workspaceId, Planned scenario, List<Check> checks, String checksHash,
+            RunOutcome outcome) {
         GradeResult grade = grader.grade(scenario.expectation(), checks, outcome);
-        // 제안서의 근거 실행 번호를 save_proposal 이 확인할 수 있게 남긴다.
-        // service/src/main/java/com/capstone4/skillops/proposal/ProposalValidator.java 가 이 장부를 읽는다.
-        ledger.record(workspaceId, scenario.scenarioId(), outcome.runId(), grade.passed());
+        // 제안서의 근거 실행 번호를 save_proposal 이 확인하고 판정을 다시 계산할 수 있게 남긴다.
+        // service/src/main/java/com/capstone4/skillops/proposal/ProposalValidator.java 와 ProposalJudge.java 가 이 장부를 읽는다.
+        ledger.record(workspaceId, scenario.scenarioId(), outcome.runId(), grade.passed(), scenario.intentScoped(),
+                checksHash, scenario.intentMatches());
         return grade;
     }
 
@@ -278,18 +338,20 @@ public class ScenarioRunner {
      * @param executionId   재현 주문이면 원래 주문을 꺼낼 소문자 execution_id 이고, 기준 주문이면 null 이다
      * @param order         모의 실행에 넘길 주문이다. 재현 주문은 원래 주문을 꺼내기 전까지 null 이다
      * @param expectation   채점 기준이다
+     * @param intentScoped  의도의 scope 에 맞는 expectation 이 붙었으면 true 다. 결과의 intent_scoped 와 장부에 그대로 남는다
+     * @param intentMatches 채점에 붙은 expectation 의 자리다. 의도 없이 돌리면 null 이고, 장부 intent_matches 에 그대로 남는다
      */
     private record Planned(String scenarioId, String replayOfRunId, String executionId, Map<String, Object> order,
-            Expectation expectation) {
+            Expectation expectation, boolean intentScoped, List<Integer> intentMatches) {
 
         /** 시험 주문 목록에서 찾은 기준 주문의 계획을 만든다. */
         static Planned golden(String scenarioId, Map<String, Object> order, Expectation expectation) {
-            return new Planned(scenarioId, null, null, order, expectation);
+            return new Planned(scenarioId, null, null, order, expectation, false, null);
         }
 
         /** 재현 주문의 계획을 만든다. 채점 기준은 Expectation.replay 이고 order 는 아직 비어 있다. */
         static Planned replay(String scenarioId, String replayOfRunId, String executionId) {
-            return new Planned(scenarioId, replayOfRunId, executionId, null, Expectation.replay());
+            return new Planned(scenarioId, replayOfRunId, executionId, null, Expectation.replay(), false, null);
         }
 
         /** execution_id 가 있으면 재현 주문이다. */
@@ -299,7 +361,12 @@ public class ScenarioRunner {
 
         /** 원래 주문을 채운 복사본을 돌려준다. */
         Planned withOrder(Map<String, Object> original) {
-            return new Planned(scenarioId, replayOfRunId, executionId, original, expectation);
+            return new Planned(scenarioId, replayOfRunId, executionId, original, expectation, intentScoped, intentMatches);
+        }
+
+        /** 의도를 반영한 채점 기준, intent_scoped, 붙은 expectation 의 자리로 바꾼 복사본을 돌려준다. withIntent 가 쓴다. */
+        Planned withExpectation(Expectation intended, boolean scoped, List<Integer> matches) {
+            return new Planned(scenarioId, replayOfRunId, executionId, order, intended, scoped, matches);
         }
     }
 }

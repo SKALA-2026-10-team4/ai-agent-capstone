@@ -3,7 +3,8 @@
 // 쓰고, frontend/unit/flowGraph.test.js, frontend/unit/flowGraphOf.test.js,
 // frontend/unit/skillSet.test.js, frontend/unit/snapshotDiff.test.js 가
 // 실제와 같은 Skill 세트로 쓴다. import 가 없어 Node 테스트에서 바로 불러올
-// 수 있다. order-agent/skills 의 파일을 고치면 이 파일도 함께 고친다.
+// 수 있다. order-agent/skills 의 파일을 고치면 이 파일도 함께 고친다. 맨 아래의
+// prepaidPolicyFiles 는 게시본이 아니라 실행 규칙(rules) 예시를 만드는 mock 전용 세트다.
 
 // 게시본 묶음의 경로마다 파일 원문이다. resources/policy.md 처럼
 // SKILL.md 가 아닌 관련 파일도 들어 있다.
@@ -34,6 +35,27 @@ export function fixtureFiles(fixture) {
   let text = files[path].replaceAll('inventory.available', 'inventory.reservable_quantity')
   if (fixture === 'broken-contract') text = text.replace(', inventory.reserved', '')
   else text += '\n예약 가능 수량이 주문 수량 이상이면 inventory.reserved를 true로 기록한다.\n'
+  files[path] = text
+  return files
+}
+
+// 실행 규칙(rules) 예시에 쓰는 담당자 정책 문장과 규칙이다. docs/plans/2026-10-26-behavior-edit-root-fix.md
+// 2.9 절 B-01('선입금 주문만 결제')의 모양이다. frontend/src/mocks/proposal-b01.json 의 제안서도 같은
+// 문장과 규칙을 쓴다.
+export const PREPAID_POLICY = '선입금 주문만 결제합니다. 카드 주문은 결제하지 않고 보류합니다.'
+export const PREPAID_RULE = "rules:\n  - when: \"order.payment_method != 'prepaid'\"\n    then: hold\n    reason: PREPAID_ONLY\n"
+
+/**
+ * 게시본 payment 본문에 PREPAID_POLICY 를 더하고, withRule 이 참이면 그 정책을 frontmatter 의 실행
+ * 규칙(PREPAID_RULE)으로도 옮긴 Skill 세트 파일을 만든다. 규칙이 없으면 주문 Agent 는 본문 문장만으로
+ * 보류하지 않고, 규칙이 있으면 카드 주문이 payment 단계에서 HOLD 로 멈춘다.
+ * frontend/src/mocks/index.js 의 seed 와 frontend/unit/skillRules.test.js 가 부른다.
+ */
+export function prepaidPolicyFiles({ withRule }) {
+  const files = { ...PUBLISHED_FILES }
+  const path = 'skills/payment/SKILL.md'
+  let text = `${files[path]}\n${PREPAID_POLICY}\n`
+  if (withRule) text = text.replace('version: 1\n---\n', `version: 1\n${PREPAID_RULE}---\n`)
   files[path] = text
   return files
 }

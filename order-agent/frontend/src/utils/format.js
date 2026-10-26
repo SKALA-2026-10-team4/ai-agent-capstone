@@ -1,4 +1,4 @@
-// 주문 화면이 쓰는 금액과 시각 포맷 함수, 그리고 주문 상태, 처리 단계, 단계 상태, 결제 상태 라벨표를 모은 모듈이다.
+// 주문 화면이 쓰는 금액과 시각 포맷 함수, 그리고 주문 상태, 업무 종료 사유, 처리 단계, 단계 상태, 결제 상태 라벨표를 모은 모듈이다.
 // 라벨표의 키는 order-agent/backend/src/main/java/com/capstone4/orderagent/entity/enums/ 의 OrderStatus, ProcessingStepType,
 // ProcessingStepStatus, PaymentStatus 값과 같아야 한다. 표에 없는 값은 labelOf 가 원래 값으로 보여주므로,
 // 백엔드가 새 값을 더해도 화면은 깨지지 않고 영문 이름이 보인다.
@@ -15,6 +15,8 @@ export const money = (value) =>
     maximumFractionDigits: 0,
   }).format(value);
 // 주문 상태 라벨표다. order-agent/frontend/src/components/OrderResult.vue 의 상태 배지에 보인다.
+// REJECTED 와 HOLD 의 라벨은 result_code 를 모를 때(과거 주문)만 쓰고, result_code 가 있으면 orderStatusLabel 이
+// stopReasonText 와 stopActionText 로 라벨을 만든다.
 export const statusText = {
   CREATED: "주문 접수",
   PROCESSING: "처리 중",
@@ -22,6 +24,20 @@ export const statusText = {
   REJECTED: "재고 부족 · 주문 거절",
   HOLD: "결제 거절 · 주문 보류",
   FAILED: "처리 오류",
+};
+// 업무 종료 주문(REJECTED, HOLD)의 result_code 별 사유 라벨표다. 키는 도구나 Harness 가 정하는 결과 코드
+// (order-agent/backend/src/main/java/com/capstone4/orderagent/entity/Order.java 의 reject, hold, noSelection)이다.
+// 표에 없는 result_code 는 단계 Skill 실행 규칙(rules)의 reason(Order.stopByRule)이라 "업무 규칙(REASON)" 으로 보인다.
+// order-agent/backend/src/main/java/com/capstone4/orderagent/dto/order/OrderResponse.java 의 NON_RULE_CODES 와 같은 구분이다.
+export const stopReasonText = {
+  OUT_OF_STOCK: "재고 부족",
+  PAYMENT_DECLINED: "결제 거절",
+  NO_SELECTION: "Skill 미선택",
+};
+// 업무 종료 주문 상태 라벨의 뒷부분이다. 실행 규칙의 hold 는 HOLD, reject 는 REJECTED 다.
+export const stopActionText = {
+  REJECTED: "주문 거절",
+  HOLD: "주문 보류",
 };
 // 처리 단계 이름 라벨표다. order-agent/frontend/src/components/OrderSteps.vue 의 타임라인에 보인다.
 export const stepText = {
@@ -54,8 +70,16 @@ export const timestamp = (value) =>
  * 이 파일의 라벨 함수와 order-agent/frontend/src/utils/evidenceFormat.js 의 eventKindLabel 이 이 폴백 규칙을 함께 쓴다.
  */
 export const labelOf = (labels, value) => labels[value] || value;
-/** 주문 상태 라벨을 돌려준다. order-agent/frontend/src/components/OrderResult.vue 의 상태 배지가 쓴다. */
-export const orderStatusLabel = (status) => labelOf(statusText, status);
+/**
+ * 주문 상태 라벨을 돌려준다. order-agent/frontend/src/components/OrderResult.vue 의 상태 배지가 주문 응답의 status 와 result_code 로 부른다.
+ * REJECTED 나 HOLD 이고 result_code 가 있으면 "사유 · 주문 거절/보류" 이며, 사유는 stopReasonText 에 있으면 그 라벨,
+ * 없으면 실행 규칙 reason 으로 보고 "업무 규칙(REASON)" 이다. 그래서 OUT_OF_STOCK 과 PAYMENT_DECLINED 는 statusText 와 같은 문구다.
+ * 그 밖의 상태나 result_code 가 없으면 statusText 를 labelOf 로 읽는다.
+ */
+export const orderStatusLabel = (status, resultCode) =>
+  Object.hasOwn(stopActionText, status) && resultCode
+    ? `${stopReasonText[resultCode] || `업무 규칙(${resultCode})`} · ${stopActionText[status]}`
+    : labelOf(statusText, status);
 /** 처리 단계 이름 라벨을 돌려준다. order-agent/frontend/src/components/OrderSteps.vue 가 쓴다. */
 export const stepLabel = (step) => labelOf(stepText, step);
 /** 처리 단계 상태 라벨을 돌려준다. order-agent/frontend/src/components/OrderSteps.vue 가 쓴다. */

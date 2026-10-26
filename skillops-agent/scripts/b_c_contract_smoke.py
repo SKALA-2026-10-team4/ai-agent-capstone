@@ -1,7 +1,9 @@
 """LLM 결정만 대역으로 바꾸고 B 진단 graph 를 실제 C MCP 와 주문 Agent 로 돌리는 통합 스모크다.
 
-service 가 harness 실행기와 캠핑 기준 주문 g-01~g-03(scenarios/order-agent)으로 떠 있어야 하고, 주문
-Agent 는 모델 모드 fixed 로 떠 있어야 한다. skillops-agent 폴더에서 다음처럼 실행한다.
+service 가 harness 실행기와 캠핑 기준 주문 g-01~g-06(scenarios/order-agent)으로 떠 있어야 하고, 주문
+Agent 는 모델 모드 fixed 로 떠 있어야 한다. 기준 주문이 g-01~g-03 뿐인 환경이면
+SKILLOPS_GOLDEN_IDS=g-01,g-02,g-03 을 준다. service 에 SKILLOPS_SERVICE_TOKEN 이 있으면 같은 값을
+환경 변수로 준다(MCP 요청에 X-Service-Token 을 붙인다). skillops-agent 폴더에서 다음처럼 실행한다.
 
     SKILLOPS_USE_STUB_MCP=false uv run scripts/b_c_contract_smoke.py
 
@@ -20,7 +22,9 @@ graph 를 세 번 돌려 다음을 확인한다.
    INTENT_VIOLATION 이 나는지 본다.
 
 2번과 3번 실행은 skillops-agent/skillops_agent/nodes.py 의 fetch_evidence 에서 끝나 LLM 노드에 닿지
-않으므로 대역 없이 돈다. 결과는 보고 JSON 으로 찍고, 기대와 다르면 종료 코드 1 로 끝난다.
+않으므로 대역 없이 돈다. 결과는 보고 JSON 으로 찍고, 기대와 다르면 종료 코드 1 로 끝난다. 세 요청
+모두 담당자 의도(trigger.intent)가 없어 예전 흐름 그대로다. 대역 LLM 의 의도 출력에는 나중에 더한
+expectations 칸이 없어도 된다(노드가 없는 칸을 빈 목록으로 읽는다).
 """
 
 import asyncio
@@ -117,10 +121,12 @@ async def main():
         def fake_llm(schema):
             """nodes.make_structured_llm 대역이다. 출력 모델에 맞는 고정 출력을 Chain 으로 준다.
 
-            모델 이름은 skillops-agent/skillops_agent/nodes.py 의 _HypothesesOutput, _IntentOutput,
-            _CandidatesOutput, _RankExplanationsOutput 이다. 원인은 change_no 1, 의도 조건은
-            inventory.reservable_quantity != null, 후보는 repaired 원문 전체를 full_text 로 넣은
-            same_skill 후보 하나다. 노드가 읽는 속성만 SimpleNamespace 로 흉내 낸다.
+            모델 이름은 skillops-agent/skillops_agent/nodes.py 의 _HypothesesOutput,
+            _ExpectationsOutput, _IntentOutput, _CandidatesOutput, _RankExplanationsOutput 이다.
+            원인은 change_no 1, 의도 조건은 inventory.reservable_quantity != null, 후보는 repaired
+            원문 전체를 full_text 로 넣은 same_skill 후보 하나다. _ExpectationsOutput 은 의도 글만
+            있는 저장 직후 요청에서만 불리므로 이 실험에서는 닿지 않지만, 닿으면 빈 목록을 돌려줘
+            의도 시험 없이 사전 검증하게 한다. 노드가 읽는 속성만 SimpleNamespace 로 흉내 낸다.
             """
             outputs = {
                 "_HypothesesOutput": {
@@ -130,6 +136,7 @@ async def main():
                         )
                     ]
                 },
+                "_ExpectationsOutput": {"expectations": []},
                 "_IntentOutput": {
                     "text": "예약 가능 수량을 계속 내놓고 싶다.",
                     "checks": ["inventory.reservable_quantity != null"],
@@ -151,7 +158,7 @@ async def main():
                             explanation=(
                                 "재고 확인 Skill이 예약 여부(inventory.reserved)를 "
                                 "다시 내놓게 했습니다. 실패했던 주문과 "
-                                "기준 주문 3건이 모두 통과했습니다."
+                                "기준 주문이 모두 통과했습니다."
                             ),
                         )
                     ]

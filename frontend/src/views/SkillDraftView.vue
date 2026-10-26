@@ -14,18 +14,33 @@
 // 새 Skill 의 이름 규칙과 틀은 frontend/src/utils/skillSet.js 의 skillNameProblem 과
 // newSkillTemplate 이 정한다. 제안서 상세(frontend/src/views/ProposalView.vue)의
 // '초안으로 가져와 고치기' 도 patch 를 초안에 적용한 뒤 이 화면으로 온다.
+// 저장할 때 '바꾸려는 업무 규칙(의도)' 한 줄과, 고급 입력의 기대 결과(`범위 => 확인 조건; 확인 조건`
+// 한 줄씩)를 함께 보낼 수 있다. 입력은 workspace store 의 intents 에 세트마다 남고, 저장 요청의 intent
+// 칸은 frontend/src/utils/intentInput.js 의 buildIntent 가 만든다. 의도 한 줄이 비면 intent 칸을 보내지
+// 않는다. 입력에 문제가 있으면 문구를 칸 아래에 보여 주고 저장 버튼을 막는다.
+// 단계 Skill 의 실행 규칙(frontmatter 의 rules)은 받는 값 아래에 보여 주고, 규칙 조건이 받지 않는 값을
+// 보면(frontend/src/utils/skillSet.js 의 flowRuleProblems) 저장 전 점검에 문제로 센다.
 // mock 모드(frontend/src/api/client.js 의 USE_MOCK)에는 저장 경로가 없어 저장 버튼을 끈다.
 // 저장, 되돌리기, 새 Skill 초안 만들기와 지우기의 결과는 frontend/src/stores/toast.js 의 show 로
 // 알린다.
 // frontend/tests/diagnosis.spec.js 가 편집기(textarea), '전체 수정본 저장' 버튼,
-// '자동 검증·진단 진행 확인' 링크로 저장부터 진단 화면 이동까지 확인한다.
+// '자동 검증·진단 진행 확인' 링크로 저장부터 진단 화면 이동까지 확인한다. 그 테스트가 textarea 를
+// 하나로 찾으므로 고급 입력 칸은 펼쳤을 때만 그린다.
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CircleAlert, CircleCheck, FilePen, GitCompareArrows, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { flowGraphOf, problemCount } from '@/utils/flowGraph'
-import { ENTRY_SKILL, newSkillTemplate, skillNameProblem, skillPath } from '@/utils/skillSet'
+import { INTENT_TEXT_MAX, buildIntent, intentHasProblems } from '@/utils/intentInput'
+import {
+  ENTRY_SKILL,
+  RULE_THEN_LABEL,
+  flowRuleProblems,
+  newSkillTemplate,
+  skillNameProblem,
+  skillPath,
+} from '@/utils/skillSet'
 import DiffView from '@/components/DiffView.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import SnapshotPicker from '@/components/SnapshotPicker.vue'
@@ -40,17 +55,46 @@ const tab = ref('edit')
 const saveError = ref(null)
 // 마지막 저장 응답(snapshot_id, change_id, changed_paths 등)이다. 결과 줄과 진단 화면 링크에 쓴다.
 const saved = ref(null)
+// 마지막 저장에 함께 보낸 intent 다. 보내지 않았으면 null 이다. 결과 줄에 쓴다.
+const savedIntent = ref(null)
+
+// 변경 의도 입력(workspace store 의 currentIntent)을 저장 요청의 intent 로 바꾼 결과
+// { intent, textError, lineErrors } 와, 문제가 있어 저장을 막아야 하는지다.
+const intentBuilt = computed(() => buildIntent(ws.currentIntent.text, ws.currentIntent.expectations))
+const intentBlocked = computed(() => intentHasProblems(intentBuilt.value))
+// 고급 입력(기대 결과) 칸을 펼쳤는지다. 세트를 바꿀 때마다 그 세트에 적어 둔 기대 결과가 있으면 펼친다.
+const showAdvanced = ref(false)
+watch(
+  () => ws.snapshotId,
+  () => {
+    showAdvanced.value = !!ws.currentIntent.expectations
+  },
+  { immediate: true },
+)
+// 고급 입력 칸에 적은 줄 수다(빈 줄 제외). 접힌 버튼 옆에 보여 준다.
+const expectationLineCount = computed(() => ws.currentIntent.expectations.split('\n').filter((l) => l.trim()).length)
+
 /**
  * 지금 세트의 초안 전체를 새 수정본 snapshot 으로 저장한다. '전체 수정본 저장' 버튼이 부른다.
- * 저장할 수 없는 경우(mock 모드, 저장 중, 바뀐 초안 없음)에는 saveDrafts 가 오류를 던지고
+ * 변경 의도 입력에 문제가 있으면 보내지 않고 문구를 보여 준다. 의도 한 줄이 있으면 intent 를 함께
+ * 보낸다. 저장할 수 없는 경우(mock 모드, 저장 중, 바뀐 초안 없음)에는 saveDrafts 가 오류를 던지고
  * 그 문구를 보여 준다. saveDrafts 는 저장한 내용과 같은 초안만 지우므로 요청 중에 더 고친 내용은
  * 초안으로 남는다.
  */
 async function save() {
   saveError.value = null
+  if (intentBlocked.value) {
+    saveError.value = '바꾸려는 업무 규칙(의도) 입력의 문제를 먼저 고쳐 주세요.'
+    return
+  }
+  const intent = intentBuilt.value.intent
   try {
-    saved.value = await ws.saveDrafts()
-    toast.show('수정본을 저장했어요. 자동 검증 요청이 전달됩니다.', 'info')
+    saved.value = await ws.saveDrafts(intent)
+    savedIntent.value = intent
+    toast.show(
+      intent ? '수정본과 변경 의도를 저장했어요. 자동 검증 요청이 전달됩니다.' : '수정본을 저장했어요. 자동 검증 요청이 전달됩니다.',
+      'info',
+    )
   } catch (e) {
     saveError.value = e.message
   }
@@ -71,19 +115,24 @@ const isDraft = computed(() => !!skill.value && skill.value.path in ws.currentDr
 // 초안을 반영한 전체 세트의 계약 그래프와 문제 수다. 진입 Skill(order-flow)의 steps 순서로
 // 앞 단계의 출력이 뒤 단계의 입력을 채우는지 본다. 규칙은 order-agent 의 실행 전 검사인
 // order-agent/backend/src/main/java/com/capstone4/orderagent/harness/SkillLoader.java 의
-// validateFlow 와 같다.
+// validateFlow 와 같다. 실행 규칙(rules)의 조건이 그 단계가 받지 않는 값을 보는 경우(ruleProblems)도
+// 같은 검사에서 막히므로 문제 수에 더한다.
 const graph = computed(() => flowGraphOf(ws.draftSkills))
-const problems = computed(() => problemCount(graph.value))
+const ruleProblems = computed(() => flowRuleProblems(ws.draftSkills))
+const problems = computed(() => problemCount(graph.value) + ruleProblems.value.length)
 
 // 계약 위반을 skill_id 로 찾는 표다.
 const missingOf = computed(() => Object.fromEntries(graph.value.missing.map((m) => [m.skill_id, m])))
+// 받지 않는 값을 보는 실행 규칙이 있는 skill_id 의 집합이다.
+const ruleProblemSkills = computed(() => new Set(ruleProblems.value.map((r) => r.skill_id)))
 /**
  * 목록 항목 하나의 상태 점과 꼬리표를 정한다. 아래 listItems 가 항목마다 부른다.
- * 형식 오류, 연결 끊김(계약 위반), 초안, 원본 순서로 보고 처음 맞는 것을 쓴다.
+ * 형식 오류, 연결 끊김(계약 위반), 규칙 입력 없음, 초안, 원본 순서로 보고 처음 맞는 것을 쓴다.
  */
 function stateOf(s) {
   if (s.error) return { tone: 'err', label: '형식 오류' }
   if (missingOf.value[s.skill_id]) return { tone: 'err', label: '연결 끊김' }
+  if (ruleProblemSkills.value.has(s.skill_id)) return { tone: 'err', label: '규칙 입력 없음' }
   if (s.path in ws.currentDrafts) return { tone: 'warn', label: '초안' }
   return { tone: 'none', label: '원본' }
 }
@@ -91,6 +140,10 @@ function stateOf(s) {
 const listItems = computed(() => ws.draftSkills.map((s) => ({ skill: s, state: stateOf(s) })))
 // 지금 Skill 의 계약 위반이다. 받는 값과 앞 단계 칩 가운데 끊긴 것을 빨갛게 칠하는 데 쓴다.
 const myMissing = computed(() => missingOf.value[skillId.value] ?? null)
+// 지금 Skill 의 실행 규칙 가운데 받지 않는 값을 보는 규칙 번호(0부터)의 집합이다.
+const myBadRules = computed(
+  () => new Set(ruleProblems.value.filter((r) => r.skill_id === skillId.value).map((r) => r.index)),
+)
 // '원본과 비교' 탭 옆 숫자다. 같은 줄 번호끼리 비교한 대략의 바뀐 줄 수라서, 줄 하나가 끼어들면
 // 그 뒤 줄이 모두 바뀐 것으로 센다. 정확한 차이는 frontend/src/components/DiffView.vue 가
 // 보여 준다.
@@ -168,13 +221,57 @@ function create() {
   />
   <div class="card toolbar">
     <SnapshotPicker />
-    <button :disabled="USE_MOCK || ws.saving || !Object.keys(ws.currentDrafts).length" @click="save">
+    <div class="intent">
+      <label for="intent-text">
+        바꾸려는 업무 규칙(의도)
+        <small class="muted">선택 · 적으면 저장할 때 함께 보내고, SkillOps 가 이 의도대로 실행되는지 시험해요.</small>
+      </label>
+      <div class="intent-row">
+        <input
+          id="intent-text"
+          :value="ws.currentIntent.text"
+          placeholder="예: 선입금 주문만 결제하고 카드 주문은 결제하지 않는다"
+          :aria-invalid="!!intentBuilt.textError"
+          @input="ws.setIntentDraft('text', $event.target.value)"
+        />
+        <small class="count muted" :class="{ 'error-text': ws.currentIntent.text.trim().length > INTENT_TEXT_MAX }">
+          {{ ws.currentIntent.text.trim().length }}/{{ INTENT_TEXT_MAX }}
+        </small>
+        <button type="button" class="ghost sm" :aria-expanded="showAdvanced" @click="showAdvanced = !showAdvanced">
+          {{ showAdvanced ? '고급 입력 접기' : '고급: 기대 결과 직접 적기' }}
+          <span v-if="!showAdvanced && expectationLineCount" class="n">{{ expectationLineCount }}줄</span>
+        </button>
+      </div>
+      <small v-if="intentBuilt.textError" role="alert" class="error-text">{{ intentBuilt.textError }}</small>
+      <template v-if="showAdvanced">
+        <textarea
+          class="lines"
+          :value="ws.currentIntent.expectations"
+          rows="4"
+          spellcheck="false"
+          placeholder="order.payment_method == 'card' => order.final_status in ['HOLD', 'REJECTED']; payment.status == null&#10;order.payment_method == 'prepaid' => order.final_status == 'SHIPPED'"
+          :aria-invalid="intentBuilt.lineErrors.length > 0"
+          @input="ws.setIntentDraft('expectations', $event.target.value)"
+        />
+        <small class="muted">
+          한 줄에 기대 결과 하나를 <code>범위 =&gt; 확인 조건; 확인 조건</code> 으로 적어요. 범위가 없으면 비우거나 <code>*</code> 로 적어요.
+          비워 두면 SkillOps 가 의도 글과 바뀐 내용으로 기대 결과를 만들어요.
+        </small>
+      </template>
+      <ul v-if="intentBuilt.lineErrors.length" role="alert" class="line-errors error-text small">
+        <li v-for="(err, i) in intentBuilt.lineErrors" :key="i">
+          <template v-if="err.line">{{ err.line }}번째 줄: </template>{{ err.message }}
+        </li>
+      </ul>
+    </div>
+    <button :disabled="USE_MOCK || ws.saving || intentBlocked || !Object.keys(ws.currentDrafts).length" @click="save">
       {{ ws.saving ? '저장 중…' : '전체 수정본 저장' }}
     </button>
     <p v-if="USE_MOCK" class="muted small">수정본 저장은 실제 서버 모드에서 사용할 수 있어요.</p>
     <p v-if="saveError" role="alert" class="error-text">{{ saveError }}</p>
     <p v-if="saved" role="status" class="small">
-      수정본 저장 완료 · {{ saved.snapshot_id }} · {{ saved.changed_paths.length }}개 파일 변경.
+      수정본 저장 완료 · {{ saved.snapshot_id }} · {{ saved.changed_paths.length }}개 파일 변경<template v-if="savedIntent">
+        · 변경 의도 함께 전달(기대 결과 {{ savedIntent.expectations.length ? `${savedIntent.expectations.length}개` : '자동 생성' }})</template>.
       <RouterLink :to="`/diagnoses?change_id=${saved.change_id}`">자동 검증·진단 진행 확인</RouterLink>
       · <RouterLink to="/orders">이 수정본으로 주문 실행</RouterLink>
     </p>
@@ -247,6 +344,21 @@ function create() {
           <span v-for="k in skill.depends_on" :key="k" class="chip" :class="{ del: myMissing?.missing_dependencies.includes(k) }">{{ k }}</span>
           <span v-if="!skill.depends_on.length" class="muted small">없음</span>
         </dd>
+        <dt>실행 규칙</dt>
+        <dd>
+          <ol v-if="skill.rules.length" class="rules">
+            <li
+              v-for="(r, i) in skill.rules"
+              :key="i"
+              :class="{ bad: myBadRules.has(i) }"
+              :title="myBadRules.has(i) ? '이 조건이 보는 값을 이 Skill 이 받지 않아요(inputs 확인)' : ''"
+            >
+              <code>{{ r.when }}</code> 이면 <strong>{{ RULE_THEN_LABEL[r.then] ?? r.then }}</strong>
+              <span class="chip">{{ r.reason }}</span>
+            </li>
+          </ol>
+          <span v-else class="muted small">없음 · 본문 문장만으로는 주문 Agent 가 보류·거절하지 않아요</span>
+        </dd>
       </dl>
       <dl v-else-if="skill.steps.length" class="io">
         <dt>처리 순서</dt>
@@ -301,8 +413,14 @@ function create() {
             <li v-for="n in graph.nodes.filter((x) => x.parse_error)" :key="n.skill_id">
               <strong>{{ n.skill_id }}</strong> 를 읽을 수 없어요 ({{ n.parse_error }}).
             </li>
+            <li v-for="r in ruleProblems" :key="`${r.skill_id}-${r.index}`">
+              <RouterLink :to="`/skills/${r.skill_id}`"><strong>{{ r.skill_id }}</strong></RouterLink>
+              의 {{ r.index + 1 }}번째 실행 규칙이 받지 않는 값 <span class="chip del">{{ r.key }}</span> 을(를) 봐요.
+              <small>이 Skill 의 받는 값(inputs)에 그 값을 더하거나 규칙 조건을 바꿔 주세요. 이대로면 실행 전 검사(RULE_KEY_NOT_INPUT)에서 멈춰요.</small>
+            </li>
           </ul>
         </template>
+        <p class="muted small">실행 규칙(rules)은 조건이 맞으면 그 단계에서 도구를 부르지 않고 주문을 보류하거나 거절해요.</p>
         <p class="muted small">전체 수정본 저장을 누르면 새 세트로 저장돼요. 연결 오류가 있는 수정본도 저장할 수 있으며, 저장 후 자동 검증·진단이 시작돼요.</p>
       </div>
     </aside>
@@ -312,8 +430,77 @@ function create() {
 
 <style scoped>
 .toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   padding: 12px 16px;
   margin-bottom: 16px;
+}
+
+.toolbar > p {
+  margin: 0;
+}
+
+.intent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.intent label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-weight: 600;
+}
+
+.intent label small {
+  font-weight: 400;
+}
+
+.intent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.intent-row input {
+  flex: 1;
+  min-width: 240px;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+.intent textarea.lines {
+  min-height: 0;
+  padding: 8px 10px;
+}
+
+.line-errors {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rules {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rules li {
+  margin: 2px 0;
+}
+
+.rules li.bad code {
+  background: var(--err-soft);
+  color: var(--err);
 }
 
 .layout {

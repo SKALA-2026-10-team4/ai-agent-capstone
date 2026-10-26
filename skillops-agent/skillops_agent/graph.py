@@ -6,9 +6,16 @@ rank_and_explain, save_proposal 순서이고, 노드 함수는 skillops-agent/sk
 같은 이름으로 있다. build_graph 가 FLOW 의 이름으로 그 함수를 찾아 guarded 로 감싸 등록한다.
 partial 목록은 collect_partial_sources, collect_partial_diffs에서 증거를 저장하고 끝난다.
 분기는 세 곳이다.
-- fetch_evidence 뒤에서는 route_evidence 가 진단을 이을지(diagnose) 끝낼지(stop) 정한다.
-- check_ablation 뒤에서는 route_ablation 이 원인 확정(confirmed), 가설 재시도(retry), 재시도
-  소진(escalate), 단계 한도(limit_exceeded)를 가른다.
+- fetch_evidence 뒤에서는 route_evidence 가 진단을 이을지(diagnose) 끝낼지(stop) 정한다. 수정본이
+  오류 없이 돌지만 담당자 의도가 실행되지 않으면(diagnosis.finding=INTENT_NOT_REALIZED) 원인 실험을
+  건너뛰고 extract_intent 로 간다(intent_gap).
+- check_ablation 뒤에서는 route_ablation 이 원인 확정(confirmed), 결과 불일치 원인 실험의 확정
+  실패(stop, VALIDATION_FAILED), 가설 재시도(retry), 재시도 소진(escalate), 단계
+  한도(limit_exceeded)를 가른다.
+- 담당자 수정이 어떤 업무 도구도 만들지 않는 값을 요구하면(diagnosis.finding=NEEDS_TOOL,
+  docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11) 원인 확정이나 확정 실패 뒤 needs_tool 로
+  extract_intent·generate_candidates·verify_candidates 를 건너뛰고 save_proposal 로 간다.
+  fetch_evidence 가 이미 원인을 정한 의도 미실현이면 fetch_evidence 뒤에서 바로 간다.
 - check_valid 뒤에서는 route_valid 가 유효 후보(has_valid), 후보 재시도(retry),
   포기(no_valid_fix)를 가른다.
 어느 노드든 error 를 남기면 판정 없이 END 로 간다. guarded 가 노드 예외를 error 로 바꾸고, 상태에
@@ -50,7 +57,7 @@ from langgraph.graph import END, StateGraph
 from . import nodes
 from .config import MAX_CANDIDATE_RETRIES, MAX_HYPOTHESIS_RETRIES, MAX_STEPS_DEFAULT
 from .run_store import RunStore
-from .state import AgentState, DiagnosisStatus
+from .state import INTENT_NOT_REALIZED, NEEDS_TOOL, AgentState, DiagnosisStatus
 
 
 def error_text(exc):
@@ -112,6 +119,16 @@ def _step_limit_reached(state: AgentState) -> bool:
     return state.get("step_count", 0) >= state.get("max_steps", MAX_STEPS_DEFAULT)
 
 
+def _needs_tool(state: AgentState) -> bool:
+    """도구가 필요한 수정(diagnosis.finding=NEEDS_TOOL)인지 본다.
+
+    skillops-agent/skillops_agent/nodes.py 의 fetch_evidence 가 담당자가 새로 넣은 값을 어떤 업무
+    도구도 만들지 않을 때 남긴다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11). 참이면 원인
+    실험 뒤 후보 생성 없이 save_proposal 로 간다. route_evidence 와 route_ablation 이 부른다.
+    """
+    return (state.get("diagnosis") or {}).get("finding") == NEEDS_TOOL
+
+
 def route_evidence(state: AgentState) -> str:
     """증거 수집 뒤 판정이다. 종료 상태가 정해졌거나 변경이 없으면 stop, 아니면 diagnose 다.
 
@@ -120,7 +137,11 @@ def route_evidence(state: AgentState) -> str:
     INTENT_VIOLATION, EVALUATED 처럼 RUNNING 이 아닌 상태를 남겼으면 진단할 것이 없으므로 END 로
     간다. 사전 검증이 결론을 낸 저장 직후 요청과 diagnosis_only 진단이 여기서 끝난다. 사전 검증이
     실패한 실행을 찾았으면 상태가 RUNNING 그대로라 진단을 잇는다. diagnose 는 hypothesize 로
-    간다. 단계 한도는 보지 않는다.
+    간다. 사전 검증이 의도 미실현(diagnosis.finding=INTENT_NOT_REALIZED)을 남겼으면 fetch_evidence
+    가 root_cause 까지 정했으므로 intent_gap 으로 extract_intent 에 바로 간다. 실행 오류 없이 결과만
+    다른 사전 검증도 RUNNING 이라 diagnose 로 원인 실험을 잇는다. 단계 한도는 보지 않는다.
+    도구가 필요한 수정(_needs_tool)은 원인 실험을 그대로 하므로 diagnose 로 가고, 의도 미실현처럼
+    fetch_evidence 가 이미 root_cause 를 정했으면 needs_tool 로 save_proposal 에 바로 간다.
     """
     if state.get("diagnosis_status") != DiagnosisStatus.RUNNING:
         return "stop"
@@ -128,21 +149,30 @@ def route_evidence(state: AgentState) -> str:
         return "partial"
     if not state.get("changes"):
         return "stop"
+    if _needs_tool(state) and state.get("root_cause"):
+        return "needs_tool"
+    if (state.get("diagnosis") or {}).get("finding") == INTENT_NOT_REALIZED:
+        return "intent_gap"
     return "diagnose"
 
 
 def route_ablation(state: AgentState) -> str:
-    """원인 실험 뒤 판정이다. 원인 확정, 재시도 한도, 단계 한도, 재시도 순서로 본다.
+    """원인 실험 뒤 판정이다. 원인 확정, 진단 종료, 재시도 한도, 단계 한도, 재시도 순서로 본다.
 
-    root_cause 가 있으면 confirmed(extract_intent), hypothesis_retry 가
+    root_cause 가 있으면 confirmed(extract_intent), check_ablation 이 진단 상태를 RUNNING 이 아닌
+    값(결과 불일치 원인 실험의 VALIDATION_FAILED)으로 바꿨으면 stop(END), hypothesis_retry 가
     skillops-agent/skillops_agent/config.py 의 MAX_HYPOTHESIS_RETRIES 에 닿으면
     escalate(save_proposal), 단계 한도에 닿으면
     limit_exceeded(save_proposal), 아니면 retry(hypothesize)다. 원인 확정을 먼저 보므로 원인이
     확정되면 단계 한도를 넘었어도 진단을 잇는다. 원인 없이 save_proposal 로 가면 no_valid_fix
-    제안서가 저장된다.
+    제안서가 저장된다. 도구가 필요한 수정(_needs_tool)이면 원인 확정과 진단 종료(VALIDATION_FAILED)
+    모두 needs_tool(save_proposal)이다. SKILL.md 후보로는 고칠 수 없으므로 의도 추출·후보 생성을
+    건너뛰고, 원인을 확정하지 못해도 개발 요청서를 저장한다.
     """
     if state.get("root_cause"):
-        return "confirmed"
+        return "needs_tool" if _needs_tool(state) else "confirmed"
+    if state.get("diagnosis_status", DiagnosisStatus.RUNNING) != DiagnosisStatus.RUNNING:
+        return "needs_tool" if _needs_tool(state) else "stop"
     if state["hypothesis_retry"] >= MAX_HYPOTHESIS_RETRIES:
         return "escalate"
     if _step_limit_reached(state):
@@ -180,7 +210,9 @@ ENTRY = "init"
 FLOW = {
     "init": "fetch_evidence",
     "fetch_evidence": (route_evidence, {
-        "diagnose": "hypothesize", "partial": "collect_partial_sources", "stop": END,
+        "diagnose": "hypothesize", "intent_gap": "extract_intent",
+        "needs_tool": "save_proposal",
+        "partial": "collect_partial_sources", "stop": END,
     }),
     "collect_partial_sources": "collect_partial_diffs",
     "collect_partial_diffs": END,
@@ -190,6 +222,8 @@ FLOW = {
         route_ablation,
         {
             "confirmed": "extract_intent",
+            "needs_tool": "save_proposal",
+            "stop": END,
             "retry": "hypothesize",
             "escalate": "save_proposal",
             "limit_exceeded": "save_proposal",

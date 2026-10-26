@@ -19,17 +19,32 @@
 // 결정 권한은 frontend/src/stores/auth.js 의 hasRole 로 보고, 결정과 초안 적용의 결과는
 // frontend/src/stores/toast.js 의 show 로 알린다.
 // 처음 고르는 후보 규칙은 load, 결정 권한은 canDecide, 승인 버튼 조건은 canApprove 에서 고친다.
+// 본문 밖에 Agent 원본 제안서(detail.proposal)에서 읽어 덧붙이는 것이 넷 있다. 원인이 '의도를 실행하지
+// 못하는 수정'(root_cause.kind incomplete_edit)이면 맨 위 안내, 변경 의도 절 아래의 기대 결과와 그
+// 출처(intent.expectations, intent.source), 후보 카드의 종류·경고 꼬리표(kind, is_revert,
+// weakens_contract), 그리고 service 가 다시 계산해 덮은 판정(server_overrides)이다. 모양은
+// docs/plans/2026-10-26-behavior-edit-root-fix.md 2.5~2.7 절이고 이름표는
+// frontend/src/utils/proposalView.js 에 있다.
+// 제안서에 개발 요청서(development_request, 2.11 절)가 있으면 맨 위에 '도구 개발 필요' 안내를 띄우고,
+// 본문 아래에 frontend/src/components/DevelopmentRequestCard.vue 로 요청서 카드('마크다운으로 복사')를 그린다.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CircleAlert, CircleCheck, FilePen, ShieldCheck, Sparkles } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, FilePen, Scale, ShieldCheck, Sparkles } from 'lucide-vue-next'
 import { approveProposal, getProposal, rejectProposal } from '@/api/proposals'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { developmentRequestOf, markdownContextOf } from '@/utils/developmentRequest'
+import { findingLabel, findingNote } from '@/utils/diagnosisView'
+import { overrideRows, rootCauseKind } from '@/utils/proposalView'
+import CandidateTags from '@/components/CandidateTags.vue'
+import DevelopmentRequestCard from '@/components/DevelopmentRequestCard.vue'
 import DiffView from '@/components/DiffView.vue'
+import IntentExpectations from '@/components/IntentExpectations.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import ProposalDocument from '@/components/ProposalDocument.vue'
 import ProposalStatusBadge from '@/components/ProposalStatusBadge.vue'
+import ServerOverrides from '@/components/ServerOverrides.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,6 +83,15 @@ const canApprove = computed(() => canDecide.value && intentOk.value && selectedV
 const patched = computed(() => candidate.value?.patches.map((p) => p.skill) ?? [])
 // 초안을 적용할 Skill 세트(지금 고른 snapshot)의 이름이다.
 const setLabel = computed(() => ws.labelOf(ws.snapshotId))
+// 원인이 '의도를 실행하지 못하는 수정'(incomplete_edit)인지다. 참이면 본문 위에 안내를 띄운다.
+// 이 원인은 진단 결과 INTENT_NOT_REALIZED 로 확정되므로 그 이름과 설명을 함께 쓴다.
+const incompleteEdit = computed(() => rootCauseKind(detail.value?.proposal.root_cause) === 'incomplete_edit')
+// service 가 다시 계산해 덮은 판정 줄이다. 없으면 빈 목록이다.
+const overrides = computed(() => overrideRows(detail.value))
+// 개발 요청서다. SKILL.md 수정만으로 고칠 수 없어 도구 개발이 필요할 때만 있고, 없으면 null 이다.
+// 마크다운의 배경 절에 넣을 제안서 번호·의도·원인·세트 id 는 devContext 다.
+const devRequest = computed(() => developmentRequestOf(detail.value))
+const devContext = computed(() => markdownContextOf(detail.value))
 
 /**
  * 제안서 상세를 읽고 처음 보여 줄 후보를 고른다. 추천 후보(recommended_candidate_no)가 있으면
@@ -169,13 +193,23 @@ function applyToDraft() {
   <div v-if="error" class="callout err"><CircleAlert :size="18" /><p>{{ error }}</p></div>
 
   <div v-if="detail" class="layout">
-    <div class="main">
+    <div class="main stack">
+      <div v-if="incompleteEdit" class="callout warn">
+        <CircleAlert :size="18" />
+        <p><strong>{{ findingLabel('INTENT_NOT_REALIZED') }}</strong> — {{ findingNote('INTENT_NOT_REALIZED') }}</p>
+      </div>
+      <div v-if="devRequest" class="callout warn">
+        <CircleAlert :size="18" />
+        <p><strong>{{ findingLabel('NEEDS_TOOL') }}</strong> — {{ findingNote('NEEDS_TOOL') }} 본문 아래 개발 요청서를 확인해 주세요.</p>
+      </div>
       <ProposalDocument
         :document="detail.document"
         :selected-no="selectedNo"
+        :candidates="candidates"
         @select="(no) => (selectedNo = no)"
       >
         <template #intent>
+          <IntentExpectations :intent="detail.proposal.intent" />
           <label v-if="proposed" class="confirm" :class="{ on: intentOk }">
             <input v-model="intentOk" type="checkbox" />
             <span>
@@ -185,12 +219,24 @@ function applyToDraft() {
           </label>
         </template>
         <template #candidates>
+          <p v-if="candidate" class="picked">
+            <strong>후보 {{ selectedNo }}번</strong>
+            <CandidateTags :candidate="candidate" />
+          </p>
           <div v-for="p in candidate?.patches ?? []" :key="p.skill" class="patch">
             <h3><FilePen :size="16" /> 후보 {{ selectedNo }}번 · {{ p.skill }} <span class="muted small">(v{{ p.base_version }} 기준)</span></h3>
             <DiffView :patch="p.patch" before-label="지금" after-label="후보 적용 후" />
           </div>
         </template>
       </ProposalDocument>
+      <DevelopmentRequestCard v-if="devRequest" :request="devRequest" :context="devContext" />
+      <section v-if="overrides.length" class="card">
+        <h2 class="sec"><Scale :size="18" /> 서버가 다시 계산한 판정</h2>
+        <p class="small muted">
+          SkillOps Agent 가 보낸 판정과 service 가 실행 장부로 다시 계산한 판정이 달라 서버 값으로 바꿨어요. 승인할 수 있는 후보도 서버 값을 따라요.
+        </p>
+        <ServerOverrides :rows="overrides" />
+      </section>
     </div>
 
     <!-- 결정 패널 -->
@@ -201,6 +247,7 @@ function applyToDraft() {
           <span class="muted small">고른 후보</span>
           <strong class="pick">후보 {{ selectedNo }}번</strong>
           <p v-if="!selectedValid" class="small error-text">이 후보는 모든 확인을 통과하지 못해 승인할 수 없어요.</p>
+          <CandidateTags :candidate="candidate" />
           <button class="primary block" :disabled="!canApprove" @click="decide('approve')">
             <CircleCheck :size="16" /> 후보 {{ selectedNo }}번 승인
           </button>
@@ -209,7 +256,10 @@ function applyToDraft() {
           <p v-else-if="!intentOk" class="small warn-text">변경 의도를 확인해야 승인할 수 있어요.</p>
         </template>
         <template v-else-if="noValidFix">
-          <p class="small">승인할 수 있는 후보가 없어요. 내용을 확인했으면 제안서를 닫아 주세요.</p>
+          <p v-if="devRequest" class="small">
+            SKILL.md 수정만으로는 고칠 수 없어요. 개발 요청서를 마크다운으로 복사해 개발팀에 전달한 뒤 제안서를 닫아 주세요.
+          </p>
+          <p v-else class="small">승인할 수 있는 후보가 없어요. 내용을 확인했으면 제안서를 닫아 주세요.</p>
           <button class="danger block" :disabled="!canDecide || busy" @click="decide('reject')">확인하고 닫기</button>
           <p v-if="!canDecide" class="small muted">승인과 거절은 운영자만 할 수 있어요.</p>
         </template>
@@ -287,6 +337,20 @@ function applyToDraft() {
 
 .patch {
   margin-top: 16px;
+}
+
+.picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+}
+
+.sec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .patch h3,

@@ -1,7 +1,7 @@
 // frontend/src/utils/eventView.js 의 EVENT_KINDS 표에서 만든 라벨(eventLabel),
 // 숨김(isNoisy), 문장(describe)과 단계별 묶기(groupBySkill)를 보호한다. 예전
 // frontend/src/components/EventTimeline.vue 와 frontend/src/utils/traceRun.js 에 흩어져
-// 있던 규칙과 같은지 확인한다. 이벤트 종류를 더하면 이 파일의 종류 수 23 도 고친다.
+// 있던 규칙과 같은지 확인한다. 이벤트 종류를 더하면 이 파일의 종류 수 24 도 고친다.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EVENT_LABELS, describe, eventLabel, groupBySkill, isErrorEvent, isNoisy } from '../src/utils/eventView.js'
@@ -22,7 +22,7 @@ function oldGroups(shown) {
 test('eventLabel: 표의 라벨, 없으면 종류 이름 그대로', () => {
   for (const [kind, label] of Object.entries(EVENT_LABELS)) assert.equal(eventLabel(kind), label)
   assert.equal(eventLabel('SOMETHING_NEW'), 'SOMETHING_NEW')
-  assert.equal(Object.keys(EVENT_LABELS).length, 23)
+  assert.equal(Object.keys(EVENT_LABELS).length, 24)
 })
 
 test('isNoisy: 모델 입력·응답 네 종류만 숨긴다', () => {

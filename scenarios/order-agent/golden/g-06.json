@@ -1,0 +1,17 @@
+{
+  "id": "g-06",
+  "name": "랜턴 4개 카드 결제 고액(120000원) 정상 주문 (주문 Agent)",
+  "order": {
+    "customer": "c_1001",
+    "items": [{ "sku": "CAMP-LANTERN-LED", "qty": 4 }],
+    "payment_method": "card",
+    "shipping": { "country": "KR", "express": false }
+  },
+  "expect": {
+    "skills_called": ["order-intake", "inventory-check", "payment", "shipping-reserve", "notify"],
+    "final_status": "SHIPPED",
+    "shipments": 1,
+    "assertions": ["payment.status == 'PAID'", "notify.sent == true", "order.total == 120000"]
+  },
+  "k": 1
+}
