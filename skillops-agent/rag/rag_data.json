@@ -401,7 +401,7 @@
         "order-agent/docs/skill-flow.md",
         "order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java"
       ],
-      "text": "재고 부족 → REJECTED, 결제·배송·알림 안 함. 결제 거절 → HOLD, 재고 예약 해제, 배송·알림 안 함. 단계 skill 의 rules 가 맞으면 then 이 hold 면 HOLD, reject 면 REJECTED 로 끝나고 주문 result_code 는 규칙 reason 이다. 그 단계와 뒤 단계는 SKIPPED, 결제 전이면 예약 재고를 해제하고, 실행은 COMPLETED 다(BUSINESS_STOP 의 rule_reason). 이 결과들은 정상 업무 결과이지 Skill 결함이 아니다. 다만 결제 뒤 단계의 규칙으로 멈추면 승인된 결제가 남으므로 규칙은 결제 전 단계에 둔다."
+      "text": "재고 부족 → REJECTED, 결제·배송·알림 안 함. 결제 거절 → HOLD, 재고 예약 해제, 배송·알림 안 함. 이 두 결과는 정상 업무 결과이지 Skill 결함이 아니다. 단계 skill 의 rules 가 맞으면 then 이 hold 면 HOLD, reject 면 REJECTED 로 끝나고 주문 result_code 는 규칙 reason 이다. 그 단계와 뒤 단계는 SKIPPED, 결제 전이면 예약 재고를 해제하고, 실행은 COMPLETED 다(BUSINESS_STOP 의 rule_reason). 이 규칙 종료도 정상 업무 결과이지 Skill 결함이 아니다. 결제 뒤 단계의 규칙으로 멈추면 승인된 결제가 남으므로 규칙은 결제 전 단계에 둔다."
     },
     {
       "id": "guide-intent",
@@ -425,7 +425,7 @@
       "source": [
         "skillops-agent/rag/guides/intent.md"
       ],
-      "text": "담당자가 저장 요청에 준 의도(intent.expectations, source owner)가 있으면 그것이 기준이고, Agent 가 고치지 않는다. 의도가 없으면 계약 오류를 일으킨 선언 변경 자체를 담당자의 업무 의도로 확정하지 않는다. 값을 지우기만 했거나, 도구가 주지 않는 값을 추가했거나, 필수 단계를 뺀 변경은 지킬 새 업무 규칙이 없을 수 있다. 그때 의도 설명은 '추정'임을 밝히고 확인 조건(checks)을 비운다. 본문에 정책 문장만 더한 수정본은 오류 없이 돌아도 정책이 실행되지 않는다(incomplete_edit). Harness 는 단계 skill 의 rules 만 실행한다. 확인 조건과 scope 는 조건 문법 v2(==, !=, in, >, >=, <, <=)로 쓰고, scope 의 값 이름은 그 단계의 선언 inputs 이거나 그 아래 경로여야 한다."
+      "text": "계약 오류를 일으킨 선언 변경 자체를 담당자의 업무 의도로 확정하지 않는다. 값을 지우기만 했거나, 도구가 주지 않는 값을 추가했거나, 필수 단계를 뺀 변경은 지킬 새 업무 규칙이 없을 수 있다. 그때 의도 설명은 '추정'임을 밝히고 확인 조건(checks)을 비운다. 담당자가 저장 요청에 준 의도(intent.expectations, source owner)가 있으면 그것이 기준이다. 본문에 정책 문장만 더한 수정본은 오류 없이 돌아도 정책이 실행되지 않는다(incomplete_edit). Harness 는 단계 skill 의 rules 만 실행한다. 확인 조건과 scope 는 조건 문법 v2(==, !=, in, >, >=, <, <=)로 쓰고, scope 의 값 이름은 그 단계의 선언 inputs 이거나 그 아래 경로여야 한다."
     },
     {
       "id": "guide-repair",
@@ -449,7 +449,7 @@
       "source": [
         "skillops-agent/rag/guides/repair.md"
       ],
-      "text": "도구가 만들지 않는 값을 선언에서 빼는 것, 하위 skill 이 요구하는 값을 원인 skill 의 outputs 에 되살리는 것, 필수 순서·단계를 복구하는 것은 계약 복구다. 결함을 하위 skill 의 inputs·depends_on 수정으로 퍼뜨리지 않는다. 담당자 의도가 있는 요청이면 서비스 재판정이 두 가지를 불합격시킨다. 담당자가 바꾼 SKILL.md 를 기준본과 바이트까지 같게 만드는 후보(is_revert), 그리고 rules 를 지우거나 rules[].when 을 바꾸거나 rules·의도 scope 가 쓰는 inputs 를 지우는 후보(weakens_contract)다. 그때는 깨진 계약만 고치고 담당자가 더한 내용은 남긴다. 본문에만 적은 정책은 rules 로 옮기는 encode_rule 후보를 낸다. 규칙을 더하거나 순서·then·reason 만 바꾸는 것은 약화가 아니다. 의도를 지키는 데 어떤 업무 도구도 만들지 않는 값이 필요하면 Skill 문서 수정만으로는 고칠 수 없다. 그때는 no_valid_fix 와 개발 요청서(development_request, kind needs_tool)를 내고, 계약을 복구하는 안은 임시 대안(interim)으로 둔다."
+      "text": "도구가 만들지 않는 값을 선언에서 빼는 것, 하위 skill 이 요구하는 값을 원인 skill 의 outputs 에 되살리는 것, 필수 순서·단계를 복구하는 것은 '되돌리기'가 아니라 계약 복구다. 변경 의도는 실행 가능한 범위에서만 보존한다. 의도를 지키려면 도구나 코드 변경이 필요하면 Skill 문서 수정만으로는 불가능하다고 적고, 계약을 복구하는 후보를 낸다. 결함을 하위 skill 의 inputs·depends_on 수정으로 퍼뜨리지 않는다. 담당자 의도가 있는 요청이면 서비스 재판정이 두 가지를 불합격시킨다. 담당자가 바꾼 SKILL.md 를 기준본과 바이트까지 같게 만드는 후보(is_revert), 그리고 rules 를 지우거나 rules[].when 을 바꾸거나 rules·의도 scope 가 쓰는 inputs 를 지우는 후보(weakens_contract)다. 본문에만 적은 정책은 rules 로 옮기는 encode_rule 후보를 낸다. 규칙을 더하거나 순서·then·reason 만 바꾸는 것은 약화가 아니다. 어떤 업무 도구도 만들지 않는 값이 필요해 Skill 문서 수정만으로 고칠 수 없으면 no_valid_fix 와 개발 요청서 (development_request, kind needs_tool)를 내고, 계약을 복구하는 안은 임시 대안(interim)으로 둔다."
     },
     {
       "confidence": "확인됨(시나리오 문서)",
@@ -514,7 +514,7 @@
         "after": "[order-intake, inventory-check, shipping-reserve, payment, notify]"
       },
       "root_skill": "order-flow",
-      "correct_fix": "order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 Skill 수정만으로는 안 되므로 조회 전용 도구를 요청하는 개발 요청서(needs_tool)를 낸다",
+      "correct_fix": "order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 조회 전용 도구와 단계를 따로 설계해야 한다고 밝힌다. Skill 수정만으로 고칠 수 없으므로 개발 요청서(development_request, needs_tool)로 낸다",
       "anti_patterns": [
         "shipping-reserve 의 inputs·depends_on 에서 payment 를 지워 결제 확인 없이 배송하게 만들기"
       ],
@@ -536,7 +536,7 @@
       "error_categories": [
         "CONTRACT_VIOLATION"
       ],
-      "text": "[사례 case-S3, 확인됨(시나리오 문서)] 증상: shipping-reserve 에서 CONTRACT_VIOLATION(static_validation), 누락 입력 ['payment.id', 'payment.status']. 변경: order-flow 의 steps [order-intake, inventory-check, payment, shipping-reserve, notify] → [order-intake, inventory-check, shipping-reserve, payment, notify]. 원인 skill: order-flow. 올바른 수정: order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 Skill 수정만으로는 안 되므로 조회 전용 도구를 요청하는 개발 요청서(needs_tool)를 낸다. 피해야 할 수정: shipping-reserve 의 inputs·depends_on 에서 payment 를 지워 결제 확인 없이 배송하게 만들기."
+      "text": "[사례 case-S3, 확인됨(시나리오 문서)] 증상: shipping-reserve 에서 CONTRACT_VIOLATION(static_validation), 누락 입력 ['payment.id', 'payment.status']. 변경: order-flow 의 steps [order-intake, inventory-check, payment, shipping-reserve, notify] → [order-intake, inventory-check, shipping-reserve, payment, notify]. 원인 skill: order-flow. 올바른 수정: order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 조회 전용 도구와 단계를 따로 설계해야 한다고 밝힌다. Skill 수정만으로 고칠 수 없으므로 개발 요청서(development_request, needs_tool)로 낸다. 피해야 할 수정: shipping-reserve 의 inputs·depends_on 에서 payment 를 지워 결제 확인 없이 배송하게 만들기."
     },
     {
       "confidence": "확인됨(시나리오 문서)",
@@ -590,7 +590,7 @@
         "after": "[inventory.available, inventory.reserved, inventory.reservation_reference]"
       },
       "root_skill": "inventory-check",
-      "correct_fix": "inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 Skill 수정만으로는 안 되므로 도구 확장(extend_tool)을 요청하는 개발 요청서(needs_tool)를 낸다",
+      "correct_fix": "inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 도구 구현을 바꿔야 한다고 밝힌다. Skill 수정만으로 고칠 수 없으므로 개발 요청서(development_request, needs_tool)로 낸다",
       "anti_patterns": [
         "도구가 만들지 않는 값을 선언에 그대로 두거나 하위 skill 의 inputs 로 퍼뜨리기"
       ],
@@ -610,7 +610,7 @@
       "error_categories": [
         "MISSING_SKILL_OUTPUT"
       ],
-      "text": "[사례 case-S6, 확인됨(시나리오 문서)] 증상: inventory-check 에서 MISSING_SKILL_OUTPUT(runtime), 누락 입력 없음. 변경: inventory-check 의 outputs [inventory.available, inventory.reserved] → [inventory.available, inventory.reserved, inventory.reservation_reference]. 원인 skill: inventory-check. 올바른 수정: inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 Skill 수정만으로는 안 되므로 도구 확장(extend_tool)을 요청하는 개발 요청서(needs_tool)를 낸다. 피해야 할 수정: 도구가 만들지 않는 값을 선언에 그대로 두거나 하위 skill 의 inputs 로 퍼뜨리기."
+      "text": "[사례 case-S6, 확인됨(시나리오 문서)] 증상: inventory-check 에서 MISSING_SKILL_OUTPUT(runtime), 누락 입력 없음. 변경: inventory-check 의 outputs [inventory.available, inventory.reserved] → [inventory.available, inventory.reserved, inventory.reservation_reference]. 원인 skill: inventory-check. 올바른 수정: inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 도구 구현을 바꿔야 한다고 밝힌다. Skill 수정만으로 고칠 수 없으므로 개발 요청서(development_request, needs_tool)로 낸다. 피해야 할 수정: 도구가 만들지 않는 값을 선언에 그대로 두거나 하위 skill 의 inputs 로 퍼뜨리기."
     }
   ]
 }
