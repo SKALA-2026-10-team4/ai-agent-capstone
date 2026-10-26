@@ -33,14 +33,17 @@ test('기존 상태 이름표와 검토 대기 판정은 그대로다', () => {
   assert.equal(awaitsDecision({ status: 'approved' }), false)
 })
 
-test('후보 종류: service 본문과 같은 이름, encode_rule 은 실행 규칙으로 옮기기', () => {
+test('후보 종류: service 본문과 같은 이름, encode_rule 은 실행 규칙으로 옮기기, snapshot 은 검증된 Skill 세트', () => {
   assert.deepStrictEqual(CANDIDATE_KIND_LABEL, {
     same_skill: '바뀐 Skill만 고치기',
     linked_skills: '주고받는 값까지 함께 고치기',
     run_order: '실행 순서 다시 짜기',
     encode_rule: '실행 규칙으로 옮기기',
+    snapshot: '검증된 Skill 세트',
   })
   assert.equal(candidateKindLabel('encode_rule'), '실행 규칙으로 옮기기')
+  // 서버 검증 수정안(POST /api/verified-proposals)의 후보 종류다. 예전에는 영문 그대로 보였다.
+  assert.equal(candidateKindLabel('snapshot'), '검증된 Skill 세트')
   assert.equal(candidateKindLabel('something_new'), 'something_new')
   assert.equal(candidateKindLabel(undefined), null)
   // mock 제안서의 후보 카드 제목이 같은 이름을 쓴다.
@@ -154,9 +157,15 @@ test('핵심 요약: 원인과 시험 결과 두 줄, 추천 후보는 시험 �
     { label: '원인', value: 'inventory-check Skill 변경' },
     { label: '시험 결과', value: '후보 2개 중 1개 통과 · 추천 후보 1번' },
   ])
-  // 원인 Skill 을 모르고 통과한 후보가 없을 때다. 추천 후보도 붙지 않는다.
+  // 원인 Skill 이 없고 통과한 후보가 없을 때다. 추천 후보도 붙지 않는다.
   const none = proposalHighlights({ root_cause_skill: null, candidate_count: 3, valid_candidate_nos: [], recommended_candidate_no: null })
-  assert.deepStrictEqual(none.map((h) => h.value), ['확인 중', '후보 3개 모두 통과하지 못함'])
+  assert.deepStrictEqual(none.map((h) => h.value), ['원인 분석 없음', '후보 3개 모두 통과하지 못함'])
+})
+
+test('핵심 요약: 서버 검증 수정안은 원인 분석 없음, 검증된 후보 1개', () => {
+  // VerifiedProposalService 가 저장하는 모양의 목록 요약이다. root_cause 가 없고 후보 1개가 통과·추천이다.
+  const verified = { root_cause_skill: null, candidate_count: 1, valid_candidate_nos: [1], recommended_candidate_no: 1 }
+  assert.deepStrictEqual(proposalHighlights(verified).map((h) => h.value), ['원인 분석 없음', '후보 1개 중 1개 통과 · 추천 후보 1번'])
 })
 
 test('핵심 요약: 후보가 0개면 시험할 후보 없음(개발 요청서 w1)', () => {
