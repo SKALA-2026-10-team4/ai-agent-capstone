@@ -15,9 +15,13 @@ intent:
   checks: ["notify.sent == null"]
 
 order_agent:
-  g-01: {result: check_failed, reason: "notify.sent == true"}
+  # 확인 조건 notify.sent == true 는 정상 배송 주문(g-01, g-04~g-06)에만 있다.
+  g-01: &unsent {result: check_failed, reason: "notify.sent == true"}
   g-02: {result: pass}
   g-03: {result: pass}
+  g-04: *unsent
+  g-05: *unsent
+  g-06: *unsent
 
 answer:
   # 지금은 결과만 다른 실패를 진단하지 않으므로 검증 실패에서 멈춘다. 진단까지 가면 원인은 알림이고 유효한 안은 없다.

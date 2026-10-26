@@ -71,21 +71,33 @@ class RootCause(TypedDict):
     # 원인을 증명한 실행 ID(대조 실행 뒤에 되돌린 실행)다. v1 계약에서 confirmed_by 가
     # proof_run_ids 로 바뀌었다. proposed 제안서에서는 비면 안 된다.
     # service/src/main/java/com/capstone4/skillops/proposal/ProposalValidator.java 가 빈 목록이나
-    # service 가 돌리지 않은 실행이 든 목록을 거부한다.
+    # service 가 돌리지 않은 실행이 든 목록을 거부한다. 의도 미실현(kind=incomplete_edit)이면 수정본
+    # 사전 검증 실행이다.
     proof_run_ids: list[str]
+    # change 는 되돌리면 실패가 사라지는 변경(원인 실험으로 확정), incomplete_edit 는 수정본이 오류
+    # 없이 돌지만 담당자 의도가 실행되지 않는 변경이다(사전 검증의 의도 시험으로 확정). 실패 실행
+    # (f-<실행>)을 재현으로 쓴 기존 흐름에서는 칸을 넣지 않으며 service 는 change 로 읽는다.
+    kind: NotRequired[Literal["change", "incomplete_edit"]]
+    # 재현 근거 시나리오 id 다. 결과 불일치·의도 미실현이면 기준 주문 id 이고, service 가
+    # fixes_failure 를 다시 계산할 때 쓴다. 기존 흐름에서는 넣지 않으며 service 는 장부의 f-
+    # 시나리오를 쓴다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.7).
+    repro_scenario_ids: NotRequired[list[str]]
 
 
 class Intent(TypedDict, total=False):
     """extract_intent 노드가 남기는 변경 의도다.
 
-    total=False 라 키가 빠져도 된다고 표시하지만 extract_intent 노드는 네 키를 모두 채운다.
+    total=False 라 키가 빠져도 된다고 표시하지만 extract_intent 노드는 여섯 키를 모두 채운다.
+    모양은 docs/contracts/proposal.schema.json 의 intent 이고 담당자 의도의 뜻은
+    docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3 에 있다.
     """
 
-    # 운영자가 읽는 의도 문장이다.
+    # 운영자가 읽는 의도 문장이다. 담당자가 의도를 적었으면 그 글 그대로다.
     text: str
-    # C 가 읽을 수 있는 확인 조건만 남긴 목록이다. 형식은 '키 op 리터럴'이고 v1 계약에서
-    # assertions 가 checks 로 바뀌었다. verify_candidates 노드가 재현 시나리오의 extra_checks 로
-    # 보낸다.
+    # C 가 읽을 수 있는 scope 없는 확인 조건만 남긴 목록이다. 형식은 '키 op 리터럴'이고 v1 계약에서
+    # assertions 가 checks 로 바뀌었다. 요청에 의도가 없으면 verify_candidates 노드가 재현
+    # 시나리오의 extra_checks 로 보낸다. 의도가 있으면 expectations 의 scope 없는 조건을 하위
+    # 호환으로 옮겨 둔 값이며 시험에는 expectations 를 보낸다.
     checks: list[str]
     # 버린 조건과 이유를 [{check, reason}] 모양으로 담는다.
     dropped_checks: list[dict]
@@ -93,6 +105,12 @@ class Intent(TypedDict, total=False):
     # service/src/main/java/com/capstone4/skillops/proposal/Proposal.java 의 withIntentConfirmed 가
     # 저장된 제안서에서 True 로 바꾼다.
     confirmed: bool | None
+    # owner 는 담당자가 저장 요청에 준 expectations 를 그대로 쓴 것, inferred 는 Agent 가 text·diff
+    # 로 만든 것이다. 요청에 의도가 없을 때도 inferred 다.
+    source: Literal["owner", "inferred"]
+    # [{scope, checks}] 다. 요청에 의도가 있을 때만 채우며 사전 검증·원인 실험이 아닌 후보 검증의
+    # run_scenarios 에 intent_expectations 로 보낸다. 요청에 의도가 없으면 빈 목록이다.
+    expectations: list[dict]
 
 
 class Patch(TypedDict):
@@ -154,8 +172,11 @@ class Candidate(TypedDict):
     # 1부터 매기는 후보 번호다. v1 계약에서 문자열 id 가 정수 candidate_no 로 바뀌었다.
     candidate_no: int
     # v1 계약에서 local, contract, flow 가 차례로 same_skill, linked_skills, run_order 로 바뀌었다.
-    # LLM 이 낸 값을 그대로 쓰므로 런타임에 이 세 값인지 검사하지 않는다.
-    kind: Literal["same_skill", "linked_skills", "run_order"]
+    # encode_rule 은 본문·의도의 정책을 단계 skill 의 rules 로 옮기는 후보이며 의도 expectations
+    # (담당자가 준 것 또는 Agent 가 의도 글로 만든 것)가 있으면 코드가 최대 두 개를 결정적으로
+    # 만든다(skillops-agent/skillops_agent/skill_rules.py). LLM 이 낸 값을 그대로 쓰므로 런타임에 이
+    # 네 값인지 검사하지 않는다.
+    kind: Literal["same_skill", "linked_skills", "run_order", "encode_rule"]
     # 검증한 workspace ID 다. 형식 오류로 검증하지 않은 후보는 None 이다.
     workspace: str | None
     patches: list[Patch]
@@ -170,6 +191,22 @@ class Candidate(TypedDict):
     # rank 와 explanation 은 rank_and_explain 노드가 유효 후보에만 채운다.
     rank: int | None
     explanation: str | None
+    # 후보를 적용하면 담당자가 바꾼 파일 중 하나라도 기준본과 같아지는지다(되돌리기).
+    is_revert: bool
+    # 후보가 rules 를 지우거나 그 when 을 바꾸거나, rules·의도 scope 가 쓰는 키를 덮던 input 을
+    # 지우는지다(다른 input 이 여전히 덮어도 참, 2.10 V3-7). 둘 다 요청에 의도가 있을 때만 불합격
+    # 사유다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.6).
+    weakens_contract: bool
+
+
+# 사전 검증에서 수정본이 오류 없이 돌지만 의도 범위 기준 주문만 떨어졌을 때 diagnosis.finding 에
+# 남기는 값이다. frontend 가 글자 그대로 읽는다(docs/plans/2026-10-26-behavior-edit-root-fix.md
+# 2.5).
+INTENT_NOT_REALIZED = "INTENT_NOT_REALIZED"
+# 담당자 수정이 어떤 업무 도구도 만들지 않는 값을 요구해 SKILL.md 수정만으로 고칠 수 없을 때
+# diagnosis.finding 에 남기는 값이다. 진단 상태 이름은 늘리지 않고, 원인 실험 뒤 후보 생성 없이 개발
+# 요청서를 담은 no_valid_fix 제안서를 저장한다. frontend 가 글자 그대로 읽는다(2.11).
+NEEDS_TOOL = "NEEDS_TOOL"
 
 
 class ProgressEvent(TypedDict):
@@ -199,7 +236,8 @@ class AgentState(TypedDict):
     # 저장하고, save_proposal 노드가 제안서의 thread_id 로 보낸다.
     pipeline_thread_id: str
     # ── 진입 ──────────────────────────────────────────────────────
-    # skillops-agent/skillops_agent/main.py 의 DiagnoseRequest 를 model_dump 한 dict 다.
+    # skillops-agent/skillops_agent/main.py 의 DiagnoseRequest 를 model_dump 한 dict 다. 담당자
+    # 의도(intent: {text, expectations})와 RAG 에서 뺄 자료 id(rag_exclude)도 여기에 있다.
     trigger: dict
     # 기준 snapshot 이다. trigger 값이 먼저이고 없으면 후보 manifest 의 metadata 를 쓴다.
     baseline_snapshot_id: str | None
@@ -208,10 +246,16 @@ class AgentState(TypedDict):
     # fetch_evidence 노드가 만든 변경 hunk 목록이다. change_no 는 1부터 매긴다.
     changes: list[dict]
     diagnosis_status: str  # DiagnosisStatus 값이다.
-    # 사전 검증 중단이나 diagnosis_only 의 결론이다.
+    # 사전 검증 중단이나 diagnosis_only 의 결론이다. 의도 미실현이면 finding 이 INTENT_NOT_REALIZED
+    # 이고 진단 상태는 RUNNING 그대로다(상태 이름은 늘리지 않는다). 도구가 필요한 수정이면 finding
+    # 이 NEEDS_TOOL 이다.
     diagnosis: dict | None
     # 사전 검증 실행 ID 다. 보통 후보 snapshot 실행이고, BASELINE_FAILED 면 기준 snapshot 실행이다.
     preflight_run_ids: list[str]
+    # 실행 오류 없이 결과만 다르거나 의도가 실행되지 않은 기준 주문 id 다. 값이 있으면 ablate 와
+    # verify_candidates 가 f-<execution_id> 대신 이 주문을 재현 주문으로 쓴다. 실패 실행을 진단하는
+    # 기존 흐름에서는 빈 목록이다.
+    repro_scenario_ids: list[str]
 
     # ── 증거 수집 (fetch_evidence) ────────────────────────────────
     # 진단 대상 실행의 get_trace 결과다. 사전 검증이 통과했거나 멈췄으면 None 이다.
@@ -224,6 +268,15 @@ class AgentState(TypedDict):
     skill_versions: dict
     # 진단한 후보 snapshot ID 다. v1 계약에서는 실행이 있으면 실행 당시 snapshot ID 다.
     snapshot_id: str | None
+    # 담당자가 새로 넣었지만 어떤 업무 도구도 만들지 않는 값의 목록 [{key, needed_by, field, kind}]
+    # 이다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11). fetch_evidence 가 주문 Agent 의
+    # 도구 목록(GET /api/tools)으로 찾았을 때만 넣고, empty_run_fields 에는 없어 빈틈이 없는 진단
+    # 기록에는 이 키가 없다.
+    capability_gaps: list[dict]
+    # 제안서 development_request 의 초안이다. 빈틈이 있고 진단을 잇는 경우에만 fetch_evidence 가
+    # 넣고, 임시 대안의 근거 실행은 nodes.proposal_payload 가 원인 실험 결과로 채운다. 이 키가
+    # 없으면 제안서에도 development_request 칸이 없다.
+    development_request: dict | None
 
     # ── 가설 · ablation (PB-003) ──────────────────────────────────
     hypotheses: list[Hypothesis]
@@ -290,7 +343,8 @@ class DiagnosisStatus:
     VALIDATED = "VALIDATED"
     # 기준 snapshot 도 회귀 세트를 통과하지 못해 수정본을 판정하지 않았다.
     BASELINE_FAILED = "BASELINE_FAILED"
-    # 후보가 실패했지만 실행 오류가 없어 원인을 자동으로 찾지 않았다.
+    # 후보가 실행 오류 없이 기대와 다른 결과를 냈고, 그 기준 주문으로 한 원인 실험으로도 원인을
+    # 확정하지 못했다.
     VALIDATION_FAILED = "VALIDATION_FAILED"
     # 두 snapshot 사이에 skill 변경이 없다.
     NO_SKILL_CHANGES = "NO_SKILL_CHANGES"
@@ -323,6 +377,7 @@ def empty_run_fields() -> dict:
         "diagnosis_status": DiagnosisStatus.RUNNING,
         "diagnosis": None,
         "preflight_run_ids": [],
+        "repro_scenario_ids": [],
         "hypotheses": [],
         "ablation_runs": [],
         "root_cause": None,

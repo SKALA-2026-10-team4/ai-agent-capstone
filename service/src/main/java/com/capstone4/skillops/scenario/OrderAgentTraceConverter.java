@@ -63,23 +63,23 @@ public final class OrderAgentTraceConverter {
         }
 
         List<StepBuilder> steps = new ArrayList<>(byStepNo.values());
-        if (executionError != null) {
-            attachError(steps, executionError);
-        }
+        String runError = executionError == null ? null : attachError(steps, executionError);
         List<RunOutcome.Step> converted = steps.stream().map(StepBuilder::build).toList();
-        return new RunOutcome(runId, (String) trace.get("final_status"), converted);
+        return new RunOutcome(runId, (String) trace.get("final_status"), converted, runError);
     }
 
     /**
      * 오류 기록을 알맞은 단계에 붙인다. 실행 중 오류면 주문 Agent 가 그 skill 의 SKILL_FINISHED(status error)를
      * EXECUTION_ERROR 보다 먼저 남겼으므로, 마지막 단계에 오류 문구를 붙인다.
      * 정적 검사에서 막혀 단계가 없거나, 마지막 단계가 다른 skill 이거나, 같은 skill 이어도 ok 로 끝났으면 그 skill 의 error 단계를 덧붙인다.
-     * 어느 skill 인지 모르면(skill_id 없음) 단계를 만들지 않는다.
+     * 어느 skill 인지 모르면(skill_id 없음, 예: INCOMPLETE_FLOW, UNKNOWN_SKILL, INVALID_FLOW 의 flow 단위 오류) 단계를 만들지 않고
+     * 오류 문구를 돌려줘 RunOutcome.error 에 담는다. 그래야 채점 이유에 오류 category 가 남아, 진단 Agent 의 _reproduce_failure 가
+     * 원래 오류와 같은지 대조할 수 있다. 단계에 붙였으면 null 을 돌려준다.
      */
-    private static void attachError(List<StepBuilder> steps, Map<String, Object> error) {
+    private static String attachError(List<StepBuilder> steps, Map<String, Object> error) {
         Object skill = error.get("skill_id");
         if (!(skill instanceof String failed)) {
-            return;
+            return errorText(error);
         }
         StepBuilder target = steps.isEmpty() ? null : steps.getLast();
         if (target == null || !failed.equals(target.skill) || RunOutcome.Step.OK.equals(target.status)) {
@@ -88,6 +88,7 @@ public final class OrderAgentTraceConverter {
         }
         target.status = RunOutcome.Step.ERROR;
         target.error = errorText(error);
+        return null;
     }
 
     /**

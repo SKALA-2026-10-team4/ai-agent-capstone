@@ -1,5 +1,6 @@
 package com.capstone4.skillops.proposal;
 
+import static com.capstone4.skillops.proposal.ProposalRules.map;
 import static com.capstone4.skillops.proposal.ProposalRules.str;
 
 import java.time.Clock;
@@ -22,10 +23,11 @@ import tools.jackson.databind.json.JsonMapper;
  * docs/contracts/mcp-tools-input-output.md 의 save_proposal 절에 있다.
  *
  * 저장(save)은 Agent 가 보낸 제안서를 그대로 믿지 않는다. 근거로 적은 실행 번호가 이 서비스가 실제로 돌린 모의 실행인지
- * service/src/main/java/com/capstone4/skillops/scenario/RunLedger.java 장부로 확인하고, 합격 후보를 시험 결과로 다시 계산한 뒤에만 저장한다.
- * 합격 후보가 인용한 실행은 장부의 실제 채점 결과도 모두 통과해야 한다.
- * 필수 평가의 완전성과 제출된 집계 전체를 재구성하는 검증은 별도 평가 계약에서 수행한다.
- * 거부 규칙과 그 순서는 service/src/main/java/com/capstone4/skillops/proposal/ProposalValidator.java 에, 합격 조건은
+ * service/src/main/java/com/capstone4/skillops/scenario/RunLedger.java 장부로 확인하고, 후보의 판정을 Agent 의 참·거짓이 아니라
+ * 장부와 연습 공간 기록으로 다시 계산한 뒤에만 저장한다. 시험을 거치지 않은 수정안이 운영자 화면에 올라가지 않게 하려는 것이다.
+ * Agent 값과 서버 값이 다르면 거부하지 않고 서버 값으로 덮어 저장하며, 바꾼 칸은 payload 의 server_overrides 에 남는다.
+ * 거부 규칙과 그 순서는 service/src/main/java/com/capstone4/skillops/proposal/ProposalValidator.java 에, 재판정은
+ * service/src/main/java/com/capstone4/skillops/proposal/ProposalJudge.java 에, 합격 조건은
  * service/src/main/java/com/capstone4/skillops/proposal/ProposalRules.java 의 passes 에, 본문 문장은
  * service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 에 있다.
  * 결정 표시(markDecided)는 같은 제안서를 한 번만 결정하게 하고, 승인은 합격 후보 번호로만 받는다.
@@ -44,6 +46,7 @@ public class ProposalService {
 
     private final ProposalRepository repository;
     private final ProposalValidator validator;
+    private final ProposalJudge judge;
     /** 제안서를 만든 시각과 결정 시각을 정하는 시계다. 테스트는 고정 시계를 넣는다. */
     private final Clock clock;
 
@@ -54,14 +57,15 @@ public class ProposalService {
      * service/src/test/java/com/capstone4/skillops/proposal/ProposalServiceWiringTest.java 가 같은 오류의 재발을 막는다.
      */
     @Autowired
-    public ProposalService(ProposalRepository repository, RunLedger ledger) {
-        this(repository, ledger, Clock.systemUTC());
+    public ProposalService(ProposalRepository repository, RunLedger ledger, ProposalJudge judge) {
+        this(repository, ledger, judge, Clock.systemUTC());
     }
 
     /** 테스트가 고정 시계를 넣으려고 쓰는 생성자다. 거부 규칙 검사기(ProposalValidator)도 여기서 같은 장부로 만든다. */
-    ProposalService(ProposalRepository repository, RunLedger ledger, Clock clock) {
+    ProposalService(ProposalRepository repository, RunLedger ledger, ProposalJudge judge, Clock clock) {
         this.repository = repository;
         this.validator = new ProposalValidator(ledger);
+        this.judge = judge;
         this.clock = clock;
     }
 
@@ -77,7 +81,10 @@ public class ProposalService {
      * save_proposal 로 받은 제안서를 검사하고 저장한다. 먼저 빈 제안서를 거부하고, thread_id 로 이미 저장한 제안서가 있으면
      * 아무 검사 없이 그 제안서의 결과를 돌려준다. 이 재저장 규칙은 제안서 저장을 설계할 때 정한 것이고(설계 결정 D9),
      * Agent 가 재시도해도 제안서가 둘이 되지 않게 한다.
-     * 처음 보는 진단이면 ProposalValidator 의 validCandidateNos 가 거부 규칙을 순서대로 검사하며 합격 후보 번호를 다시 계산하고, store 가 저장한다.
+     * 처음 보는 진단이면 ProposalValidator 의 checkSubmission 이 status 와 후보 번호, 근거 실행, 개발 요청서(development_request)를
+     * 검사하고, ProposalJudge 가 판정을 다시 계산해 서버 값으로 덮은 사본과 합격 후보, status 를 정한다. 서버 status 가 proposed 이면
+     * 개발 요청서가 없는지와 원인 근거 실행을 본 뒤 store 가 그 사본을 저장한다. 개발 요청서는 사본에 그대로 남아 저장되고
+     * GET /api/proposals/{id} 의 proposal 로 나간다. 돌려주는 status 와 valid_candidate_nos 는 서버 값이다.
      * 잘못된 제안서는 IllegalArgumentException 으로 거부하고 MCP 결과는 INVALID_INPUT 이 된다. 메시지는 Agent 개발자가 읽는다.
      */
     public SavedProposal save(Map<String, Object> proposal) {
@@ -92,9 +99,13 @@ public class ProposalService {
                 return savedOf(existing.get());
             }
         }
-        String status = str(proposal.get("status"));
-        List<Integer> valid = validator.validCandidateNos(status, proposal);
-        return store(proposal, threadId, status, valid);
+        validator.checkSubmission(str(proposal.get("status")), proposal);
+        ProposalJudge.Judgement judged = judge.judge(proposal);
+        if (ProposalStatus.PROPOSED.equals(judged.status())) {
+            validator.checkNoDevelopmentRequest(judged.payload(), judged.validCandidateNos());
+            validator.checkRootCause(map(judged.payload().get("root_cause")));
+        }
+        return store(judged.payload(), threadId, judged.status(), judged.validCandidateNos());
     }
 
     /**

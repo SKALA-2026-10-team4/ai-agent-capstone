@@ -32,7 +32,9 @@ import tools.jackson.databind.json.JsonMapper;
  * 주소는 service/src/main/resources/application.yml 의 skillops.order-agent.base-url(환경 변수 ORDER_AGENT_BASE_URL)이다.
  * 같은 패키지(service/src/main/java/com/capstone4/skillops/snapshot/)의 SkillDiffService 와 DependencyGraphService, 그리고
  * service/src/main/java/com/capstone4/skillops/workspace/WorkspaceService.java 의 createFromSnapshot(create_workspace 를
- * snapshot_id 로 시작할 때)이 이 클래스를 부른다.
+ * snapshot_id 로 시작할 때)이 이 클래스를 부른다. save_proposal 재판정
+ * (service/src/main/java/com/capstone4/skillops/proposal/ProposalJudge.java)도 getSnapshot 으로 진단한 snapshot 의 metadata
+ * (담당자 의도 intent, baseline_snapshot_id)와 기준본 manifest 를 읽는다.
  */
 @Component
 public class OrderAgentClient {

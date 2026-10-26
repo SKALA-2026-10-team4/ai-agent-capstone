@@ -129,6 +129,7 @@ order-intake는 OrderService가 이미 수행한 접수·가격 계산을 검수
 - 결제 PAID·재고 예약 없이 배송하는 요청은 도구가 다시 검사해 거절한다. Skill 문서만으로 안전 조건을 해제할 수 없다.
 - 시스템·모델·파일·도구 오류는 FAILED로 기록하고 후속 정상 업무 단계를 실행하지 않는다. 이미 발생한 결과를 숨기거나 자동 환불하지 않는다.
 - 정상 미선택과 존재하지 않는 Skill 요청은 구분한다. 알 수 없는 이름의 원래 문자열을 보존하고 실제 로드는 거절한다.
+- 단계 Skill frontmatter의 실행 규칙(rules)이 매치되면 도구를 부르지 않고 주문을 HOLD 또는 REJECTED로 끝낸다. 자세한 규칙은 9절을 따른다.
 
 정해진 중단 분기는 누락된 단계를 모두 실행해야 한다는 의미가 아니다. 건너뛴 단계는 SKIPPED로 표시한다. 엔트리가 유효한 다른 Skill로 해석되면 선택 결과를 기록하고, 주문용 엔트리 정책에 맞지 않으면 업무 도구 실행 전에 차단한다.
 
@@ -180,3 +181,38 @@ Agent 실행부터는 실행별 execution_id, 후보 목록, 모델의 원래 �
 - 동일 snapshot을 일반 실행과 Runner에서 읽고 같은 Harness를 사용하는가.
 
 현재는 설계만 반영했으며 Skill 파일·Harness·모델 연결·검증 코드는 아직 없다.
+
+## 9. 실행 규칙(rules) (2026-10-26 구현)
+
+본문에만 적은 정책("선입금 주문만 결제한다")은 fixed 모드에서 지켜지지 않고 openai 모드에서도 판정할 수 없다. 업무 담당자의 정책을 실행에 반영하려면 단계 Skill frontmatter에 선언형 실행 규칙 `rules`를 둔다. Harness가 모드와 무관하게 결정적으로 평가한다. 공용 계약은 `docs/plans/2026-10-26-behavior-edit-root-fix.md` 2.1·2.2절이다.
+
+```yaml
+---
+name: payment
+description: 예약된 주문 금액을 결제한다
+inputs: [order.id, order.total, order.payment_method, inventory.reserved]
+outputs: [payment.id, payment.status]
+depends_on: [inventory-check]
+rules:
+  - when: "order.payment_method != 'prepaid'"
+    then: hold            # hold | reject
+    reason: PREPAID_ONLY  # [A-Z][A-Z0-9_]{0,39}
+owner: 재무팀
+version: 2
+---
+```
+
+| 항목 | 규칙 |
+|---|---|
+| 위치 | 단계 Skill만. flow Skill(steps가 있는 Skill)에 규칙이 있으면 로드 때 `INVALID_SKILL_FORMAT` |
+| 형식 | 생략·null·빈 목록은 규칙 없음. 목록 0~10개, 항목은 `when`·`then`·`reason` 세 키만 가진 Map. 어긋나면 로드 때 `INVALID_SKILL_FORMAT` |
+| when | 조건 문법 v2 한 줄. 연산자 `==`, `!=`, `in`, `>`, `>=`, `<`, `<=`(앞뒤 공백 필수), 값 `'글자'`·`true`·`false`·`null`·숫자, `in` 뒤에만 `[..]` 목록. 크기 비교의 오른쪽은 숫자만, 실제 값이 숫자가 아니면 거짓. `true`/`false`는 1/0과 다르다 |
+| 조건 키 | 값 이름은 그 Skill의 선언 input과 같거나 `input + '.'`으로 시작해야 한다(`order.shipping.country`는 `order.shipping` 선언으로 충분). 아니면 flow 정적 검사에서 `CONTRACT_VIOLATION`(details.reason `RULE_KEY_NOT_INPUT`, `rule_keys`)이며 업무 도구는 하나도 실행하지 않는다. 예약 키(`order.final_status`, `order.shipments`)도 선언하지 않으면 거부한다 |
+| 값 찾기 | 평가 문맥은 그 단계의 선언 입력 Map이다. 이름이 그대로 있으면 그 값, 없으면 점으로 나눈 앞부분 가운데 문맥에 있는 가장 긴 것의 Map을 따라 내려간다. 끊기면 null이다 |
+| 평가 시점 | 실행 중 입력 검증 직후, 결정 요청·도구 호출 전. 위에서부터 처음 참인 규칙 하나만 적용한다 |
+| 결과 | hold는 HOLD, reject는 REJECTED. 주문 result_code는 reason이다. 결제 상태는 바꾸지 않는다. 결제 전이면 예약 재고를 해제하고(실패 보상과 같은 정책), 결제 뒤 단계의 규칙이면 승인된 결제와 예약이 그대로 남는다. 그 단계는 SKIPPED(결과 코드 reason), 업무 순서에서 뒤의 단계는 SKIPPED(UPSTREAM_REJECTED)이고 실행은 COMPLETED다 |
+
+- 정책을 결제 전에 걸어야 결제가 남지 않는다. 예를 들어 해외 배송 금지는 shipping-reserve가 아니라 `order.shipping`을 입력으로 가진 order-intake에 건다.
+- 조건에 쓰려는 값이 그 단계 입력에 없으면 inputs에 더한다. 앞 단계가 공급하지 않는 키를 더하면 기존 입력 공급 검사(missing_inputs)에 걸린다.
+- 모델 결정 질문 JSON에는 rules를 싣지 않는다. 규칙은 Harness가 이미 평가했기 때문이다.
+- trace 모양과 주문 단계 기록은 [agent-evidence.md](agent-evidence.md)의 "실행 규칙과 RULE_MATCHED" 절을 따른다.

@@ -26,8 +26,9 @@ import com.capstone4.skillops.scenario.TestFixtures.InMemoryRunLedger;
 
 /**
  * service/src/main/java/com/capstone4/skillops/proposal/ProposalService.java 의 저장(save)과 결정 표시(markDecided)의 기본 규칙을
- * 보호하는 단위 테스트다. 저장 쪽은 결과의 계약 모양, 같은 진단 재저장, 근거 실행과 원인 근거 실행의 대조, valid, status,
- * 추천 후보, 후보 번호 검사, 적용에 실패한 후보의 근거 면제를 확인한다. 결정 표시 쪽은 승인할 때만 intent.confirmed 를 채우는지 보고,
+ * 보호하는 단위 테스트다. 저장 쪽은 결과의 계약 모양, 같은 진단 재저장, 근거 실행과 원인 근거 실행의 대조, 후보 번호 검사,
+ * 적용에 실패한 후보의 근거 면제를 확인하고, valid·status·추천 후보가 서버 재판정(ProposalJudge) 값으로 덮이는지 본다.
+ * 결정 표시 쪽은 승인할 때만 intent.confirmed 를 채우는지 보고,
  * 두 번째 결정, 수정안 없는 제안서의 승인, 합격하지 않은 후보 번호, 없는 제안서를 거부하는지 본다.
  * 거부 메시지 전체와 규칙의 우선순위는 service/src/test/java/com/capstone4/skillops/proposal/ProposalCharacterizationTest.java 가
  * 따로 고정한다.
@@ -35,8 +36,9 @@ import com.capstone4.skillops.scenario.TestFixtures.InMemoryRunLedger;
 class ProposalServiceTest {
 
     ProposalRepository repository = mock(ProposalRepository.class);
-    InMemoryRunLedger ledger = new InMemoryRunLedger();
-    ProposalService service = new ProposalService(repository, ledger,
+    ProposalTestBench bench = new ProposalTestBench().withF1();
+    InMemoryRunLedger ledger = bench.ledger;
+    ProposalService service = new ProposalService(repository, ledger, bench.judge(),
             Clock.fixed(Instant.parse("2026-10-21T05:10:00Z"), ZoneOffset.UTC));
     /** 테스트마다 새로 읽는 F1 제안서다. 테스트가 값을 바꿔 가며 거부 규칙을 시험한다. */
     Map<String, Object> f1Copy = f1();
@@ -45,13 +47,6 @@ class ProposalServiceTest {
     void setUp() {
         given(repository.save(any(Proposal.class))).willAnswer(call -> call.getArgument(0));
         given(repository.findByThreadId(anyString())).willReturn(Optional.empty());
-        // F1 픽스처가 근거로 적은 원인 실행과 후보 실행을 장부에 미리 남긴다.
-        ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000001", false);
-        ledger.record("w_ablation", "f-33333333-3333-4333-8333-333333333333", "r_a0000000000000000000000000000002", true);
-        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", true);
-        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000002", true);
-        ledger.record("w_c2", "g-01", "r_c2000000000000000000000000000001", true);
-        ledger.record("w_c2", "g-02", "r_c2000000000000000000000000000002", false);
     }
 
     /** F1 픽스처(service/src/test/resources/proposal/f1-proposed.json)를 새로 읽는다. */
@@ -95,31 +90,43 @@ class ProposalServiceTest {
         assertThat(stored.getDecidedAt()).isNull();
     }
 
-    /** 제출값이 성공이어도 회귀·재현·의도 실행의 실제 실패를 합격으로 저장하지 않는다. */
+    /** 실제 실패는 서버 불합격으로 교정하고 실패 후보를 진단 기록에 보존한다. */
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"g-01", "f-reproduction", "f-intent"})
-    void rejectsPassingClaimWhenStoredExecutionFailed(String scenarioId) {
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"g-01", "g-02", ProposalTestBench.REPRO})
+    void storedFailureOverridesPassingClaim(String scenarioId) {
         ledger.record("w_c1", scenarioId, "r_c1000000000000000000000000000002", false);
 
-        assertThatThrownBy(() -> service.save(f1()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("실제 채점에서 실패했습니다")
-                .hasMessageContaining("r_c1000000000000000000000000000002")
-                .hasMessageContaining(scenarioId);
-        then(repository).should(never()).save(any());
+        SavedProposal saved = service.save(f1());
+
+        assertThat(saved.status()).isEqualTo("no_valid_fix");
+        assertThat(saved.validCandidateNos()).isEmpty();
+        assertThat(candidate(captured().getPayload(), 0)).containsEntry("valid", false);
+        assertThat(captured().getPayload().get("server_overrides")).isNotNull();
     }
 
-    /** 제출된 valid가 없어도 성공 집계만으로 실제 실패를 우회하지 못한다. */
+    /** valid가 없어도 서버 장부로 다시 계산하여 실제 실패를 합격시키지 않는다. */
     @Test
-    void rejectsStoredFailureWithoutSubmittedValid() {
+    void storedFailureOverridesClaimWithoutValid() {
         Map<String, Object> proposal = f1();
         candidate(proposal, 0).remove("valid");
         ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", false);
 
-        assertThatThrownBy(() -> service.save(proposal))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("실제 채점에서 실패했습니다");
-        then(repository).should(never()).save(any());
+        assertThat(service.save(proposal).validCandidateNos()).isEmpty();
+        assertThat(candidate(captured().getPayload(), 0)).containsEntry("valid", false);
+    }
+
+    /** 기존 MCP도 실제 실패 후보를 오류로 버리지 않고 불합격으로 저장한다. */
+    @Test
+    void legacyMcpPreservesFailedCandidateWithServerVerdict() {
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", false);
+
+        var result = new com.capstone4.skillops.mcp.ProposalTools(service).saveProposal(f1());
+
+        assertThat(result.isError()).isFalse();
+        String json = ((io.modelcontextprotocol.spec.McpSchema.TextContent) result.content().getFirst()).text();
+        assertThat(json).contains("no_valid_fix");
+        assertThat(captured().getValidCandidateNos()).isEmpty();
+        assertThat(candidate(captured().getPayload(), 0)).containsEntry("valid", false);
     }
 
     @Test
@@ -159,32 +166,63 @@ class ProposalServiceTest {
     }
 
     @Test
-    void agentValidMustMatchRecomputedResult() {
+    void agentValidIsReplacedByTheRecomputedResult() {
         candidate(f1Copy, 1).put("valid", true);
-        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("후보 2").hasMessageContaining("valid");
+
+        assertThat(service.save(f1Copy).validCandidateNos()).containsExactly(1);
+        assertThat(candidate(captured().getPayload(), 1)).containsEntry("valid", false);
+    }
+
+    /** Agent 는 합격 후보가 있다고 했지만 연습 공간 기록과 수정 내용이 맞지 않으면 서버는 no_valid_fix 로 저장한다. */
+    @Test
+    void proposedWithoutServerPassingCandidateIsSavedAsNoValidFix() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> patch = ((List<Map<String, Object>>) candidate(f1Copy, 0).get("patches")).getFirst();
+        patch.put("patch", patch.get("patch") + "+덧붙인 줄\n");
+
+        SavedProposal saved = service.save(f1Copy);
+
+        assertThat(saved.status()).isEqualTo("no_valid_fix");
+        assertThat(saved.validCandidateNos()).isEmpty();
+        assertThat(captured().getStatus()).isEqualTo("no_valid_fix");
+        assertThat(results(captured().getPayload(), 0)).containsEntry("evidence_matches", false);
+    }
+
+    /**
+     * 재현 시나리오로 적은 id 에 원인 근거 실행 가운데 떨어진 실행이 없으면 서버는 합격 후보가 없다고 보고, 그 까닭을 server_overrides 와
+     * 본문의 서비스 재판정 절("재현 근거")에 남긴다.
+     */
+    @Test
+    void reproWithoutFailingProofRunIsRecordedInTheDocument() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> root = (Map<String, Object>) f1Copy.get("root_cause");
+        root.put("repro_scenario_ids", List.of("g-01"));
+
+        SavedProposal saved = service.save(f1Copy);
+
+        assertThat(saved.status()).isEqualTo("no_valid_fix");
+        assertThat(results(captured().getPayload(), 0)).containsEntry("fixes_failure", false);
+        assertThat(captured().getDocument().toString()).contains("재현 근거", "Agent g-01 → 서비스 없음");
     }
 
     @Test
-    void proposedWithoutPassingCandidateIsRejected() {
-        results(f1Copy, 0).put("fixes_failure", false);
-        candidate(f1Copy, 0).put("valid", false);
-        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("proposed");
-    }
-
-    @Test
-    void noValidFixWithPassingCandidateIsRejected() {
+    void noValidFixWithServerPassingCandidateBecomesProposed() {
         f1Copy.put("status", "no_valid_fix");
-        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("no_valid_fix");
+
+        SavedProposal saved = service.save(f1Copy);
+
+        assertThat(saved.status()).isEqualTo("proposed");
+        assertThat(saved.validCandidateNos()).containsExactly(1);
     }
 
     @Test
-    void recommendedMustBePassingCandidate() {
+    void recommendedFollowsThePassingCandidate() {
         f1Copy.put("recommended_candidate_no", 2);
-        assertThatThrownBy(() -> service.save(f1Copy)).isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("recommended_candidate_no");
+
+        service.save(f1Copy);
+
+        assertThat(captured().getPayload()).containsEntry("recommended_candidate_no", 1);
+        assertThat(captured().getDocument().get("summary").toString()).contains("후보 1번의 승인 여부");
     }
 
     @Test

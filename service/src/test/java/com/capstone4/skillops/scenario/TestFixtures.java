@@ -65,40 +65,48 @@ public final class TestFixtures {
     }
 
     /**
-     * 테스트용 {@link RunLedger} 다. 운영 구현처럼 시나리오와 실제 채점 결과도 보존한다.
+     * 테스트용 {@link RunLedger} 다. 메모리에만 둔다. 실행 한 줄을 남긴 순서대로 연습 공간 번호와 함께 보관하고,
+     * runIdsOf, runsOf, known, find 는 그 기록에서 찾는다. 같은 run_id 를 다시 남기면 뒤의 줄로 바꾼다.
      */
     public static final class InMemoryRunLedger implements RunLedger {
 
-        private final java.util.Map<String, String> workspaceOf = new java.util.LinkedHashMap<>();
-        private final java.util.Map<String, Evidence> evidence = new java.util.LinkedHashMap<>();
-
-        @Override
-        public void record(String workspaceId, String scenarioId, String runId, boolean passed) {
-            workspaceOf.put(runId, workspaceId);
-            evidence.put(runId, new Evidence(runId, scenarioId, passed));
+        /** 기록 한 줄과 그 연습 공간이다. */
+        private record Entry(String workspaceId, RunLedger.Run run) {
         }
 
-        /** workspace의 실제 실행 결과를 반환한다. */
+        private final java.util.Map<String, Entry> byRunId = new java.util.LinkedHashMap<>();
+
         @Override
-        public java.util.List<Evidence> evidenceOf(String workspaceId) {
-            return runIdsOf(workspaceId).stream().map(evidence::get).toList();
+        public void record(String workspaceId, String scenarioId, String runId, boolean passed, boolean intentScoped,
+                String checksHash, java.util.List<Integer> intentMatches) {
+            byRunId.put(runId, new Entry(workspaceId, new RunLedger.Run(runId, scenarioId, passed, intentScoped, checksHash,
+                    intentMatches == null ? null : java.util.List.copyOf(intentMatches))));
         }
 
         @Override
         public java.util.Set<String> runIdsOf(String workspaceId) {
-            return workspaceOf.entrySet().stream().filter(e -> e.getValue().equals(workspaceId))
-                    .map(java.util.Map.Entry::getKey).collect(java.util.stream.Collectors.toUnmodifiableSet());
+            return byRunId.values().stream().filter(e -> e.workspaceId().equals(workspaceId)).map(e -> e.run().runId())
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+
+        @Override
+        public java.util.List<RunLedger.Run> runsOf(String workspaceId) {
+            return byRunId.values().stream().filter(e -> e.workspaceId().equals(workspaceId)).map(Entry::run).toList();
         }
 
         @Override
         public boolean known(String runId) {
-            return workspaceOf.containsKey(runId);
+            return byRunId.containsKey(runId);
+        }
+
+        @Override
+        public java.util.Optional<RunLedger.Run> find(String runId) {
+            return java.util.Optional.ofNullable(byRunId.get(runId)).map(Entry::run);
         }
 
         /** 장부를 비운다. proposal 테스트가 근거 실행을 찾을 수 없는 경우를 만들 때 쓴다. */
         public void clear() {
-            workspaceOf.clear();
-            evidence.clear();
+            byRunId.clear();
         }
     }
 }

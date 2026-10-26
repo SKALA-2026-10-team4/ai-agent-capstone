@@ -8,7 +8,7 @@
 // 상태 배지는 상태값을 소문자로 바꾼 클래스를 단다. order-agent/frontend/src/styles/main.css 는 .pill.hold 같은 클래스로
 // 색을 정하고, order-agent/frontend/tests/e2e/order.spec.js 와 order-agent/frontend/tests/e2e/evidence.spec.js 는
 // .pill.shipped 같은 클래스로 결과를 찾는다.
-// 라벨은 order-agent/frontend/src/utils/format.js 에서 오고, 처리 단계는 order-agent/frontend/src/components/OrderSteps.vue 가 그린다.
+// 라벨은 order-agent/frontend/src/utils/format.js 에서 오고(상태 배지는 result_code 로 재고 부족, 결제 거절, 업무 규칙 종료를 나눈다), 처리 단계는 order-agent/frontend/src/components/OrderSteps.vue 가 그린다.
 import { computed } from "vue";
 import {
   money,
@@ -57,7 +57,7 @@ const errorTitle = computed(() =>
         <h2 id="result-title">주문 결과</h2>
       </div>
       <span v-if="order" class="pill" :class="order.status.toLowerCase()">{{
-        orderStatusLabel(order.status)
+        orderStatusLabel(order.status, order.result_code)
       }}</span>
     </div>
     <div

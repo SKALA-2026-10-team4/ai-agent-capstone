@@ -2,6 +2,8 @@
 
 사용자 요청에 따라 새 MCP 4개를 기존 MCP처럼 JWT 없이 호출하도록 변경했다. REST 평가·검증 제안 API와 사람의 승인·반려 API는 기존 인증·권한 검사를 유지한다. 현재 계약은 [평가 계약의 MCP 절](../contracts/evaluation-backend.md#mcp)이다.
 
+> develop 병합 후에는 JWT 불필요 정책을 유지하되, SKILLOPS_SERVICE_TOKEN 설정 시 X-Service-Token이 필요한 공통 MCP 필터를 보존했다. 미설정 시 무인증이다. [병합 보고서](2026-10-26-issue-88-develop-merge.md)에 현재 동작과 전체 재검증 결과를 기록했다.
+
 ## 변경 내용
 
 - `EvaluationTools`의 `@PreAuthorize`와 SecurityContext 의존성을 제거했다.

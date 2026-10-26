@@ -105,18 +105,18 @@ VerifiedInput: `{evaluation_id,attempt_id,summary,intent_text}`. 설명·의도�
 
 시도당 제안 한 개이며 동일 입력은 재사용, 다른 설명은 409다. 기존 제안서·승인 저장소를 재사용하지만 payload schema_version=2, kind=snapshot이며 실행된 후보 snapshot/hash를 가리킨다. patches는 빈 목록이고 원인 분석은 NOT_PERFORMED다. 본문도 원인 실험·LLM 평가를 했다고 서술하지 않는다. 같은 입력을 승인 후 다시 보내면 기존 proposal_id와 현재 approved 상태를 반환한다.
 
-기존 사람의 승인·반려·동시 결정 방어를 사용하며 운영 배포는 하지 않는다. 기존 save_proposal은 요청 형식을 유지하며, 합격 후보가 인용한 실행의 실제 `scenario_runs.passed`도 대조한다. 실제 실패를 성공으로 제출하면 `INVALID_INPUT`으로 거부한다. 다만 **필수 평가 누락·회귀 집계·의도 조건을 재구성하는 데 필요한 정보가 부족해 제출 results의 완전성 검증 한계는 남는다.** 새 v2를 추가한 것만으로 기존 Python 제안서가 서버 검증 방식으로 전환되지는 않는다.
+기존 사람의 승인·반려·동시 결정 방어를 사용하며 운영 배포는 하지 않는다. develop 병합 후 기존 save_proposal은 ProposalJudge가 장부의 실제 결과·반복 수·기준 주문·의도 조건·workspace 고정 및 적용 기록·snapshot metadata를 근거로 재판정한다. AI가 제출한 판정과 다르면 server_overrides에 차이를 기록하고 서버 판정으로 저장하며, 합격 후보가 없으면 no_valid_fix로 보존한다. 잘못된 실행 참조·필수 snapshot 누락·증거 조회 실패는 저장을 거부한다. v2는 별도 불변 평가 계약으로 SERVER_VERIFIED 결과만 제안으로 저장한다. 기존 Python 제안서가 자동으로 v2로 전환되지는 않는다.
 
 ## MCP
 
-기존 7개에 아래 4개가 추가되어 tools/list는 11개다. 기존 도구의 입출력·apply_patch v1.3은 유지한다. 새 도구도 기존 MCP처럼 JWT 없이 호출한다. REST의 JWT·역할 검사와 사람의 승인·반려 권한은 유지한다. 기존 Python MCP 클라이언트는 아직 새 도구를 호출하지 않는다.
+기존 7개에 아래 4개가 추가되어 tools/list는 11개다. develop의 조건 문법 v2·apply_patch v1.4·기존 제안 재판정 계약과 함께 제공한다. 새 도구도 JWT 없이 호출한다. SKILLOPS_SERVICE_TOKEN을 설정했으면 /mcp의 모든 요청에 같은 X-Service-Token이 필요하고, 비어 있으면 무인증으로 호출한다. REST의 JWT·역할 검사와 사람의 승인·반려 권한은 유지한다. 기존 Python MCP 클라이언트는 아직 새 도구를 호출하지 않는다.
 
 | 도구 | 입력 | 권한·반환 |
 |---|---|---|
-| submit_evaluation | `{request:Submit,idempotency_key:string}` | 인증 없음, Accepted |
-| get_evaluation | `{evaluation_id}` | 인증 없음, View |
-| get_evaluation_report | `{evaluation_id,attempt_id}` | 인증 없음, Report |
-| save_proposal_v2 | `{request:VerifiedInput}` | 인증 없음, Saved |
+| submit_evaluation | `{request:Submit,idempotency_key:string}` | JWT 불필요(공통 서비스 토큰 정책 적용), Accepted |
+| get_evaluation | `{evaluation_id}` | JWT 불필요(공통 서비스 토큰 정책 적용), View |
+| get_evaluation_report | `{evaluation_id,attempt_id}` | JWT 불필요(공통 서비스 토큰 정책 적용), Report |
+| save_proposal_v2 | `{request:VerifiedInput}` | JWT 불필요(공통 서비스 토큰 정책 적용), Saved |
 
 결과는 기존 content[0].text의 JSON이다. 평가 도메인 오류는 isError=true와 code/message/retryable/upstream_status/snapshot_id 형식이다. MCP는 인증 없이 평가 접수·조회·검증 제안 저장을 허용한다. 제안 저장은 사람의 승인이나 운영 반영을 수행하지 않는다.
 

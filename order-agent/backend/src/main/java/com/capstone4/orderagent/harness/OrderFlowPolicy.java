@@ -47,10 +47,16 @@ final class OrderFlowPolicy {
      * service/src/main/java/com/capstone4/skillops/snapshot/DependencyAnalyzer.java 의 ORDER_INPUT_KEYS,
      * service/src/main/java/com/capstone4/skillops/mcp/DependencyGraphTools.java 의 get_dependency_graph 도구 설명,
      * frontend/src/utils/flowGraph.js 의 ORDER_KEYS 에도 있으므로 키를 더하거나 빼면 네 곳을 함께 고친다.
+     * GET /api/tools 의 initial_input_keys 도 이 목록이다(ToolCatalog.initialInputKeys). SkillOps Agent 는 사본 없이 그 API 를 읽는다.
      */
     static final List<String> INITIAL_INPUT_KEYS = List.of("order.id", "order.items", "order.customer", "order.payment_method", "order.shipping");
     /** 루트 flow 의 steps 에 둘 수 있는 단계 수 상한이다. 넘으면 SkillLoader.validateFlow 가 단계를 읽기 전에 INVALID_FLOW 로 거절한다. */
     static final int MAX_FLOW_STEPS = 12;
+    /**
+     * 단계 Skill 하나의 rules 에 둘 수 있는 실행 규칙 수 상한이다. 넘으면 SkillLoader.load 가 INVALID_SKILL_FORMAT 으로 거절한다.
+     * docs/plans/2026-10-26-behavior-edit-root-fix.md 2.2 절의 계약 값이라 service 의 apply_patch 정적 검사도 같은 상한을 쓴다.
+     */
+    static final int MAX_SKILL_RULES = 10;
     /**
      * 도구 실행 뒤 주문 상태가 이 값이면 다음 단계로 넘어간다. 그 밖의 상태(재고 부족 REJECTED, 결제 거절 HOLD)는
      * 정상 업무 종료로 보고 OrderHarness 가 BUSINESS_STOP 을 남긴 뒤 실행을 COMPLETED 로 닫는다.

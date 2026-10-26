@@ -2,9 +2,11 @@
 
 계약 5 · 현재 코드 기준 · 2026-10-26 갱신 · 기준 코드 `service/src/main/java/com/capstone4/skillops/mcp/`
 
+> **2026-10-26 갱신 (행동 변경 수정본, [계획](../plans/2026-10-26-behavior-edit-root-fix.md) 2절).** ① 확인 조건이 **조건 문법 v2**가 됐습니다(숫자 비교 `>`, `>=`, `<`, `<=`, Map 경로 찾기, 예약 키 `order.final_status`·`order.shipments`, 공용 사례 [condition-cases.json](examples/condition-cases.json)). ② `apply_patch` 응답 **v1.4**: 단계 skill 의 실행 규칙 `rules` 를 정적으로 검사해 `metadata_errors{field: rules, code: INVALID_SKILL_FORMAT}` 와 `flow_errors{code: CONTRACT_VIOLATION, reason: RULE_KEY_NOT_INPUT}` 를 냅니다([skill-rules-cases.json](examples/skill-rules-cases.json), [응답 Schema](apply-patch-result.schema.json)). ③ `run_scenarios` 에 선택 입력 `intent_expectations` 와 결과 칸 `results[].intent_scoped` 를 더했습니다. ④ `run_scenarios` 를 한 번 돌린 연습 공간은 고정되어 `apply_patch` 가 새 오류 code `WORKSPACE_FROZEN` 을 돌려줍니다. ⑤ `save_proposal` 은 Agent 의 판정을 장부와 연습 공간 기록으로 **다시 계산**하고, 다르면 거부하지 않고 서비스 값으로 덮은 뒤 `server_overrides` 에 남깁니다. ⑥ `SKILLOPS_SERVICE_TOKEN` 이 있으면 `/mcp` 가 `X-Service-Token` 을 요구합니다. ⑦ 재현 주문과 의도 scope 에 든 기준 주문은 최종 상태가 없으면(`null`) 떨어집니다. ⑧ 단계가 붙지 않은 실행 오류(`INCOMPLETE_FLOW`, `UNKNOWN_SKILL`, `INVALID_FLOW`)도 `failures[].reason` 맨 앞에 `실행 오류: <category>…` 로 남습니다. ⑨ (계약 보정 v3, 계획 2.10 절) `save_proposal` 재판정은 의도와 기준본을 **주문 Agent 의 snapshot metadata** 에서 읽고(`trigger.intent`·`baseline_snapshot_id` 칸은 보지 않음), `snapshot_id` 가 없으면 거부합니다. patches 가 없는 후보는 불합격, `repro_scenario_ids` 는 원인 근거 실행 가운데 떨어진 실행이 있어야 인정, scoped expectation 마다 맞은 실행이 있어야 `keeps_intent` 참(장부 새 칸 `intent_matches`), `weakens_contract` 정의를 하나로 맞췄습니다. ⑩ (개발 요청서, 계획 2.11 절) `save_proposal` 이 선택 칸 `development_request` 를 받아 형식과 근거 실행을 검사하고 그대로 저장합니다. 있으면 저장되는 `status` 는 늘 `no_valid_fix` 이고, 본문에 "개발 요청"·"임시 대안" 절이 생깁니다. 개발 요청서가 없는 `no_valid_fix` 개요의 "담당자가 Skill을 직접 고쳐야 합니다."는 승인할 안이 없다는 사실과 볼 곳을 쓰는 문장으로 바꿨습니다.
+
 SkillOps 서비스(`service/`)는 MCP 서버로 기존 도구 7개와 #88 평가 도구 4개, 총 11개를 내놓습니다. 기존 SkillOps Agent(`skillops-agent/`)는 기존 도구를 계속 사용합니다. 이 문서는 도구마다 **무엇을 보내고, 무엇을 돌려받고, 그 사이에 서비스가 어떤 저장 공간을 읽고 쓰는지**를 정리한 것입니다.
 
-2026-10-26 · #88: `submit_evaluation`, `get_evaluation`, `get_evaluation_report`, `save_proposal_v2`를 추가했습니다. 새 도구는 기존 MCP처럼 JWT 없이 호출하며, 입출력·실행 범위·공유 멱등 키 정책은 [평가 계약 v1.0](evaluation-backend.md#mcp)을 따릅니다. 기존 도구와 apply_patch v1.3은 유지하며 Python은 아직 새 도구를 호출하지 않습니다.
+2026-10-26 · #88: `submit_evaluation`, `get_evaluation`, `get_evaluation_report`, `save_proposal_v2`를 추가했습니다. 새 도구는 JWT 없이 호출하며 SKILLOPS_SERVICE_TOKEN 설정 시 기존 MCP와 같은 X-Service-Token 검사를 적용합니다. 입출력·실행 범위·공유 멱등 키 정책은 [평가 계약 v1.0](evaluation-backend.md#mcp)을 따릅니다. 기존 도구에는 develop의 조건 문법 v2·apply_patch v1.4·제안 재판정 계약을 적용하며 Python은 아직 #88 새 도구를 호출하지 않습니다.
 
 2026-10-23 · #72 공용 파서: service와 주문 Agent가 동일한 skill-parser 모듈을 사용합니다. 분석·workspace·실행 모두 YAML frontmatter 100,000 코드 포인트 제한과 같은 안전 옵션을 적용합니다. 초과 시 기존 파싱 오류 필드·코드로 처리하고 diff 원문 hunks는 보존합니다. 입력·응답 필드와 apply_patch v1.3은 변경하지 않습니다. [현재 SKILL 해석 계약](skill-frontmatter.md#72-최종-갱신--서버-공용-파싱-모듈-2026-10-23).
 
@@ -50,6 +52,7 @@ SkillOps 서비스(`service/`)는 MCP 서버로 기존 도구 7개와 #88 평가
 | 도구 등록 | Spring AI MCP Server의 annotation scanner가 `@McpTool` 메서드를 찾아 도구로 내놓습니다. 입력 키는 Java 매개변수 이름 그대로이고, 그래서 매개변수를 snake_case로 씁니다 |
 | Agent 쪽 클라이언트 | `skillops-agent/skillops_agent/tools.py`의 `MCPTools`. 주소는 `skillops-agent/skillops_agent/config.py`의 `MCP_URL`입니다 |
 | 연결 확인 | `skillops-agent/scripts/mcp_smoke.py`가 도구 목록을 받고 `ping`을 부릅니다 |
+| 인증 | 환경 변수 `SKILLOPS_SERVICE_TOKEN`(설정 `skillops.agent.service-token`)이 있으면 `/mcp`와 그 아래 경로의 모든 요청에 같은 값의 `X-Service-Token` 헤더가 필요합니다. 없거나 다르면 HTTP 401과 `{"code":"UNAUTHORIZED","message":"…"}`입니다. 값이 비어 있으면 열어 두고 서비스가 켜질 때 경고를 남깁니다. 구현은 `service/src/main/java/com/capstone4/skillops/auth/McpServiceTokenFilter.java`, Agent 쪽은 `skillops-agent/skillops_agent/mcp_client.py`가 헤더를 보냅니다 |
 
 `tools/list`의 도구 설명(`description`)과 입력 설명은 `@McpTool`, `@McpToolParam`에 적힌 문자열 그대로입니다. Agent의 LLM도 이 설명을 읽으므로, 이 문서와 함께 맞춰 둡니다. `tools/list`에 보이는 `annotations`(`destructive_hint` 등)는 SDK 기본값이고 도구마다 따로 정한 값이 아닙니다.
 
@@ -94,7 +97,7 @@ Agent를 `SKILLOPS_USE_STUB_MCP=true`로 띄우면 이 서버 대신 `skillops-a
    | 도구 | 정책 위치 | 구조화 오류가 되는 경우 |
    |---|---|---|
    | `diff_skill`, `get_dependency_graph` (C-1) | `ToolResults.java`의 `run` | 주문 Agent 조회 실패와 입력 검사 실패(`OrderAgentException`)만 구조화합니다. `code`는 `INVALID_INPUT`, `SKILL_NOT_FOUND`, `SKILL_FILE_NOT_TEXT`, `INVALID_FLOW`, `ORDER_AGENT_UNAVAILABLE`(연결 실패, `retryable=true`), 또는 주문 Agent가 준 `code`(본문에 없으면 `ORDER_AGENT_HTTP_<상태>`)입니다. 5xx와 429는 `retryable=true`입니다. 그 밖의 예외는 SDK가 `Error invoking method`로 시작하는 글 오류로 감싸므로 JSON이 아닙니다 |
-   | `create_workspace`, `apply_patch`, `run_scenarios`, `save_proposal` (C-2) | `service/src/main/java/com/capstone4/skillops/mcp/WorkspaceToolResults.java`의 `run` | 모든 실패를 구조화합니다. 주문 Agent 조회 실패는 주문 Agent가 준 `code`, `retryable`, `upstream_status`, `snapshot_id`를 그대로 전달합니다. 입력 오류는 `INVALID_INPUT`, 그 밖의 서버 오류는 `INTERNAL_ERROR`이고 둘 다 `retryable=false`입니다 |
+   | `create_workspace`, `apply_patch`, `run_scenarios`, `save_proposal` (C-2) | `service/src/main/java/com/capstone4/skillops/mcp/WorkspaceToolResults.java`의 `run` | 모든 실패를 구조화합니다. 주문 Agent 조회 실패는 주문 Agent가 준 `code`, `retryable`, `upstream_status`, `snapshot_id`를 그대로 전달합니다. 고정된 연습 공간에 넣은 수정은 `WORKSPACE_FROZEN`, 입력 오류는 `INVALID_INPUT`, 그 밖의 서버 오류는 `INTERNAL_ERROR`이고 모두 `retryable=false`입니다 |
 
    Agent 쪽에서는 `tools.py`의 `MCPTools._call`이 오류 글을 JSON 묶음으로 읽어 `MCPToolError`로 올리고, JSON 묶음이 아니면 `ContractError`로 올립니다.
 
@@ -379,7 +382,7 @@ snapshot 안의 flow skill(보통 `order-flow`)과 그 `steps`에 적힌 단계 
 |---|---|---|
 | 주문 Agent의 snapshot | 읽기 | `snapshot_id`로 만들 때 manifest와 `skills/` 아래 파일 전부. 주문 Agent에는 아무것도 쓰지 않습니다 |
 | 운영 폴더 `skills/` | 읽기 | `snapshot_id` 없이 만들 때 각 skill의 SKILL.md(`service/src/main/java/com/capstone4/skillops/workspace/LiveFolderSkillVersionStore.java`) |
-| `workspaces` | 쓰기 | 연습 공간 한 줄. 번호, 만든 시각, 상태 `OPEN`, `skills` 칸(skill별 시작 버전, 원문, 수정 횟수), `resources` 칸(SKILL.md가 아닌 파일의 글), `source_snapshot_id` 칸(시작한 snapshot 번호, 운영 폴더면 `null`) |
+| `workspaces` | 쓰기 | 연습 공간 한 줄. 번호, 만든 시각, 상태 `OPEN`, `skills` 칸(skill별 시작 버전, 원문, 수정 횟수), `resources` 칸(SKILL.md가 아닌 파일의 글), `source_snapshot_id` 칸(시작한 snapshot 번호, 운영 폴더면 `null`), `start_texts` 칸(시작할 때의 SKILL.md 원문. `save_proposal` 재판정이 `is_revert`·`weakens_contract` 를 계산할 때 씁니다), 빈 `applied_patches` 칸 |
 
 ---
 
@@ -389,7 +392,9 @@ snapshot 안의 flow skill(보통 `order-flow`)과 그 `steps`에 적힌 단계 
 
 Agent는 원인을 확인할 때(`_ablate_change`) 바뀐 덩어리 하나를 되돌리는 수정을 넣고, 후보를 시험할 때(`_verify_candidate`) 후보 수정안 전체를 넣습니다.
 
-부르는 쪽: Agent · 담당: C-2 · 구현: `WorkspaceTools.java`의 `applyPatch`, 본체는 `WorkspaceService.java`의 `apply`, diff 읽기는 `service/src/main/java/com/capstone4/skillops/workspace/PatchApplier.java` · 응답 v1.3 확장(#72)
+부르는 쪽: Agent · 담당: C-2 · 구현: `WorkspaceTools.java`의 `applyPatch`, 본체는 `WorkspaceService.java`의 `apply`, diff 읽기는 `service/src/main/java/com/capstone4/skillops/workspace/PatchApplier.java` · 응답 v1.4(#72, rules)
+
+`run_scenarios` 를 한 번이라도 돌린 연습 공간은 **고정**됩니다. 고정된 연습 공간에 `apply_patch` 를 부르면 아무것도 바꾸지 않고 `{"code": "WORKSPACE_FROZEN", "retryable": false, …}` 를 돌려줍니다. 시험한 skill 과 제안서의 수정 내용이 어긋나지 않게 하려는 것입니다. 수정을 더 넣으려면 `create_workspace` 로 새 연습 공간을 만듭니다(Agent 는 실험·후보마다 새 연습 공간을 씁니다). 같은 연습 공간에 `apply_patch` 와 `run_scenarios` 를 동시에 부르면 서비스가 연습 공간 번호별 잠금으로 수정 적용과 고정을 차례로 세우고, `run_scenarios` 는 고정한 뒤의 원문으로 돌립니다. 이 잠금은 서비스 프로세스 하나 안에서만 통하므로 service 를 여러 개 띄우면 이 경합은 막지 못합니다(알려진 한계). Agent 는 `apply_patch` 가 끝난 뒤에 `run_scenarios` 를 부르므로 지금 흐름에는 영향이 없습니다.
 
 ### 보내는 값
 
@@ -415,7 +420,7 @@ Agent는 원인을 확인할 때(`_ablate_change`) 바뀐 덩어리 하나를 �
 | `dependency_violations[].missing_dependency` | 빠진 선행 단계 | 글자 | 예 | steps에 없거나 뒤에 있거나 자기 자신이어서 앞서 완료되지 않은 skill입니다. |
 | `metadata_errors` | 필수 정보 오류 | 목록 | 예 | 전체 workspace의 오류입니다. 오류가 없어도 `[]`를 반환합니다. 항목은 `{skill, field, code, message}`입니다. |
 | `metadata_errors[].skill` | 대상 Skill | 글자 | 예 | 오류가 있는 Skill의 폴더 이름입니다. |
-| `metadata_errors[].field` | 오류 필드 | 열거 | 예 | `name`, `version`, `owner`, `description`, `body`, `frontmatter`입니다. |
+| `metadata_errors[].field` | 오류 필드 | 열거 | 예 | `name`, `version`, `owner`, `description`, `body`, `frontmatter`, `rules`(v1.4)입니다. |
 | `metadata_errors[].code` | 실행기 오류 코드 | 열거 | 예 | `INVALID_SKILL_FORMAT` 또는 폴더 이름 규칙 오류인 `INVALID_SKILL_NAME`입니다. |
 | `metadata_errors[].message` | 오류 설명 | 글자 | 예 | 비어 있지 않은 설명입니다. |
 | `flow_errors` | 실행 구조 오류 | 목록 | 예 | `{skill, code, reason, message}` 목록이며 정상일 때도 `[]`를 반드시 반환합니다. |
@@ -444,10 +449,13 @@ Python은 `metadata_errors == []`일 때만 `results.metadata_valid=true`로 기
 | `UNREADABLE_SKILL` | `INVALID_SKILL_FORMAT` | 단계의 선언을 읽을 수 없거나 필수 목록 형식 등이 잘못됐습니다. |
 | `NESTED_FLOW_NOT_SUPPORTED` | `CONTRACT_VIOLATION` | 단계에 또 다른 flow가 들어 있습니다. |
 | `INCOMPLETE_ANALYSIS` | `INVALID_FLOW` | 분석이 불완전한데 구체적 오류가 없거나, steps와 노드의 순서·수가 맞지 않습니다. service가 합격을 막는 방어 조건입니다. |
+| `RULE_KEY_NOT_INPUT` (v1.4) | `CONTRACT_VIOLATION` | 단계의 실행 규칙 `rules[].when` 이 쓰는 값 이름이 그 단계의 `inputs` 에 없습니다. 값 이름 k 는 선언 input i 와 같거나 `i + '.'` 로 시작해야 하고, 예약 키(`order.final_status`, `order.shipments`)도 예외가 아닙니다. 단계마다 한 번만 보고합니다. |
 
-오류 순서는 단계 수, 중복 단계의 발견 순서, 읽기 실패 노드의 실행 순서, 방어 조건 순입니다. 같은 단계의 읽기 실패는 한 번만 보고합니다. 읽지 못한 노드가 있으면 `complete=false`의 원인이 `flow_errors`에 보존되므로, 입력·선행 단계 누락이 없어도 정상 후보로 보지 않습니다.
+오류 순서는 단계 수, 중복 단계의 발견 순서, 읽기 실패 노드의 실행 순서, 방어 조건, 규칙 조건 키(실행 순서) 순입니다. 같은 단계의 읽기 실패는 한 번만 보고합니다. 읽지 못한 노드가 있으면 `complete=false`의 원인이 `flow_errors`에 보존되므로, 입력·선행 단계 누락이 없어도 정상 후보로 보지 않습니다.
 
 Python은 `flow_errors == []`일 때만 `results.flow_valid=true`입니다. 네 오류 목록의 형식은 후보 검증과 원인 실험(ablation) 모두에서 검사하지만, 원인 실험에서는 비어 있지 않은 오류 목록 자체를 적용 실패로 바꾸지 않습니다. 후보는 실제 시나리오 실행 후에도 flow_valid가 거짓이면 무효이고 추천되지 않습니다. 상세 오류는 제안서 후보의 `flow_errors`로 보존합니다.
+
+**실행 규칙 `rules` (v1.4).** 단계 skill frontmatter 의 선택 칸 `rules: [{when, then, reason}]` 은 주문 Agent 가 단계의 입력 검증 직후 위에서부터 첫 참 규칙 하나로 주문을 보류(`hold` → `HOLD`)하거나 거절(`reject` → `REJECTED`)하게 합니다. service 는 실행하지 않고 정적으로만 검사합니다. 누락·`null`·빈 목록은 규칙이 없는 것입니다. 목록이 아니거나 11개 이상이거나, 항목이 `{when, then, reason}` 세 칸만 가진 묶음이 아니거나, `when` 이 조건 문법 v2 로 읽히지 않거나, `then` 이 `hold`·`reject` 가 아니거나, `reason` 이 `[A-Z][A-Z0-9_]{0,39}` 가 아니거나, flow skill(`steps` 가 있는 skill)에 규칙이 있으면 `metadata_errors` 에 `{skill, field: "rules", code: "INVALID_SKILL_FORMAT", message}` 하나가 들어갑니다. 조건 키가 inputs 에 없으면 위 표의 `RULE_KEY_NOT_INPUT` 입니다. 주문 Agent 의 `SkillLoader` 와 함께 [skill-rules-cases.json](examples/skill-rules-cases.json) 의 모든 사례로 시험합니다(`service/src/test/java/com/capstone4/skillops/workspace/ApplyPatchRulesTest.java`). 구현은 `service/src/main/java/com/capstone4/skillops/skill/SkillRules.java` 입니다.
 
 기존 거부 정책도 유지합니다. entry steps를 읽을 수 없거나 변경한 단계의 name·목록이 기존 분석기에서 parse error가 되면 `INVALID_INPUT`으로 전체 patch를 거부하며 성공 payload의 `metadata_errors`나 `flow_errors`를 반환하지 않습니다. 필수 정보 오류를 모두 저장하도록 기존 거부 정책까지 완화한 것은 아닙니다.
 
@@ -574,7 +582,7 @@ Python은 `flow_errors == []`일 때만 `results.flow_valid=true`입니다. 네 
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `workspaces` | 읽기·쓰기 | 연습 공간이 있고 `OPEN`인지 확인하고, `skills` 칸의 원문을 읽어 고친 원문과 늘어난 수정 횟수로 바꿉니다. 모든 검사를 통과한 뒤 한 번만 저장합니다 |
+| `workspaces` | 읽기·쓰기 | 연습 공간이 있고 `OPEN`이며 고정(`frozen_at`)되지 않았는지 확인하고, `skills` 칸의 원문을 읽어 고친 원문과 늘어난 수정 횟수로 바꿉니다. 넣은 수정은 `applied_patches` 칸 뒤에 잇고, 이번 결과의 오류 수는 `last_apply` 칸(`{brokenLinks, dependencyViolations, metadataErrors, flowErrors}`)에 남깁니다. `save_proposal` 재판정이 두 칸을 읽습니다. 모든 검사를 통과한 뒤 한 번만 저장합니다 |
 
 ### v0에서 바뀐 점
 
@@ -584,6 +592,7 @@ Python은 `flow_errors == []`일 때만 `results.flow_valid=true`입니다. 네 
 - (#72 4단계) 필수 `flow_errors`와 후보의 `flow_valid`를 추가했습니다. 진단용 그래프 형식과 기존 거부 정책은 유지합니다.
 - (#72 3단계) 필수 `metadata_errors`를 추가하고 후보 결과 `metadata_valid`로 연결했습니다.
 - (#72) `dependency_violations`를 추가했습니다. `broken_links`는 입력 누락만 유지하며 새 Python은 두 목록을 함께 검사합니다.
+- (v1.4, 2026-10-26) `metadata_errors[].field` 에 `rules`, `flow_errors` 에 `CONTRACT_VIOLATION`/`RULE_KEY_NOT_INPUT` 을 더했습니다. 고정된 연습 공간은 `WORKSPACE_FROZEN` 입니다.
 
 ---
 
@@ -625,8 +634,8 @@ Python은 `flow_errors == []`일 때만 `results.flow_valid=true`입니다. 네 
 
 | 폴더 | 내용 | 어느 실행기에 맞나 |
 |---|---|---|
-| `scenarios/golden/` (기본) | D가 쓰는 기준 주문(지금은 `g-01` 하나). 주문 Agent에 없는 상품을 쓰는 간이 실행기용 주문 | 간이 실행기 |
-| `scenarios/order-agent/golden/` | 주문 Agent의 시연 규칙에 맞춘 `g-01`~`g-03`. `g-01` 정상 주문(`SHIPPED`, 배송 1건), `g-02` 재고 없음(`REJECTED`), `g-03` 결제가 거절되는 고객(`HOLD`) | 실제 실행기 |
+| `scenarios/golden/` (기본) | D가 쓰는 기준 주문(지금은 `g-01` 하나). 주문 Agent에 없는 상품을 쓰는 간이 실행기용 주문. `save_proposal` 재판정의 기준 세트도 이 폴더 전부라서 이 모드에서는 `SKILLOPS_GOLDEN_IDS=g-01` 과 같습니다 | 간이 실행기 |
+| `scenarios/order-agent/golden/` | 주문 Agent의 시연 규칙에 맞춘 `g-01`~`g-06`([계획](../plans/2026-10-26-behavior-edit-root-fix.md) 2.8). `g-01` 랜턴 1 card KR(`SHIPPED`), `g-02` 머그 재고 없음(`REJECTED`), `g-03` 결제 거절 고객 c_declined(`HOLD`), `g-04` 랜턴 1 prepaid KR(`SHIPPED`), `g-05` 랜턴 1 card US(`SHIPPED`), `g-06` 랜턴 4 card KR, 120000원(`SHIPPED`) | 실제 실행기 |
 
 주문 Agent에서 돌릴 때는 서비스를 이렇게 켭니다.
 
@@ -644,7 +653,7 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `scenario_ids` | `f-<execution_id>` (하이픈이 있는 UUID) | 넣은 그대로 | `f-` 뒤의 글자 그대로 |
 | `replay_run_ids` | `execution_id` 또는 `run_id`(`r_` + 32자리 16진수) | `f-` 뒤에 소문자 `execution_id` | 넣은 값 그대로 |
 
-재현 주문의 합격 기준은 **오류로 멈추지 않는 것**입니다. 최종 상태가 `FAILED`가 아니면(`SHIPPED`, `REJECTED`, `HOLD` 무엇이든) 통과이고, `extra_checks`는 재현 주문에도 똑같이 붙습니다. 재현 주문은 실제 실행기에서만 돌릴 수 있습니다.
+재현 주문의 합격 기준은 **오류로 멈추지 않는 것**입니다. 최종 상태가 `FAILED`가 아니고 최종 상태가 있으면(`SHIPPED`, `REJECTED`, `HOLD` 무엇이든) 통과입니다. 최종 상태가 없는(`null`) 실행은 `오류로 멈추지 않아야 하는데 최종 상태가 없음` 으로 떨어집니다. `extra_checks`와 의도의 checks 는 재현 주문에도 붙습니다. 재현 주문은 실제 실행기에서만 돌릴 수 있습니다.
 
 ### 보내는 값
 
@@ -653,12 +662,26 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `workspace_id` | 연습 공간 번호 | 글자 | 예 | 어느 연습 공간의 skill로 돌릴지입니다. |
 | `scenario_ids` | 시험 주문 번호 | 목록 | 아니오 | 돌릴 시험 주문의 번호입니다. 기준 주문은 기준 주문 폴더에 있는 `g-NN`, 재현 주문은 `f-<execution_id>`입니다. `scenario_ids`와 `replay_run_ids` 가운데 하나는 넣어야 합니다. |
 | `replay_run_ids` | 재현할 실행 번호 | 목록 | 아니오 | 주문 Agent에서 실패했던 실행의 `execution_id` 또는 `run_id`입니다. 실제 실행기에서만 받습니다. |
-| `extra_checks` | 추가 확인 조건 | 목록 | 아니오 | 이번 시험에만 덧붙이는 확인 조건입니다. 모든 시험 주문에 똑같이 붙으므로, 어떤 주문에서도 성립해야 하는 조건만 넣습니다. 담당자의 의도를 지켰는지 보는 조건을 여기에 넣습니다. |
+| `extra_checks` | 추가 확인 조건 | 목록 | 아니오 | 이번 시험에만 덧붙이는 확인 조건입니다. 모든 시험 주문에 똑같이 붙으므로, 어떤 주문에서도 성립해야 하는 조건만 넣습니다. |
+| `intent_expectations` | 담당자 의도의 기대 결과 | 목록 | 아니오 | `[{scope, checks}]` 0~10개입니다. `scope` 는 조건 한 줄 또는 `null`, `checks` 는 확인 조건 1~10개입니다. 채점 규칙은 아래 "의도 채점"을 보세요. 비우거나 넣지 않으면 의도 없이 채점합니다. |
 | `repeat` | 반복 횟수 | 정수 | 아니오 | 같은 주문을 몇 번 돌릴지입니다(1~5). 비우면 2번입니다. AI가 처리하는 단계가 있어서 한 번의 통과는 우연일 수 있기 때문에 여러 번 돌립니다. |
 
-확인 조건은 `값 이름 비교 값` 모양의 한 줄입니다. 비교는 `==`(같다), `!=`(다르다), `in`(목록 안에 있다) 세 가지만 씁니다. 예: `payment.status == 'PAID'`, `inventory.예약가능수량 != null`. 문법은 `service/src/main/java/com/capstone4/skillops/scenario/Check.java`가 정합니다.
+**확인 조건(조건 문법 v2).** `값 이름 비교 값` 모양의 한 줄이고 칸 사이에 공백이 하나 이상 있어야 합니다. 비교는 `==`, `!=`, `in`(목록 안에 있다, 빈 목록 허용)과 숫자 비교 `>`, `>=`, `<`, `<=` 입니다. 값은 `'글자'`, `true`, `false`, `null`, 숫자(`-?\d+(\.\d+)?`)이고 `in` 뒤에만 `[..]` 목록이 옵니다. 숫자 비교의 오른쪽은 숫자만 받습니다(글자·`null`·`true` 는 읽지 못하는 조건). 실제 값이 숫자가 아니면 숫자 비교는 거짓이고, `true`·`false` 는 숫자 1·0 과 같지 않습니다. 예: `payment.status == 'PAID'`, `order.total >= 100000`, `order.final_status in ['HOLD', 'REJECTED']`. 문법은 `service/src/main/java/com/capstone4/skillops/scenario/Check.java`가 정하고, 주문 Agent·진단 Agent 와 [condition-cases.json](examples/condition-cases.json) 으로 함께 시험합니다.
 
-입력은 주문을 하나라도 돌리기 전에 모두 검사합니다. 검사 순서는 `repeat` 범위, 빈 입력, 확인 조건 문법, 연습 공간, 시험 주문 번호와 재현 번호, 실행기의 재현 지원, 원래 주문 꺼내기입니다. 여러 입력이 함께 틀리면 먼저 검사한 쪽의 오류가 나가고, 모두 `INVALID_INPUT`이며 주문은 돌리지 않습니다.
+**값 찾기.** 확인 조건의 문맥은 모든 단계의 받은 값과 내놓은 값을 합친 것(같은 이름은 뒤 단계가 이깁니다)에 예약 키 `order.final_status`(최종 상태)와 `order.shipments`(배송 건수)를 더한 것입니다. 이름이 그대로 있으면 그 값이고, 없으면 점으로 나눈 가장 긴 앞부분이 문맥에 있을 때 그 값이 묶음이면 나머지 경로로 내려갑니다(예: `order.shipping.country`). 더 짧은 앞부분으로 다시 찾지 않고, 끝내 없으면 `null` 입니다.
+
+**의도 채점(`intent_expectations`).** `scope` 는 시험 주문의 **처음 값**으로 평가합니다. 쓸 수 있는 값은 `order.payment_method`, `order.customer`, `order.shipping.country`, `order.shipping.express`, `order.total` 이고 그 밖의 이름은 `null` 로 읽힙니다. `order.total` 은 주문 Agent `GET /api/products` 의 단가 × 수량의 합이며, scope 가 `order.total` 을 쓸 때만 `run_scenarios` 한 번에 한 번 읽습니다(단가를 모르는 상품이 있으면 `null`). 채점은 이렇습니다.
+
+| 시험 주문 | 채점 |
+|---|---|
+| `scope` 가 `null` 인 expectation | 그 checks 를 **모든** 시험 주문에 더합니다(AND) |
+| scope 에 맞지 않는 기준 주문 | 기준 주문 파일의 `expect` 그대로 |
+| scope 에 맞는 기준 주문 | 파일의 `expect` **대신** 맞는 expectation 들의 checks 와 불변식(최종 상태가 `FAILED` 아님, `null` 아님)으로 채점하고 `intent_scoped: true` |
+| 재현 주문 `f-<id>` | 불변식 + scope 에 맞는 checks. 맞는 것이 있으면 `intent_scoped: true` |
+
+`extra_checks` 는 언제나 그 뒤에 붙습니다. 실행마다 장부(`scenario_runs`)에 `intent_scoped`, `checks_hash`(이 호출의 `intent_expectations` 지문. 순서와 앞뒤 공백은 따지지 않습니다. 의도 없이 `extra_checks` 만 넣었으면 그 지문, 둘 다 없으면 `null`), `intent_matches`(그 실행의 채점에 붙은 expectation 의 번호를 쉼표로 이은 글. scope 가 `null` 인 것은 늘 들어갑니다. 의도 없이 돌렸으면 `null`)를 남기고, `save_proposal` 재판정이 이 칸으로 실행을 고릅니다. `intent_matches` 의 번호는 목록 순서가 아니라 지문을 만들 때 정렬한 expectation 줄의 자리(0부터)라서, 같은 지문의 목록이면 순서가 달라도 같은 expectation 이 같은 번호를 받습니다(`IntentPlan.canonicalIndices`). 이 칸은 장부에만 있고 도구 결과에는 나오지 않습니다.
+
+입력은 주문을 하나라도 돌리기 전에 모두 검사합니다. 검사 순서는 `repeat` 범위, 빈 입력, `extra_checks` 문법, `intent_expectations` 개수와 문법, 연습 공간, 시험 주문 번호와 재현 번호, 실행기의 재현 지원, 원래 주문 꺼내기, 상품 단가 읽기입니다. 여러 입력이 함께 틀리면 먼저 검사한 쪽의 오류가 나가고, 모두 `INVALID_INPUT`이며 주문은 돌리지 않습니다(상품 단가를 읽지 못하면 `INTERNAL_ERROR`). 검사를 모두 통과하면 연습 공간을 **고정**하고, 고정한 뒤의 skill 원문을 다시 읽어 돌리기 시작합니다.
 
 ### 돌려받는 값
 
@@ -672,11 +695,12 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `results[].passed` | 합격 | 참·거짓 | 예 | 반복한 실행이 모두 통과했으면 `true`입니다. |
 | `results[].run_ids` | 실행 번호 | 목록 | 예 | 반복할 때마다 생긴 모의 실행의 번호이고, `repeat` 개입니다. 제안서의 근거로 이 번호를 적습니다. 실제 실행기의 번호는 `r_`를 떼고 하이픈을 넣으면 주문 Agent의 `execution_id`가 되므로, 그 번호로 실행 기록을 볼 수 있습니다. |
 | `results[].failures` | 떨어진 이유 | 목록 | 예 | 통과하지 못한 실행마다 한 칸입니다. 합격이면 빈 목록입니다. |
+| `results[].intent_scoped` | 의도 scope 적용 | 참·거짓 | 예 | `intent_expectations` 가운데 scope 에 맞는 것이 이 시험 주문에 붙었으면 `true` 입니다. 기준 주문이면 파일의 `expect` 대신 의도로 채점했다는 뜻입니다. 의도가 없으면 늘 `false` 입니다. |
 | `results[].failures[].run_id` | 실행 번호 | 글자 | 예 | 통과하지 못한 실행입니다. 같은 결과의 `run_ids` 안에 있습니다. |
 | `results[].failures[].skill` | 문제가 난 skill | 글자 | 아니오 | 처음 오류가 난 단계의 skill입니다. 오류 없이 결과만 다른 경우처럼 특정할 수 없으면 `null`입니다. |
-| `results[].failures[].reason` | 이유 | 글자 | 예 | 사람이 읽을 한국어 문장입니다. 여러 개면 `; `로 잇습니다. 오류가 난 단계가 있으면 `<skill> 단계 오류: <오류>`가 맨 앞에 옵니다. 확인 조건이 실패하면 `확인 조건 실패: <조건> (실제 <값>)`입니다. 문구는 `ScenarioGrader.java`가 정합니다. |
+| `results[].failures[].reason` | 이유 | 글자 | 예 | 사람이 읽을 한국어 문장입니다. 여러 개면 `; `로 잇습니다. 오류가 난 단계가 있으면 `<skill> 단계 오류: <오류>`가, 단계가 붙지 않은 실행 오류(`INCOMPLETE_FLOW`, `UNKNOWN_SKILL`, `INVALID_FLOW` 등)면 `실행 오류: <category>: <message>`가 맨 앞에 옵니다. 확인 조건이 실패하면 `확인 조건 실패: <조건> (실제 <값>)`입니다. 문구는 `ScenarioGrader.java`가 정합니다. |
 
-**합격 기준.** 기준 주문은 기대 결과(거친 skill 순서, 최종 상태, 배송 건수, 파일의 확인 조건)와 모두 맞아야 하고, `extra_checks`도 통과해야 합니다. 재현 주문은 오류로 멈추지 않고 `extra_checks`를 통과하면 합격입니다. `extra_checks`는 모든 주문에 붙으므로, 한 후보가 의도 확인 조건 때문에 기준 주문까지 불합격으로 나올 수 있습니다. 그때 `failures[].reason`에는 `확인 조건 실패: …`만 있습니다.
+**합격 기준.** 기준 주문은 기대 결과(거친 skill 순서, 최종 상태, 배송 건수, 파일의 확인 조건)와 모두 맞아야 하고(의도 scope 에 들면 위 "의도 채점"을 따릅니다), `extra_checks`도 통과해야 합니다. 재현 주문은 오류로 멈추지 않고 최종 상태가 있으며 `extra_checks`를 통과하면 합격입니다. `extra_checks`는 모든 주문에 붙으므로, 한 후보가 의도 확인 조건 때문에 기준 주문까지 불합격으로 나올 수 있습니다. 그때 `failures[].reason`에는 `확인 조건 실패: …`만 있습니다.
 
 모의 실행이 실패해도 실패 알림은 보내지 않습니다.
 
@@ -698,10 +722,10 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
   "workspace_id": "w_L0yTjI63",
   "all_passed": true,
   "results": [
-    { "scenario_id": "g-01", "replay_of_run_id": null, "passed": true, "run_ids": ["r_8e45845774f141f59a5420bcbe2fdbc0"], "failures": [] },
-    { "scenario_id": "g-02", "replay_of_run_id": null, "passed": true, "run_ids": ["r_62037bf3ca86416fa80d1bb96d52b852"], "failures": [] },
-    { "scenario_id": "g-03", "replay_of_run_id": null, "passed": true, "run_ids": ["r_c39fbef1932641bc9fd751f156b7e229"], "failures": [] },
-    { "scenario_id": "f-5c7a8c4a-f846-4d1c-a81e-ea648893343a", "replay_of_run_id": "5c7a8c4a-f846-4d1c-a81e-ea648893343a", "passed": true, "run_ids": ["r_690d2a05a07749c9addc252e9964c395"], "failures": [] }
+    { "scenario_id": "g-01", "replay_of_run_id": null, "passed": true, "run_ids": ["r_8e45845774f141f59a5420bcbe2fdbc0"], "failures": [], "intent_scoped": false },
+    { "scenario_id": "g-02", "replay_of_run_id": null, "passed": true, "run_ids": ["r_62037bf3ca86416fa80d1bb96d52b852"], "failures": [], "intent_scoped": false },
+    { "scenario_id": "g-03", "replay_of_run_id": null, "passed": true, "run_ids": ["r_c39fbef1932641bc9fd751f156b7e229"], "failures": [], "intent_scoped": false },
+    { "scenario_id": "f-5c7a8c4a-f846-4d1c-a81e-ea648893343a", "replay_of_run_id": "5c7a8c4a-f846-4d1c-a81e-ea648893343a", "passed": true, "run_ids": ["r_690d2a05a07749c9addc252e9964c395"], "failures": [], "intent_scoped": false }
   ]
 }
 ```
@@ -711,6 +735,27 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 ```json
 { "scenario_id": "g-01", "replay_of_run_id": null, "passed": false, "run_ids": ["r_0b6f2d9c1e3a4f5b8c7d6e5f4a3b2c1d", "r_1c7e3a0d2f4b4a6c9d8e7f6a5b4c3d2e"], "failures": [
   { "run_id": "r_0b6f2d9c1e3a4f5b8c7d6e5f4a3b2c1d", "skill": "payment", "reason": "payment 단계 오류: required input inventory.reserved not found; 최종 상태 기대 SHIPPED, 실제 FAILED" }
+], "intent_scoped": false }
+```
+
+담당자 의도(B-01, 선입금 주문만 결제)를 붙여 돌리는 경우입니다. 카드 주문 `g-01` 은 scope 에 들어 파일의 `SHIPPED` 대신 의도의 checks 로 채점되고, 선입금 주문 `g-04` 도 둘째 scope 에 듭니다.
+
+```json
+{
+  "workspace_id": "w_L0yTjI63",
+  "scenario_ids": ["g-01", "g-04"],
+  "intent_expectations": [
+    { "scope": "order.payment_method == 'card'", "checks": ["order.final_status in ['HOLD', 'REJECTED']", "payment.status == null"] },
+    { "scope": "order.payment_method == 'prepaid'", "checks": ["order.final_status == 'SHIPPED'"] }
+  ],
+  "repeat": 2
+}
+```
+
+```json
+{ "workspace_id": "w_L0yTjI63", "all_passed": true, "results": [
+  { "scenario_id": "g-01", "replay_of_run_id": null, "passed": true, "run_ids": ["r_…1", "r_…2"], "failures": [], "intent_scoped": true },
+  { "scenario_id": "g-04", "replay_of_run_id": null, "passed": true, "run_ids": ["r_…3", "r_…4"], "failures": [], "intent_scoped": true }
 ] }
 ```
 
@@ -724,16 +769,17 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `workspaces` | 읽기 | 어떤 skill 원문으로 돌릴지(`skills` 칸). 실제 실행기는 `resources` 칸과 `source_snapshot_id` 칸도 읽습니다 |
+| `workspaces` | 읽기·쓰기 | 어떤 skill 원문으로 돌릴지(`skills` 칸). 실제 실행기는 `resources` 칸과 `source_snapshot_id` 칸도 읽습니다. 돌리기 시작할 때 `frozen_at` 칸을 채워 연습 공간을 고정합니다 |
 | 기준 주문 파일 | 읽기 | 서비스가 켜질 때 `<SKILLOPS_SCENARIOS_DIR>/golden/*.json`에서 불러 둔 주문과 기대 결과(`ScenarioCatalog.java`). 데이터베이스에는 두지 않습니다 |
 | 주문 Agent (실제 실행기만) | 읽기·쓰기 | 후보 snapshot 올리기, 모의 실행, 실행 기록 읽기, 재현할 원래 주문 꺼내기. 모의 실행 기록은 주문 Agent 쪽에 남고 실제 재고와 실패 목록은 바뀌지 않습니다 |
-| `scenario_runs` | 쓰기 | 모의 실행 한 번마다 한 줄(`run_id`, `workspace_id`, `scenario_id`, `passed`, `recorded_at`). `save_proposal`이 근거 실행을 대조할 때 읽습니다. 떨어진 이유는 저장하지 않고 도구 결과로만 돌려줍니다 |
+| 주문 Agent 상품 목록 | 읽기 | 의도 scope 가 `order.total` 을 쓸 때만 `GET /api/products` 를 한 번 읽어 단가를 얻습니다 |
+| `scenario_runs` | 쓰기 | 모의 실행 한 번마다 한 줄(`run_id`, `workspace_id`, `scenario_id`, `passed`, `intent_scoped`, `checks_hash`, `intent_matches`, `recorded_at`). `save_proposal`이 근거 실행을 대조하고 판정을 다시 계산할 때 읽습니다. 떨어진 이유는 저장하지 않고 도구 결과로만 돌려줍니다 |
 
 ---
 
 ## 제안서 저장하기 · `save_proposal`
 
-진단을 마친 결과를 수정 제안서로 저장하고 운영자의 검토를 기다리게 합니다. 서비스는 근거로 적은 실행 번호가 실제로 `run_scenarios`로 돌린 모의 실행인지 확인하고, 합격 후보를 시험 결과로 다시 계산한 뒤에만 저장합니다. 시험을 거치지 않은 수정안이 운영자 화면에 올라가는 일을 막기 위해서입니다. 저장할 때 운영자가 읽을 본문도 함께 만들어 보관합니다.
+진단을 마친 결과를 수정 제안서로 저장하고 운영자의 검토를 기다리게 합니다. 서비스는 근거로 적은 실행 번호가 실제로 `run_scenarios`로 돌린 모의 실행인지 확인하고, 후보의 판정을 Agent 의 참·거짓이 아니라 실행 장부와 연습 공간 기록, 주문 Agent 의 snapshot metadata 로 다시 계산한 뒤에만 저장합니다(재판정, `service/src/main/java/com/capstone4/skillops/proposal/ProposalJudge.java`). 시험을 거치지 않은 수정안이 운영자 화면에 올라가는 일을 막기 위해서입니다. 저장할 때 운영자가 읽을 본문도 함께 만들어 보관합니다.
 
 제안서 묶음의 모양은 계약 4(`docs/contracts/proposal.schema.json`)입니다. Agent는 `skillops-agent/skillops_agent/nodes.py`의 `proposal_payload`로 이 묶음을 만듭니다.
 
@@ -745,32 +791,51 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 |---|---|---|---|---|
 | `proposal` | 제안서 | 묶음 | 예 | 아래 칸들을 담은 묶음입니다. 비어 있으면 거부합니다. 아래에 없는 칸이 더 있어도 그대로 보관합니다. |
 | `proposal.thread_id` | 진단 번호 | 글자 | 아니오 | 이 제안서를 만든 진단입니다. 같은 번호로 다시 저장하면 검사 없이 처음 저장한 제안서의 결과를 돌려줍니다. |
-| `proposal.trigger` | 진단을 시작한 요청 | 묶음 | 아니오 | `/diagnose`가 받은 요청 그대로입니다. `type`은 `failure` 또는 `skill_saved`이고, `execution_id`, `change_id` 등이 함께 옵니다. 본문의 발생 경위에 씁니다. |
-| `proposal.baseline_snapshot_id` · `snapshot_id` | 수정 전·후 skill 묶음 | 글자 | 아니오 | 비교한 기준 snapshot과 진단한 snapshot입니다. |
+| `proposal.trigger` | 진단을 시작한 요청 | 묶음 | 아니오 | `/diagnose`가 받은 요청 그대로입니다. `type`은 `failure` 또는 `skill_saved`이고, `execution_id`, `change_id` 등이 함께 옵니다. 본문의 발생 경위에 씁니다. 재판정은 이 칸의 `intent` 와 `baseline_snapshot_id` 를 **보지 않습니다**(아래 "의도의 출처"). |
+| `proposal.snapshot_id` | 진단한 skill 묶음 | 글자(UUID) | 예 | 진단한 snapshot(저장 이벤트면 담당자 수정본, 실패 이벤트면 실패한 실행의 snapshot)입니다. 없거나 공백이면 거부합니다. 후보 연습 공간은 이 snapshot 에서 시작했어야 하고, 재판정은 이 snapshot 의 metadata 를 읽습니다. |
+| `proposal.baseline_snapshot_id` | 수정 전 skill 묶음 | 글자 | 아니오 | 비교한 기준 snapshot입니다. 본문에만 쓰고 재판정은 metadata 의 `baseline_snapshot_id` 를 씁니다. |
 | `proposal.failure` | 실패 내용 | 묶음 | 아니오 | 실패한 실행의 `EXECUTION_ERROR`에서 옮긴 `{execution_id, skill, category, message, missing_inputs, at}`입니다. |
-| `proposal.root_cause` | 확정된 원인 | 묶음 | `proposed`면 예 | `{skill, change_no, hunk_id, summary, before, after, proof_run_ids}` 등입니다. `before`·`after`는 원인이 된 덩어리의 원문이고 본문의 "원인" 절에 나옵니다. |
+| `proposal.root_cause` | 확정된 원인 | 묶음 | `proposed`면 예 | `{skill, change_no, hunk_id, summary, before, after, proof_run_ids, kind, repro_scenario_ids}` 등입니다. `before`·`after`는 원인이 된 덩어리의 원문이고 본문의 "원인" 절에 나옵니다. `kind` 는 `change`(되돌리면 실패가 사라지는 변경, 없으면 이것) 또는 `incomplete_edit`(수정본이 오류 없이 돌지만 의도가 실행되지 않음)입니다. `repro_scenario_ids` 는 재현 근거 시나리오(`f-<execution_id>` 또는 의도대로 처리되지 않은 기준 주문 id)이며 재판정의 `fixes_failure` 가 이 목록을 씁니다. 적으면 id 마다 `proof_run_ids` 가운데 **그 시나리오로 돌아 떨어진 실행**이 하나 이상 있어야 합니다(아래 재판정 표). |
 | `proposal.root_cause.proof_run_ids` | 원인 증거 | 목록 | `proposed`면 예 | 원인을 확정한 모의 실행 번호입니다. 모두 이 서비스의 `run_scenarios`가 돌린 실행이어야 합니다(연습 공간은 가리지 않습니다). |
-| `proposal.intent` | 담당자의 의도 | 묶음 | 아니오 | `{text, checks}`입니다. `confirmed`는 Agent가 보내지 않고, 운영자가 승인할 때 서비스가 `true`로 채웁니다. |
+| `proposal.intent` | 담당자의 의도 | 묶음 | 아니오 | `{text, checks, source, expectations}`입니다. `source` 는 `owner`(담당자가 저장 요청에 준 expectations) 또는 `inferred`(Agent 가 만든 것), `expectations` 는 `run_scenarios` 의 `intent_expectations` 와 같은 `[{scope, checks}]` 입니다. `confirmed`는 Agent가 보내지 않고, 운영자가 승인할 때 서비스가 `true`로 채웁니다. |
 | `proposal.candidates` | 후보 수정안 | 목록 | 예 | 시험한 후보 전부입니다. 떨어진 후보도 넣습니다. |
 | `proposal.candidates[].candidate_no` | 후보 번호 | 정수 | 예 | 목록 순서대로 1부터 빠짐없이 셉니다. |
-| `proposal.candidates[].kind` | 고치는 범위 | 글자 | 예 | `same_skill`, `linked_skills`, `run_order` 가운데 하나입니다. |
+| `proposal.candidates[].kind` | 고치는 범위 | 글자 | 예 | `same_skill`, `linked_skills`, `run_order`, `encode_rule`(본문·의도의 정책을 `rules` 로 옮기기) 가운데 하나입니다. |
 | `proposal.candidates[].workspace_id` | 시험한 연습 공간 | 글자 | 적용한 후보면 예 | 이 후보를 시험한 연습 공간입니다. |
-| `proposal.candidates[].patches` | 수정 내용 | 목록 | 예 | `apply_patch`의 `patches`와 같은 모양입니다. |
+| `proposal.candidates[].patches` | 수정 내용 | 목록 | 예 | `apply_patch`의 `patches`와 같은 모양입니다. 시험한 후보는 1개 이상이어야 합격할 수 있습니다(빈 목록이면 `evidence_matches` 거짓). |
 | `proposal.candidates[].metadata_errors` | 필수 정보 오류 | 목록 | 최신 Agent의 적용된 후보 | `apply_patch.metadata_errors`를 그대로 보존합니다. 적용 실패 사유와 구분합니다. |
 | `proposal.candidates[].flow_errors` | 구조 오류 | 목록 | 최신 Agent의 적용된 후보 | `apply_patch.flow_errors`를 그대로 보존합니다. |
 | `proposal.candidates[].results` | 기준별 결과 | 묶음 | 적용한 후보면 예 | `{fixes_failure, keeps_old_orders{passed, total}, keeps_intent, no_broken_links, metadata_valid, flow_valid, changed_skill_count}`입니다. |
-| `proposal.candidates[].valid` | Agent가 본 합격 여부 | 참·거짓 | 아니오 | 서비스가 다시 계산한 값과 다르면 저장하지 않습니다. |
+| `proposal.candidates[].valid` | Agent가 본 합격 여부 | 참·거짓 | 아니오 | 서비스가 다시 계산한 값으로 덮습니다. 다르면 `server_overrides` 에 남습니다. |
+| `proposal.candidates[].is_revert` · `weakens_contract` | 되돌리기·계약 약화 | 참·거짓 | 아니오 | 담당자가 바꾼 SKILL.md 를 기준본과 같게 되돌렸는지, 계약을 약하게 만들었는지입니다(정의는 아래 재판정 표). 의도 요청(snapshot metadata 에 `intent` 가 있음)일 때만 서비스가 다시 계산하고 불합격 사유로 씁니다. |
 | `proposal.candidates[].validation_error` | 적용하지 못한 이유 | 글자 | 아니오 | 원문에 적용하지 못해 시험하지 않은 후보에 적습니다. 이 후보는 근거 실행이 없어도 됩니다. |
 | `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 적용한 후보면 예 | 이 후보를 시험한 모의 실행 번호입니다. 모두 그 후보의 연습 공간에서 돌린 실행이어야 합니다. 합격 후보라면 인용한 실행의 서버 채점도 모두 통과해야 합니다. |
 | `proposal.candidates[].rank` · `explanation` | 순위·설명 | 정수·글자 | 아니오 | 설명은 본문의 "AI 설명" 칸에 그대로 나옵니다. |
-| `proposal.recommended_candidate_no` | 추천 후보 번호 | 정수 | `proposed`면 예 | 합격 후보 가운데 하나여야 합니다. |
+| `proposal.recommended_candidate_no` | 추천 후보 번호 | 정수 | `proposed`면 예 | 합격 후보 가운데 하나를 넣습니다. 서비스 판정의 합격 후보가 아니면 서비스가 합격 후보로 바꿉니다(재판정). |
 | `proposal.status` | 상태 | 글자 | 예 | 합격 후보가 있으면 `proposed`, 없으면 `no_valid_fix`입니다. |
+| `proposal.development_request` | 개발 요청서 | 묶음 | 아니오 | 담당자 수정이 어떤 업무 도구도 만들지 않는 값을 요구해 SKILL.md 수정만으로 고칠 수 없을 때 Agent 가 채웁니다([계획](../plans/2026-10-26-behavior-edit-root-fix.md) 2.11 절, 모양은 `proposal.schema.json`). `{kind: "needs_tool", title, gaps: [{key, needed_by, field, kind}], options: [{type: "extend_tool", tool, skill, add_produces} 또는 {type: "new_tool", suggested_name, place_before, available_inputs, produces}], change_points: [파일 경로], interim: {summary, patch, proof_run_ids}, evidence_run_ids}` 입니다. 없거나 `null` 이면 보지 않습니다. 받은 그대로 저장하고 `GET /api/proposals/{id}` 의 `proposal.development_request` 로 돌려줍니다. 형식 검사는 아래 거부 목록 4번입니다. 있으면 저장되는 `status` 는 늘 `no_valid_fix` 입니다. Agent 가 `proposed` 를 보내도 거부하지 않고 다른 판정 칸처럼 서비스 값(합격 후보 수로 정한 값)으로 덮어 `server_overrides` 에 남기며, 서비스가 합격 후보를 찾아 `proposed` 로 정하면 두 판단이 어긋나므로 거부합니다(거부 목록 6번). |
+
+**재판정(2026-10-26, 계약 보정 v3 반영).** 서비스는 적용한 후보마다 아래 칸을 다시 계산해 덮어씁니다. 재판정 기준은 설정 `skillops.min-repeat`(환경 변수 `SKILLOPS_MIN_REPEAT`, 기본 2)와 `skillops.golden-ids`(`SKILLOPS_GOLDEN_IDS`, 쉼표로 구분, 비우면 기준 주문 폴더의 모든 기준 주문)입니다.
+
+**의도의 출처(V3-1).** 시험한 후보가 하나라도 있으면 서비스는 주문 Agent 에서 `snapshot_id` 의 snapshot metadata 를 한 번 읽습니다(`GET /api/snapshots/{id}`). metadata 에 `intent` 가 있으면 **의도 요청**입니다. expectations 는 metadata 의 `intent.expectations`(담당자 몫)가 있으면 그것, 없으면 제안서의 `intent.expectations`(Agent 가 추론한 것)이고, 둘 다 비면 `keeps_intent` 는 거짓입니다. 기준본은 metadata 의 `baseline_snapshot_id` 입니다. 제안서의 `trigger.intent`, `trigger.baseline_snapshot_id`, `baseline_snapshot_id` 는 판정에 쓰지 않으므로, 이 칸을 비우거나 바꿔도 판정은 달라지지 않습니다. metadata 나 기준본 manifest 를 읽지 못하면 Agent 값으로 물러서지 않고 저장을 거부합니다(아래 거부 목록).
+
+| 칸 | 다시 계산하는 법 |
+|---|---|
+| 판정에 쓰는 실행 | 그 후보의 연습 공간(`workspace_id`) 장부 가운데, 의도 요청이면 위 expectations 를 `intent_expectations` 로 넣어 채점한 실행(`checks_hash` 가 같은 실행), 아니면 확인 조건을 덧붙이지 않고 돌린 실행입니다 |
+| `results.evidence_matches` (서비스만 씀) | 후보 `patches` 가 1개 이상이고, 그 연습 공간에 `apply_patch` 로 넣은 수정과 순서까지 같고, 연습 공간이 `snapshot_id` 에서 시작했고(운영 폴더에서 만든 연습 공간은 맞지 않음), `run_scenarios` 로 고정됐으면 참입니다. 거짓이면 불합격이고 `server_overrides` 에 늘 남깁니다 |
+| `results.fixes_failure` | `root_cause.repro_scenario_ids`(없으면 장부에서 `f-` 로 시작하는 시나리오)가 모두 min-repeat 번 이상 돌았고 모두 통과. `repro_scenario_ids` 를 적었으면 id 마다 `root_cause.proof_run_ids` 가운데 그 `scenario_id` 로 돌아 `passed` 가 거짓인 실행이 장부에 하나 이상 있어야 하고(V3-5), 하나라도 없으면 **모든 후보**가 거짓이며 `server_overrides` 맨 앞에 `{candidate_no: null, field: "root_cause.repro_scenario_ids", agent_value: 적은 목록, server_value: 근거가 있는 목록}` 이 남습니다 |
+| `results.keeps_old_orders` | golden-ids 의 기준 주문마다 같은 기준으로 센 통과 수(`passed`)와 그 세트 크기(`total`) |
+| `results.no_broken_links` · `metadata_valid` · `flow_valid` | 그 연습 공간의 마지막 `apply_patch` 결과의 오류 수 |
+| `results.keeps_intent` | 의도 요청이면 expectations 가 1개 이상, 그 의도로 채점한 실행이 1개 이상이고 모두 통과, **scope 가 있는 expectation 마다** 그 expectation 이 채점에 붙은 실행(장부 `intent_matches` 에 그 번호가 든 실행)이 1개 이상(V3-4. scope 가 `null` 인 expectation 은 채점한 실행이 하나라도 있으면 시험된 것으로 봅니다. `intent_matches` 가 생기기 전 줄은 어느 expectation 에도 맞지 않습니다), `is_revert`·`weakens_contract` 가 계산되고 거짓. 의도 요청이 아니면 Agent 의 값 |
+| `is_revert` | (의도 요청일 때) 담당자가 바꾼 SKILL.md = 기준본 manifest 의 SKILL.md 해시와 연습 공간 시작 원문의 해시가 다른 skill(기준본에 없는 skill 은 보지 않음). 그 가운데 하나라도 후보를 넣은 지금 원문이 기준본과 바이트까지 같으면 참. metadata 에 `baseline_snapshot_id` 가 없거나 `snapshot_id` 와 같으면 계산할 수 없으므로 칸은 Agent 값 그대로 두고 `keeps_intent` 를 거짓으로 둡니다 |
+| `weakens_contract` | (의도 요청일 때, V3-7. service·Agent·QA 가 같은 정의) 후보가 바꾼 skill(시작 원문과 지금 원문이 다른 skill)마다 다음 가운데 하나면 참입니다. ① `rules` 항목 수가 줄었다(규칙 삭제). ② 시작 원문 `rules[].when`(앞뒤 공백만 뗀 글자)이 지금 원문 `rules` 에 같은 개수만큼 남아 있지 않다(when 변경. 같은 when 의 규칙이 둘이면 하나만 지워도 해당). ③ 시작 원문 `inputs` 에 있고 지금 원문 `inputs` 에 없는 input 가운데, 시작·지금 원문 `rules[].when` 이나 의도 expectations 의 `scope` 가 쓰는 값 이름 k 를 덮던 것(k 와 같거나 k 가 `input + '.'` 로 시작)이 있다. **다른 input 이 여전히 k 를 덮어도 참**입니다. 규칙을 더하거나 순서만 바꾸거나 `then`·`reason` 만 바꾸는 것은 약화가 아닙니다. 연습 공간 시작 원문이 없어 계산할 수 없으면 `is_revert` 와 같이 `keeps_intent` 를 거짓으로 둡니다 |
+| `valid` · `status` · `recommended_candidate_no` | `valid` 는 덮은 결과로 다시 정합니다. 합격 후보가 있으면 `proposed`, 없으면 `no_valid_fix` 이고, 추천이 합격 후보가 아니면 합격 후보 가운데 `rank` 가 가장 작은(없으면 번호가 가장 작은) 후보로, `no_valid_fix` 면 `null` 로 바꿉니다 |
+
+Agent 가 보낸 값과 다르면 **거부하지 않고** 서비스 값으로 덮은 사본을 저장하고, 저장한 제안서의 `server_overrides` 에 `[{candidate_no, field, agent_value, server_value}]` 로 남깁니다. `field` 는 `results.fixes_failure` 처럼 칸 이름이고, 제안서 전체의 칸(`status`, `recommended_candidate_no`)은 `candidate_no` 가 `null` 입니다. Agent 가 보내지 않은 칸은 채우기만 하고 기록하지 않습니다(`results.evidence_matches` 거짓과 `root_cause.repro_scenario_ids` 만 예외). `server_overrides` 의 순서는 제안서 전체의 재현 근거 칸, 후보마다 `results.evidence_matches`·`fixes_failure`·`keeps_old_orders`·`no_broken_links`·`metadata_valid`·`flow_valid`·`is_revert`·`weakens_contract`·`results.keeps_intent`·`valid`, 그다음 `status`·`recommended_candidate_no` 입니다. 본문에는 "서비스 재판정" 절로 나옵니다.
 
 **합격 조건(서비스가 다시 계산):** 적용에 실패하지 않았고, `fixes_failure`가 참이고, `keeps_old_orders`의 `passed`와 `total`이 같고 `total`이 1 이상이고, `keeps_intent`가 참이고, `no_broken_links`가 참이며, 최신 Agent가 보낸 `metadata_valid`와 `flow_valid`가 모두 참입니다. 과거 제안서와 구버전 생산자 호환을 위해 `metadata_valid` 또는 `flow_valid` 필드가 없으면 해당 항목은 기존 판정을 유지하고, 명시한 결과는 Boolean true만 통과합니다. 최신 Agent의 apply_patch 응답 검증은 별도로 엄격하므로 `metadata_errors`와 `flow_errors` 누락을 허용하지 않습니다.
 
-**실제 실행 대조 보강(2026-10-26):** 합격으로 계산된 후보가 인용한 실행은 `scenario_runs.passed`도 모두 true여야 합니다. 하나라도 false이면 저장하지 않고 기존 오류 형식인 `INVALID_INPUT`, `retryable=false`를 반환합니다. 메시지는 `후보 <번호> 의 근거 실행 <run_id> 은 실제 채점에서 실패했습니다 (시나리오 <scenario_id>)`입니다. 불합격 후보와 원인 근거의 실패 기록은 허용합니다. 요청·응답 필드, 승인 API, DB 스키마는 바뀌지 않습니다.
-
-**검증 범위:** 이 보강은 인용한 실행의 성공 주장과 실제 실패 간 불일치를 차단합니다. 기존 장부는 평가 역할·추가 의도 조건·고정 실행 계획을 저장하지 않으므로, 빠진 실행이나 필수 suite·반복 수·회귀 집계·특정 의도 조건의 검증 여부를 재구성하지는 못합니다. 기존 `thread_id`의 재저장은 처음 저장한 결과를 그대로 반환하며 과거 제안서를 재검증하지 않습니다. 새 평가 계약의 `SERVER_VERIFIED`와 같은 보증은 아닙니다.
+**#88 병합 정책:** 기존 save_proposal은 develop의 ProposalJudge가 실제 실행·반복·회귀·의도·workspace 증거로 재판정하고 불일치를 server_overrides에 기록합니다. 합격 후보가 없으면 no_valid_fix로 보존하여 승인을 차단합니다. 잘못된 실행 참조·필수 snapshot 누락·증거 조회 실패는 저장을 거부합니다. #88의 별도 save_proposal_v2는 SERVER_VERIFIED 평가만 허용하며 실패 평가의 보고서는 평가 저장소에 보존합니다.
 
 ### 돌려받는 값
 
@@ -780,13 +845,17 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `status` | 제안서 상태 | 글자 | 예 | `proposed` 또는 `no_valid_fix`입니다. |
 | `valid_candidate_nos` | 합격 후보 번호 | 목록 | 예 | 서비스가 다시 계산한 합격 후보입니다. 운영자는 이 번호만 승인할 수 있습니다. |
 
-**저장을 거부하는 경우(`INVALID_INPUT`).** 아래 순서로 검사하고 처음 걸린 것을 돌려줍니다.
+돌려주는 `status` 는 서비스가 정한 값입니다. 결과 모양 `{proposal_id, status, valid_candidate_nos}` 은 그대로이며, `server_overrides` 는 저장한 제안서(`GET /api/proposals/{id}` 의 `proposal`)에서 봅니다.
+
+**저장을 거부하는 경우.** 아래 순서로 검사하고 처음 걸린 것을 돌려줍니다. 5번만 주문 Agent 의 오류 `code`·`retryable` 을 그대로 돌려주고(예: `SNAPSHOT_NOT_FOUND`, 닿지 못하면 `ORDER_AGENT_UNAVAILABLE` 이고 `retryable: true`), 나머지는 `INVALID_INPUT` 입니다. 어느 경우든 아무것도 저장하지 않습니다. Agent 의 `valid`·`status`·`recommended_candidate_no` 가 서비스 판정과 다른 것은 더 이상 거부 사유가 아닙니다(재판정이 덮습니다).
 
 1. `status`가 `proposed`나 `no_valid_fix`가 아닐 때
-2. 후보마다 `candidate_no`가 목록 순서와 다를 때, 적용한 후보에 `workspace_id`·`results`·`evidence_run_ids`가 없거나 근거 실행이 그 후보의 연습 공간에서 돌린 것이 아닐 때, `valid`가 다시 계산한 값과 다를 때, 합격 후보의 인용 실행 중 서버 장부의 `passed`가 false인 실행이 있을 때
-3. `status`가 합격 후보 유무와 맞지 않을 때
-4. `proposed`인데 `root_cause.proof_run_ids`가 비었거나 돌린 적 없는 실행일 때
-5. `proposed`인데 `recommended_candidate_no`가 합격 후보가 아닐 때
+2. `snapshot_id` 가 없거나 공백일 때(`snapshot_id 가 없습니다`)
+3. 후보마다 `candidate_no`가 목록 순서와 다를 때, 적용한 후보에 `workspace_id`·`results`·`evidence_run_ids`가 없거나 근거 실행이 그 후보의 연습 공간에서 돌린 것이 아닐 때
+4. `development_request` 가 있는데(값이 `null` 이 아님) 형식이 맞지 않을 때. 이 순서로 봅니다: 객체가 아님, `kind` 가 `needs_tool` 이 아님, `title` 이 없거나 공백, `gaps` 가 비었거나 목록이 아님, 빈틈마다 `key`·`needed_by` 가 없음, `field` 가 `inputs`·`rules`·`outputs` 가 아님, `kind` 가 `missing_value`·`tool_output_missing` 이 아님, `options` 가 목록이 아님(빈 목록은 받음), 방법마다 `type` 이 `extend_tool`·`new_tool` 이 아님, `interim` 이 있는데 객체가 아님, `interim.proof_run_ids` 나 `evidence_run_ids` 에 이 서비스가 돌린 적 없는 실행이 있음(연습 공간은 가리지 않습니다. 임시 대안의 근거는 원인 실험 연습 공간에서 나옵니다). 방법의 다른 칸과 `change_points` 는 본문에 옮겨 적기만 하고 검사하지 않습니다. 메시지 예: `development_request.gaps 의 1번째 항목의 field 는 inputs, rules, outputs 가운데 하나여야 합니다 (받은 값 depends_on)`, `development_request.interim.proof_run_ids 의 실행 r_… 을 찾을 수 없습니다`
+5. 시험한 후보가 있는데 `snapshot_id` 의 snapshot metadata 를, 또는 (의도 요청이면) metadata 의 `baseline_snapshot_id` manifest 를 주문 Agent 에서 읽지 못할 때. `snapshot_id` 가 UUID 가 아니면 `INVALID_INPUT` 입니다
+6. 서비스 판정이 `proposed`인데 `development_request` 가 있을 때(`development_request 가 있으면 합격 후보가 없어야 합니다 (서비스가 다시 계산한 합격 후보 [1])`)
+7. 서비스 판정이 `proposed`인데 `root_cause.proof_run_ids`가 비었거나 돌린 적 없는 실행일 때
 
 ### 예시
 
@@ -813,14 +882,18 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 
 ### 제안서 본문
 
-저장할 때 서비스가 정해진 목차(개요, 발생 경위, 원인, 변경 의도, 수정안과 시험 결과, 추천과 결정 요청, 참고 정보)와 문장 틀로 본문을 만들어 함께 보관합니다(`service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java`). 화면은 `GET /api/proposals/{id}`의 `document`를 그대로 그립니다. 후보의 `explanation`에서 번역투·과장 표현이 보이면 `document.tone_warnings`에 남기고, 글은 고치지 않습니다.
+저장할 때 서비스가 정해진 목차(개요, 발생 경위, 원인, 변경 의도, 개발 요청, 임시 대안, 수정안과 시험 결과, 서비스 재판정, 추천과 결정 요청, 참고 정보)와 문장 틀로 본문을 만들어 함께 보관합니다(`service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java`). 변경 의도는 `intent` 가, 개발 요청은 `development_request` 가, 임시 대안은 `development_request.interim` 이, 서비스 재판정은 `server_overrides` 가 있을 때만 넣습니다. 화면은 `GET /api/proposals/{id}`의 `document`를 그대로 그립니다. 후보의 `explanation`, 개발 요청서의 `title`·`interim.summary` 에서 번역투·과장 표현이 보이면 `document.tone_warnings`에 남기고(`where` 는 `candidates[N].explanation`, `development_request.title`, `development_request.interim.summary`), 글은 고치지 않습니다.
+
+개발 요청서가 있으면 개요는 "SKILL.md 수정만으로는 해결할 수 없어 개발 요청서를 만들었습니다."로 끝나고, 후보가 없으면 "필요한 값을 만드는 업무 도구가 없어 SkillOps는 수정안을 만들지 않았습니다."라고 씁니다. "개발 요청" 절(`key: development_request`)은 빠진 값의 종류를 설명하는 문단, 방법(`options`)을 한 줄씩 담은 `items`, 사실(요청 제목, 필요한 값, 필요로 하는 Skill, 바꿀 곳, 근거 실행)을 담고, `new_tool` 방법이 있으면 새 도구 이름이 예시라고 밝힙니다. "임시 대안" 절(`key: interim`)은 `interim.summary` 를 문단으로, `patch` 를 `quote` 로, `proof_run_ids` 를 사실 "근거 실행"으로 담고 자동으로 들어가지 않는다고 안내합니다. 결정 요청은 도구를 개발한 뒤 수정본을 다시 저장해 달라고 씁니다. 개발 요청서가 없는 `no_valid_fix` 의 개요는 Skill 을 고치면 해결된다고 단정하지 않고 "승인할 수 있는 안이 없습니다." 뒤에 시험한 후보가 있으면 시험 결과를, 없으면 원인과 발생 경위를 보고 고칠 방법을 정해 달라고 씁니다.
 
 ### 읽고 쓰는 저장 공간
 
 | 저장 공간 | 읽기·쓰기 | 무엇을 |
 |---|---|---|
-| `proposals` | 읽기·쓰기 | 같은 `thread_id`의 제안서가 있는지 찾고, 없으면 한 줄을 씁니다(`proposal_id`, `thread_id`, `status`, 받은 제안서 `payload`, 본문 `document`, `valid_candidate_nos`, `created_at`) |
-| `scenario_runs` | 읽기 | `run_scenarios`가 남긴 실행 번호·연습 공간·시나리오·실제 passed. 근거 실행과 합격 후보의 실제 통과를 대조합니다 |
+| `proposals` | 읽기·쓰기 | 같은 `thread_id`의 제안서가 있는지 찾고, 없으면 한 줄을 씁니다(`proposal_id`, `thread_id`, `status`, 서비스 값으로 덮고 `server_overrides` 를 넣은 제안서 `payload`, 본문 `document`, `valid_candidate_nos`, `created_at`) |
+| `scenario_runs` | 읽기 | `run_scenarios`가 남긴 실행 번호, 연습 공간, 시나리오, 합격 여부, `intent_scoped`, `checks_hash`, `intent_matches`. 근거 실행을 대조하고 판정을 다시 계산하며, 원인 근거 실행(`proof_run_ids`)은 실행 번호로 하나씩 찾아 재현 근거를 봅니다. 개발 요청서의 `interim.proof_run_ids`·`evidence_run_ids` 도 실행 번호로 있는지만 봅니다 |
+| `workspaces` | 읽기 | 후보 연습 공간의 `applied_patches`, `last_apply`, `source_snapshot_id`, `frozen_at`, `start_texts`, `skills` |
+| 주문 Agent snapshot | 읽기 | 시험한 후보가 있으면 `snapshot_id` 의 manifest 를 한 번 읽어 metadata 의 `intent` 와 `baseline_snapshot_id` 를 얻고, 의도 요청이면 `is_revert` 를 계산하려고 그 기준본 manifest 를 한 번 더 읽습니다 |
 
 ---
 
@@ -842,8 +915,8 @@ MCP 연결이 살아 있는지만 확인합니다. 다른 서비스나 저장 �
 
 | 저장 공간 | 한글 이름 | 들어 있는 것 | 엔티티 | 쓰는 도구 | 읽는 도구 |
 |---|---|---|---|---|---|
-| `workspaces` | 연습 공간 | 연습 공간 하나에 한 줄. 만든 시각, 상태(`OPEN`, `PROMOTED`, `DISCARDED`. 지금 코드는 `OPEN`만 씁니다), skill별 시작 버전·원문·수정 횟수(`skills`), SKILL.md가 아닌 파일(`resources`), 시작 snapshot(`source_snapshot_id`) | `service/src/main/java/com/capstone4/skillops/workspace/WorkspaceRecord.java` | `create_workspace`, `apply_patch` | `apply_patch`, `run_scenarios` |
-| `scenario_runs` | 모의 실행 장부 | 모의 실행 한 번에 한 줄. `run_id`, `workspace_id`, `scenario_id`, `passed`, `recorded_at` | `service/src/main/java/com/capstone4/skillops/scenario/ScenarioRunRecord.java` | `run_scenarios` | `save_proposal` |
+| `workspaces` | 연습 공간 | 연습 공간 하나에 한 줄. 만든 시각, 상태(`OPEN`, `PROMOTED`, `DISCARDED`. 지금 코드는 `OPEN`만 씁니다), skill별 시작 버전·원문·수정 횟수(`skills`), SKILL.md가 아닌 파일(`resources`), 시작 snapshot(`source_snapshot_id`), 시작 원문(`start_texts`), 넣은 수정(`applied_patches`), 마지막 적용 결과의 오류 수(`last_apply`), 고정 시각(`frozen_at`). 2026-10-26 에 더한 네 칸은 비워 둘 수 있고 옛 행은 `null` 입니다 | `service/src/main/java/com/capstone4/skillops/workspace/WorkspaceRecord.java` | `create_workspace`, `apply_patch`, `run_scenarios`(고정) | `apply_patch`, `run_scenarios`, `save_proposal` |
+| `scenario_runs` | 모의 실행 장부 | 모의 실행 한 번에 한 줄. `run_id`, `workspace_id`, `scenario_id`, `passed`, `intent_scoped`, `checks_hash`, `intent_matches`, `recorded_at`. 뒤에 더한 세 칸은 비워 둘 수 있는 래퍼 타입이고 옛 줄은 `null` 입니다 | `service/src/main/java/com/capstone4/skillops/scenario/ScenarioRunRecord.java` | `run_scenarios` | `save_proposal` |
 | `proposals` | 수정 제안서 | 제안서 하나에 한 줄. 진단 번호, 상태, 받은 제안서, 본문, 합격 후보 번호, 만든 시각, 결정 시각 | `service/src/main/java/com/capstone4/skillops/proposal/Proposal.java` | `save_proposal` | `save_proposal`, 화면 API |
 | `approvals` | 승인 기록 | 결정 한 번에 한 줄. 제안서 번호, 후보 번호, 결정, 의도 확인 여부, 결정한 운영자, 승인 번호(`approval_token`), 사용 시각(`used_at`) | `service/src/main/java/com/capstone4/skillops/approval/Approval.java` | 승인 API(`/api/approvals`) | 화면 API |
 
@@ -859,5 +932,8 @@ MCP 도구가 데이터베이스 밖에서 읽는 곳은 주문 Agent의 snapsho
 | 결과 칸 이름이나 순서 | 결과 record의 `@JsonNaming`과 칸 순서, 이 문서, `skillops-agent/skillops_agent/contracts.py`의 검사 함수. 칸 이름과 순서는 `service/src/test/java/com/capstone4/skillops/mcp/`의 `SnapshotToolsTest.java`, `WorkspaceToolsTest.java`, `ProposalToolsTest.java`가 고정합니다 |
 | `repeat` 기본값과 범위 | `ScenarioRunner.java`의 `DEFAULT_REPEAT`·`MIN_REPEAT`·`MAX_REPEAT`, `WorkspaceTools.java`의 설명 문자열, 이 문서의 `run_scenarios` 보내는 값 표 |
 | 오류 JSON 모양 | `ToolResults.java`의 `error`, 이 문서의 공통 약속, `tools.py`의 `_error_payload` |
+| 조건 문법 | `Check.java`, 주문 Agent `RuleCondition`, `skillops-agent/skillops_agent/contracts.py`, 공용 사례 `docs/contracts/examples/condition-cases.json` |
+| 실행 규칙 `rules` 정적 검사 | `SkillRules.java`, `FlowStructureValidator.java` 의 `ruleKeyErrors`, 주문 Agent `SkillLoader`, 공용 사례 `docs/contracts/examples/skill-rules-cases.json`, `apply-patch-result.schema.json` |
+| 재판정 기준 | `ProposalJudge.java`, `application.yml` 의 `skillops.min-repeat`·`skillops.golden-ids`, 이 문서의 `save_proposal` 절, Agent 의 `VERIFY_REPEAT`(min-repeat 이상) |
 
 실행 중인 서버의 `tools/list`를 받아 이 문서의 보내는 값 표와 맞춰 보면 차이를 빨리 찾을 수 있습니다.

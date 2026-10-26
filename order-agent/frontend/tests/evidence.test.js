@@ -270,9 +270,11 @@ test("dispose ignores late responses and aborts the shared signal", async () => 
 });
 
 test("event labels, error marks, clock and JSON follow the trace panel rules", () => {
-  assert.equal(Object.keys(EVENT_KIND_TEXT).length, 21);
+  assert.equal(Object.keys(EVENT_KIND_TEXT).length, 22);
   assert.equal(eventKindLabel("SKILL_LOADED"), "실제 파일 로드");
   assert.equal(eventKindLabel("TOOL_REQUEST"), "도구 요청");
+  assert.equal(eventKindLabel("RULE_MATCHED"), "업무 규칙 적용");
+  assert.equal(isErrorEvent("RULE_MATCHED"), false);
   assert.equal(eventKindLabel("SKILL_STARTED"), "SKILL_STARTED");
   assert.equal(isErrorEvent("TOOL_ERROR"), true);
   assert.equal(isErrorEvent("SKILL_LOAD_REJECTED"), true);

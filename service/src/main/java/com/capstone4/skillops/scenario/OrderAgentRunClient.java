@@ -1,5 +1,6 @@
 package com.capstone4.skillops.scenario;
 
+import java.math.BigDecimal;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -23,8 +24,9 @@ import org.springframework.web.client.RestClientResponseException;
 /**
  * C-2 가 주문 Agent(order-agent/)에서 시험 주문을 돌릴 때 쓰는 HTTP 클라이언트다. C-1 의 조회 전용 클라이언트인
  * service/src/main/java/com/capstone4/skillops/snapshot/OrderAgentClient.java 와 따로 둔다.
- * 부르는 API 는 네 가지다. 후보 snapshot 올리기(POST /api/snapshots/candidates), 모의 실행(POST /api/dry-runs),
- * 실행 기록 읽기(GET /api/executions/{id}/trace), 실패했던 주문 꺼내기(실행 기록의 order_id 로 GET /api/orders/{id})다.
+ * 부르는 API 는 다섯 가지다. 후보 snapshot 올리기(POST /api/snapshots/candidates), 모의 실행(POST /api/dry-runs),
+ * 실행 기록 읽기(GET /api/executions/{id}/trace), 실패했던 주문 꺼내기(실행 기록의 order_id 로 GET /api/orders/{id}),
+ * 상품 단가 읽기(GET /api/products, 의도 scope 의 order.total 계산용)다.
  * 주문 Agent 쪽에서는 order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 가
  * snapshot 올리기와 실행 기록을, order-agent/backend/src/main/java/com/capstone4/orderagent/controller/DryRunController.java 가
  * 모의 실행을, order-agent/backend/src/main/java/com/capstone4/orderagent/controller/OrderController.java 가 주문 읽기를 받는다.
@@ -204,6 +206,24 @@ public class OrderAgentRunClient {
             throw e;
         }
         return toDryRunOrder(order);
+    }
+
+    /**
+     * 판매 중인 상품의 SKU 별 단가를 읽는다(GET /api/products 의 items[].sku, items[].unit_price).
+     * 주문 Agent 쪽에서는 order-agent/backend/src/main/java/com/capstone4/orderagent/controller/ProductController.java 가 받는다.
+     * 담당자 의도의 scope 가 order.total 을 쓸 때 ScenarioRunner 의 withIntent() 가 run_scenarios 한 번에 한 번만 부르고,
+     * 시험 주문의 처음 총액(단가 × 수량의 합)을 계산한다. 단가가 숫자가 아닌 줄은 버린다.
+     */
+    public Map<String, BigDecimal> unitPrices() {
+        String path = "/api/products";
+        Map<String, Object> body = call("상품 목록 읽기", path, () -> http.get().uri(path).retrieve().body(MAP));
+        Map<String, BigDecimal> prices = new LinkedHashMap<>();
+        for (Map<String, Object> item : JsonMaps.listOfMaps(body.get("items"))) {
+            if (item.get("sku") instanceof String sku && item.get("unit_price") instanceof Number price) {
+                prices.put(sku, new BigDecimal(price.toString()));
+            }
+        }
+        return prices;
     }
 
     /** 하이픈 있는 UUID 모양의 실행 번호(execution_id)이면 true 를 돌려준다. null 이면 false 다. ScenarioRunner 의 replaySuffixOf 가 쓴다. */

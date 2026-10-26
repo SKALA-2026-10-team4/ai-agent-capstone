@@ -25,3 +25,5 @@
 2026-10-23 · #72 4단계: 필수 `flow_errors`와 후보 결과 `flow_valid`를 추가했다. [flow 오류 예제](examples/apply-patch-flow-error.json), [두 Java 모듈의 공통 flow 사례](examples/flow-structure-cases.json), [변경 내역](../changes/2026-10-23-flow-structure-validation.md)을 참고한다.
 
 2026-10-26 · #88 후속: 새 평가 MCP 4개도 JWT 없이 호출하도록 통일했습니다. REST·승인 인증은 유지하며 MCP 접수는 공유 멱등 키 범위를 사용합니다. 상세 정책은 [평가 계약](evaluation-backend.md#mcp)을 따릅니다.
+
+2026-10-26 · #88 develop 병합: 기존 제안은 서버 재판정·불합격 보존 정책을 따릅니다. MCP는 JWT 불필요, 서비스 토큰 설정 시 X-Service-Token 필요입니다. [병합·전체 검증 보고서](../reports/2026-10-26-issue-88-develop-merge.md)
