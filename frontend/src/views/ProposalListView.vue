@@ -12,9 +12,13 @@
 // 핵심 요약 두 줄(원인, 시험 결과와 추천 후보 번호)을 같은 파일의 proposalHighlights 가 만든다.
 // 화면 설명은 제목 옆 ● 에 마우스를 올릴 때만 보인다(PageHeader 의 descriptionTip).
 // 카드를 누르면 상세 화면(/proposals/:id, frontend/src/views/ProposalView.vue)으로 간다.
+// 수정안을 만들지 못하고 '의도 확인 필요'(NEEDS_INTENT)로 멈춘 저장은 제안서가 없으므로, 진단 기록
+// (frontend/src/api/diagnoses.js 의 listDiagnoses)에서 골라 목록 위에 따로 보여 주고 진단 화면으로 잇는다.
 import { computed, onMounted, ref } from 'vue'
-import { Inbox } from 'lucide-vue-next'
+import { Inbox, MessageCircleQuestion } from 'lucide-vue-next'
+import { listDiagnoses } from '@/api/diagnoses'
 import { listProposals } from '@/api/proposals'
+import { needsIntent } from '@/utils/diagnosisView'
 import { dateTime } from '@/utils/format'
 import { STATUS_FILTERS, matchesStatusFilter, proposalHighlights } from '@/utils/proposalView'
 import EmptyState from '@/components/EmptyState.vue'
@@ -22,6 +26,8 @@ import PageHeader from '@/components/PageHeader.vue'
 import ProposalStatusBadge from '@/components/ProposalStatusBadge.vue'
 
 const proposals = ref([])
+// 의도 확인이 필요해 멈춘 진단 기록이다. 진단 기록을 읽지 못하면 빈 목록으로 두고 수정안 목록은 그대로 보여 준다.
+const waiting = ref([])
 const error = ref(null)
 // 고른 상태 필터다. 처음에는 전체를 연다.
 const statusFilter = ref('all')
@@ -39,12 +45,18 @@ const shown = computed(() =>
 
 // 화면을 열 때 한 번만 목록을 읽는다. 읽지 못하면 오류 문구를 보여 준다.
 onMounted(async () => {
+  listDiagnoses()
+    .then((r) => (waiting.value = r.items.filter(needsIntent)))
+    .catch(() => (waiting.value = []))
   try {
     proposals.value = (await listProposals()).items
   } catch (e) {
     error.value = e.message
   }
 })
+
+// 진단 기록 한 줄에서 바뀐 Skill 이름을 뽑는다. 경로 skills/<이름>/SKILL.md 의 가운데 부분이다.
+const skillsOf = (run) => (run.trigger?.changed_paths ?? []).map((p) => p.split('/')[1]).join(', ')
 </script>
 
 <template>
@@ -67,6 +79,14 @@ onMounted(async () => {
       </label>
     </div>
 
+    <div v-if="waiting.length" class="waiting">
+      <p class="waiting-head"><MessageCircleQuestion :size="16" /> 의도 확인이 필요한 저장 {{ waiting.length }}건 · 기대 결과를 적어 주면 수정안을 만들어요</p>
+      <RouterLink v-for="r in waiting" :key="r.thread_id" :to="`/diagnoses/${r.thread_id}`" class="waiting-item">
+        <strong>{{ skillsOf(r) }}</strong>
+        <span class="intent">“{{ r.trigger?.intent?.text }}”</span>
+        <span class="created">{{ dateTime(r.created_at) }}</span>
+      </RouterLink>
+    </div>
     <p v-if="error" class="error-text">{{ error }}</p>
     <EmptyState v-else-if="!shown.length" title="조건에 맞는 수정안이 없어요" :icon="Inbox">
       Skill 수정본을 저장하면 SkillOps가 시험한 뒤 수정안을 이곳으로 보내요.
@@ -127,7 +147,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: calc(100vh - 240px);
+  max-height: calc(var(--view-h) - 240px);
   overflow-y: auto;
 }
 
@@ -190,5 +210,46 @@ onMounted(async () => {
   color: var(--text-2);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+
+.waiting-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  color: var(--warn);
+  font-weight: 700;
+  font-size: var(--fs-sm);
+}
+
+.waiting-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.waiting-item .intent {
+  flex: 1;
+  color: var(--text-2);
+}
+
+.waiting-item .created {
+  color: var(--muted);
 }
 </style>

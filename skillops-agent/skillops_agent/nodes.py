@@ -69,6 +69,7 @@ skillops-agent/skillops_agent/config.py 에 있다. 프롬프트 문구는 skill
   제안서에 더한다. 빈틈이 없는 진단의 제안서에는 이 칸이 없다.
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -124,6 +125,7 @@ from .partial_evidence import collect_diffs, collect_sources, prepare_partial_ev
 from .prompts import load as load_prompt
 from .state import (
     INTENT_NOT_REALIZED,
+    NEEDS_INTENT,
     NEEDS_TOOL,
     AblationRun,
     AgentState,
@@ -137,6 +139,10 @@ from .state import (
     empty_run_fields,
 )
 from .tools import MCPToolError, get_tools
+
+# 이 모듈의 로그다. 의도 조건을 버릴 때 무엇을 왜 버렸는지 남긴다(_log_dropped). 출력 설정은
+# skillops-agent/skillops_agent/main.py 의 _configure_logging 이 한다.
+logger = logging.getLogger(__name__)
 
 # ── LLM 출력 스키마 ────────────────────────────────────────────────────────────
 # 아래 10개 Pydantic 클래스는 OpenAI 구조화 출력의 JSON schema 가 된다. 출력 클래스 다섯 개
@@ -963,6 +969,30 @@ def _dropped_expectation(expectation: dict, reason: str) -> dict:
     return {"check": f"scope: {expectation.get('scope')}", "reason": reason}
 
 
+def _short_error(exc: Exception, limit: int = 200) -> str:
+    """예외 문구를 한 줄로 줄인다. 버린 이유에 오류 원문을 붙일 때 _baseline_vacuity 가 쓴다."""
+    text = " ".join(str(exc).split())
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _log_dropped(where: str, owner_text: str | None, proposed, dropped: list[dict]) -> None:
+    """의도 조건을 버렸으면 무엇을 왜 버렸는지 로그로 남긴다.
+
+    proposed 는 LLM 이 낸 expectations 원문({scope, checks} 목록이나 Pydantic 항목)이고,
+    dropped 는 {check, reason} 목록이다. dropped_checks 의 check 칸은 'scope: <scope>' 만 담으므로
+    버린 expectation 의 checks 를 함께 보려면 이 로그를 본다. _infer_expectations 와
+    extract_intent 가 부른다.
+    """
+    if not dropped:
+        return
+    items = [
+        e if isinstance(e, dict) else getattr(e, "model_dump", lambda: e)() for e in proposed or []
+    ]
+    logger.info("[%s] 의도 '%s' 에서 LLM 이 낸 기대 결과: %s", where, owner_text, items)
+    for item in dropped:
+        logger.info("[%s] 버린 조건 %s: %s", where, item.get("check"), item.get("reason"))
+
+
 def _scope_guard(expectations: list[dict]) -> tuple[list[dict], list[dict], str | None]:
     """Agent 가 만든 expectations 의 scope 를 기준 주문 표로 검사한다(V3-4 의 a, b).
 
@@ -1006,7 +1036,8 @@ async def _baseline_vacuity(t, baseline: str | None, expectations: list[dict]) -
             t, ws["workspace_id"], GOLDEN_IDS, PREFLIGHT_REPEAT, expectations=expectations
         )
     except Exception as exc:
-        return f"기준본으로 기대 결과를 확인하는 중 {type(exc).__name__} 오류가 났습니다"
+        name = type(exc).__name__
+        return f"기준본으로 기대 결과를 확인하는 중 {name} 오류가 났습니다: {_short_error(exc)}"
     if all_passed(results):
         return "기준본도 이 기대 결과를 모두 통과해 수정본이 의도를 실현했는지 가려내지 못합니다"
     return None
@@ -1059,13 +1090,15 @@ async def _infer_expectations(
             scope_keys=", ".join(SCOPE_KEYS),
             value_names=", ".join(known),
         )
-        expectations, dropped = _usable_expectations(getattr(result, "expectations", None), known)
+        proposed = getattr(result, "expectations", None)
+        expectations, dropped = _usable_expectations(proposed, known)
     except Exception as exc:
         return None, _intent_note(f"기대 결과를 만드는 중 {type(exc).__name__} 오류가 났습니다")
     reason = None
     if expectations:
         expectations, guarded, reason = await _guard_inferred(t, snaps.baseline, expectations)
         dropped += guarded
+    _log_dropped("fetch_evidence", owner["text"], proposed, dropped)
     if not expectations:
         reason = reason or "LLM 이 쓸 수 있는 기대 결과를 내지 않았습니다"
         if dropped:
@@ -1249,6 +1282,8 @@ async def fetch_evidence(state: AgentState) -> dict:
         update = {}
         execution, trace, ids = snaps.execution, snaps.trace, []
         owner = _owner_intent(state) or {}
+        # 의도를 적었지만 시험 조건이 하나도 없어 판정할 수 없는 저장인지다. 사전 검증 뒤에 정한다.
+        needs_intent = False
         # 담당자가 준 expectations 가운데 읽을 수 없어 뺀 것이 있으면 그 설명을 남긴다(V3-2).
         notes = [_owner_dropped_note(owner["dropped"])] if owner.get("dropped") else []
         # 실행 없이 들어온 저장 직후 요청은 사전 검증 결과로 진단을 이을지부터 정한다.
@@ -1287,6 +1322,18 @@ async def fetch_evidence(state: AgentState) -> dict:
                     update["root_cause"] = _incomplete_edit_root_cause(
                         changes[0], versions, outcome.run_ids, outcome.repro_ids
                     )
+            # 도구가 필요한 수정은 의도와 상관없이 개발 요청서로 가므로 여기서 멈추지 않는다.
+            needs_intent = bool(owner) and not expectations and bool(changes) and not needs_tool
+            if needs_intent:
+                update.update(
+                    diagnosis_status=DiagnosisStatus.EVALUATED,
+                    diagnosis=_needs_intent_diagnosis(
+                        update.get("diagnosis"), bool(outcome.repro_ids)
+                    ),
+                )
+                update.pop("root_cause", None)
+                message = progress["events"][-1]["msg"]
+                progress = _progress(state, "fetch_evidence", f"{message}, 의도 확인 필요")
         for note in notes:
             update["diagnosis"] = _with_intent_note(update.get("diagnosis"), note)
         update.update(
@@ -1317,6 +1364,35 @@ async def fetch_evidence(state: AgentState) -> dict:
         if trigger.get("diagnosis_only"):
             update.update(await _evaluate_intent_checks(t, trigger, execution, snaps.candidate))
     return {**progress, **update}
+
+
+def _needs_intent_diagnosis(diagnosis: dict | None, failed: bool) -> dict:
+    """의도를 시험 조건으로 바꾸지 못해 멈출 때 diagnosis 칸이다(finding NEEDS_INTENT).
+
+    담당자가 의도를 적었는데 쓸 수 있는 expectations 가 하나도 없으면, 예전에는 사전 검증이 통과하면
+    VALIDATED 로 조용히 끝나고 실패하면 후보를 만들고도 빈 의도라 모두 불합격시켰다. 어느 쪽도
+    담당자 의도를 판정하지 않으므로 후보를 만들지 않고 멈춰 기대 결과를 묻는다. failed 는 수정본
+    사전 검증에서 떨어진 기준 주문이 있었는지이고, 있으면 사전 검증의 failures 를 그대로 둔다.
+    scope_keys 는 기대 결과의 범위에 쓸 수 있는 값이다. 버린 조건과 이유는 이어서 _with_intent_note
+    가 붙인다. fetch_evidence 가 부르고, 화면은 frontend/src/views/DiagnosisView.vue 가 그린다.
+    """
+    preflight = (
+        "수정본으로 돌린 기준 주문 가운데 실패한 주문이 있습니다"
+        if failed
+        else "수정본으로 돌린 기준 주문은 모두 이전과 같게 처리됐습니다"
+    )
+    explanation = (
+        "담당자 의도를 시험 조건(기대 결과)으로 바꾸지 못해 이 수정이 의도대로 동작하는지 "
+        f"판정할 수 없습니다. {preflight}. 수정안을 만들지 않고 멈췄습니다. 저장할 때 기대 결과를 "
+        "'범위 => 확인 조건' 한 줄로 직접 적어 다시 시험해 주세요."
+    )
+    return {
+        **(diagnosis or {}),
+        "finding": NEEDS_INTENT,
+        "explanation": explanation,
+        "preflight_failed": failed,
+        "intent_scope_keys": list(SCOPE_KEYS),
+    }
 
 
 def _partial_stop(evidence: dict) -> dict:
@@ -1712,8 +1788,18 @@ def _scope_problem(scope) -> str | None:
     problem = condition_problem(scope)
     if problem:
         return problem
-    if skill_rules.condition_key(scope) not in SCOPE_KEYS:
-        return "scope 는 시험 주문의 처음 값(" + ", ".join(SCOPE_KEYS) + ")만 볼 수 있습니다"
+    key = skill_rules.condition_key(scope)
+    if key not in SCOPE_KEYS:
+        # scope 는 시험 주문을 돌리기 전에 그 주문에 이 기대 결과를 붙일지 정하는 조건이다. 그래서
+        # 주문을 넣을 때 정해진 다섯 값만 볼 수 있다. 처리 결과(order.final_status, payment.status
+        # 등)와 다섯 값에 들지 않는 주문 값(order.items.length 등)은 이유를 나눠 적는다.
+        allowed = "scope 는 시험 주문의 처음 값(" + ", ".join(SCOPE_KEYS) + ")만 볼 수 있습니다"
+        if key in RESERVED_KEYS or not str(key).startswith("order."):
+            return (
+                f"scope 에 쓴 '{key}' 는 주문을 처리한 뒤에야 정해지는 값이라 어느 주문을 시험할지 "
+                f"고를 수 없습니다. {allowed}"
+            )
+        return f"scope 에 쓴 '{key}' 는 scope 로 주문을 고를 수 있는 값이 아닙니다. {allowed}"
     return None
 
 
@@ -1828,11 +1914,17 @@ async def extract_intent(state: AgentState) -> dict:
                     t, state.get("baseline_snapshot_id"), expectations
                 )
             dropped += guarded
+        _log_dropped("extract_intent", owner["text"], items, dropped)
         if not expectations:
             reason = reason or "LLM 이 쓸 수 있는 기대 결과를 내지 않았습니다"
             note = _intent_note(reason, dropped, preflight=False)
             updates["diagnosis"] = _with_intent_note(state.get("diagnosis"), note)
         kept = _unscoped_checks(expectations)
+        # 사전 검증(fetch_evidence) 때 버린 조건은 diagnosis 에만 남아 있으므로 제안서의 intent
+        # 에도 앞에 붙인다. 그래야 제안서 화면(frontend/src/components/IntentExpectations.vue)이
+        # 버린 조건을 모두 보여 준다.
+        earlier = (state.get("diagnosis") or {}).get("intent_dropped_checks") or []
+        dropped = [d for d in earlier if d not in dropped] + dropped
 
     intent = Intent(
         text=owner["text"] if owner else (result.text if result else "의도 추출 실패"),
@@ -1999,7 +2091,7 @@ def _candidate_flags(
 
 
 def _encode_rule_candidates(
-    state: AgentState, sources: dict, dep_graph: dict
+    state: AgentState, sources: dict, dep_graph: dict, baseline: dict[str, str] | None = None
 ) -> list[tuple[list[Patch], dict[str, str]]]:
     """의도 expectations 로 결정적 encode_rule 후보의 (patch 목록, 수정 후 원문) 목록을 만든다.
 
@@ -2030,7 +2122,87 @@ def _encode_rule_candidates(
         if patch:
             patches = [Patch(skill=skill, base_version=sources[skill]["version"], patch=patch)]
             candidates.append((patches, {skill: text}))
+    repaired = _repair_and_encode(state, sources, dep_graph, baseline or {}, expectations, owner)
+    if repaired and all(repaired[1] != texts for _, texts in candidates):
+        candidates.insert(0, repaired)
     return candidates
+
+
+def _repair_and_encode(
+    state: AgentState, sources: dict, dep_graph: dict, baseline: dict[str, str],
+    expectations: list[dict], owner: dict,
+) -> tuple[list[Patch], dict[str, str]] | None:
+    """깨진 계약은 바로잡고 의도는 rules 로 옮긴 결정적 후보 하나를 만든다. 없으면 None 이다.
+
+    원인 실험으로 확정한 원인 skill(root_cause, 의도 미실현 incomplete_edit 는 제외)의 계약 칸만
+    기준본 줄로 되돌리고(skill_rules.repair_contract_lines), 그 원문 위에 encode_rule_revisions 의
+    첫 대상에 규칙을 얹는다. 담당자가 의도를 적으면서 inputs·outputs·depends_on 을 잘못 고쳐 주문이
+    멈춘 경우, 규칙만 넣으면 오류가 남고 계약만 되돌리면 의도가 빠지므로 둘을 한 후보에 담는다.
+    description 과 본문은 담당자 글 그대로 둔다. 판정은 다른 후보처럼 실제 실행으로 한다.
+    _encode_rule_candidates 가 부른다.
+    """
+    root = state.get("root_cause") or {}
+    skill = root.get("skill")
+    if not skill or root.get("kind") == "incomplete_edit" or skill not in baseline:
+        return None
+    fixed = skill_rules.repair_contract_lines(sources[skill]["content"], baseline[skill])
+    if fixed is None:
+        return None
+    patched = {**sources, skill: {**sources[skill], "content": fixed}}
+    revisions = skill_rules.encode_rule_revisions(
+        {"text": owner["text"], "expectations": expectations},
+        skill,
+        patched,
+        list(dep_graph.get("steps") or []),
+    )
+    if not revisions:
+        return None
+    target, ruled = revisions[0]
+    texts = {skill: fixed, target: ruled}
+    patches = []
+    for name, text in texts.items():
+        patch = unified_patch(name, sources[name]["content"], text)
+        if patch:
+            patches.append(Patch(skill=name, base_version=sources[name]["version"], patch=patch))
+    return (patches, texts) if patches else None
+
+
+# 후보 생성 프롬프트(skillops-agent/prompts/generate_candidates.md)의 첫머리다. 담당자 의도가
+# 없으면 예전처럼 장애 수정을 맡기고, 의도가 있으면 의도를 실행하는 수정본 완성을 맡긴다.
+# _candidate_framing 이 고른다.
+_FAILURE_MISSION = "당신은 주문 처리 에이전트 장애의 수정안을 설계하는 전문가입니다."
+_INTENT_MISSION = (
+    "당신은 업무 담당자가 적은 의도를 실제로 실행되게 SKILL.md 수정본을 완성하는 전문가입니다. "
+    "첫째 기준은 담당자 의도입니다. 확정된 원인은 수정본이 지금 어디서 멈추거나 의도와 다르게 "
+    "도는지 알려 주는 참고이며, 담당자의 변경을 취소하라는 뜻이 아닙니다."
+)
+# 담당자 의도가 있을 때 제약 절 끝에 더하는 지시다. 담당자가 의도를 적은 글(description, 본문)을
+# 기준본으로 되살리는 후보는 의도를 무시한 복구라서 막는다. 코드의 되돌리기
+# 판정(skill_rules.is_revert)은 파일 전체가 기준본과 같아질 때만 잡으므로 줄 단위 복구는 이 지시로
+# 막는다. 반대로 담당자가 함께 잘못 고쳐 주문을 멈추게 한 계약 칸(inputs, outputs, depends_on)은
+# 바로잡게 한다. 그래야 오류를 고치면서 의도를 rules 로 옮긴 한 후보가 나온다.
+_OWNER_RULES = (
+    "- 담당자 의도가 있으므로 담당자가 의도를 적은 description 과 본문 문장은 기준본 내용으로 "
+    "되살리지 마세요. 그 글이 담당자의 결정입니다.\n"
+    "- 확정된 원인이 담당자가 함께 바꾼 inputs·outputs·depends_on 이면, 그 칸은 바로잡아 "
+    "기준 주문이 다시 끝까지 돌게 하고, 같은 후보 안에서 의도를 rules 로 옮기세요. 오류만 "
+    "고치거나 rules 만 넣은 후보는 통과하지 못합니다.\n"
+    "- 바로잡을 때 rules 의 when 이나 의도 범위가 쓰는 값을 덮는 input(예: order.shipping)은 "
+    "지우지 마세요.\n"
+    "- 의도를 rules 로 옮길 수 있으면 encode_rule 후보를 반드시 만드세요."
+)
+
+
+def _candidate_framing(state: AgentState) -> dict:
+    """후보 생성 프롬프트의 첫머리(mission)와 담당자 의도 전용 제약(owner_rules)을 고른다.
+
+    요청에 담당자 의도가 있으면(_owner_intent) 의도를 첫째 기준으로 두고 담당자 변경을 되살리지
+    말라는 제약을 더한다. 없으면 장애 수정 첫머리에 제약을 더하지 않아 예전 프롬프트와 같다.
+    generate_candidates 가 부른다.
+    """
+    if _owner_intent(state) is None:
+        return {"mission": _FAILURE_MISSION, "owner_rules": ""}
+    return {"mission": _INTENT_MISSION, "owner_rules": _OWNER_RULES}
 
 
 async def generate_candidates(state: AgentState) -> dict:
@@ -2044,7 +2216,7 @@ async def generate_candidates(state: AgentState) -> dict:
     1부터 매긴다. service 의 save_proposal 은 candidate_no 가 1부터 빠짐없이 이어져야 받는다. 후보
     개수와 종류(same_skill, linked_skills, run_order, encode_rule)는 프롬프트 지시로만 정하고
     코드에는 상한이 없다. 의도 expectations 가 있으면 첫 회차에 결정적 encode_rule 후보
-    (_encode_rule_candidates, 최대 두 개)를 앞 번호로 먼저 넣고, 그때는 LLM 호출이 실패해도 결정적
+    (_encode_rule_candidates, 최대 세 개)를 앞 번호로 먼저 넣고, 그때는 LLM 호출이 실패해도 결정적
     후보만으로 진행한다. 후보마다 is_revert 와 weakens_contract 를 코드로 정한다(_candidate_flags,
     기준 원문은 _baseline_sources). 첫 회차에 후보가 하나도 없으면 ContractError 로 멈춘다. 재시도
     회차에 LLM 이 실패하거나 후보를 내지 않으면 ERROR 로 멈추지 않고 앞 회차의 검증한 후보를 그대로
@@ -2067,7 +2239,9 @@ async def generate_candidates(state: AgentState) -> dict:
     if dep_graph.get("complete") is not True:
         raise ContractError("dependency graph is incomplete")
 
-    deterministic = _encode_rule_candidates(state, sources, dep_graph) if retry == 0 else []
+    deterministic = (
+        _encode_rule_candidates(state, sources, dep_graph, baseline) if retry == 0 else []
+    )
     references, reference_ids = rag.references(state)
     llm_error = None
     try:
@@ -2081,6 +2255,7 @@ async def generate_candidates(state: AgentState) -> dict:
             dependency_graph=dep_graph,
             current_files=sources,
             previous_failures=previous_failures,
+            **_candidate_framing(state),
         )
     except Exception as exc:
         # 결정적 후보가 있거나 재시도 회차면 LLM 실패로 진단을 멈추지 않는다(V3-8).

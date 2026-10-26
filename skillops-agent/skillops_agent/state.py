@@ -207,6 +207,12 @@ INTENT_NOT_REALIZED = "INTENT_NOT_REALIZED"
 # diagnosis.finding 에 남기는 값이다. 진단 상태 이름은 늘리지 않고, 원인 실험 뒤 후보 생성 없이 개발
 # 요청서를 담은 no_valid_fix 제안서를 저장한다. frontend 가 글자 그대로 읽는다(2.11).
 NEEDS_TOOL = "NEEDS_TOOL"
+# 담당자가 의도를 적었지만 시험 조건(expectations)으로 바꾸지 못해 의도대로 동작하는지 판정할 수
+# 없을 때 diagnosis.finding 에 남기는 값이다. 진단 상태 이름은 늘리지 않고 EVALUATED 로 끝내며,
+# 후보와 제안서를 만들지 않는다. 담당자가 기대 결과를 적어 다시 저장해야 한다.
+# skillops-agent/skillops_agent/nodes.py 의 fetch_evidence 가 _needs_intent_diagnosis 로 남기고
+# frontend 가 글자 그대로 읽는다.
+NEEDS_INTENT = "NEEDS_INTENT"
 
 
 class ProgressEvent(TypedDict):
@@ -350,7 +356,9 @@ class DiagnosisStatus:
     NO_SKILL_CHANGES = "NO_SKILL_CHANGES"
     # diagnosis_only 진단에서 확인 조건 실패가 나왔다.
     INTENT_VIOLATION = "INTENT_VIOLATION"
-    # 제안서를 저장했거나, diagnosis_only 진단에서 의도 위반이 확인되지 않았다.
+    # 제안서를 저장했거나, diagnosis_only 진단에서 의도 위반이 확인되지 않았다. 담당자 의도를 시험
+    # 조건으로 바꾸지 못해 멈춘 저장 직후 진단도 이 값이며, 그때는 diagnosis.finding 이 NEEDS_INTENT
+    # 다.
     EVALUATED = "EVALUATED"
     # 노드 예외나 그래프 실행 오류로 멈췄다. 앱 재시작으로 끊긴 실행도
     # skillops-agent/skillops_agent/run_store.py 의 RunStore.recover 가 이 값으로 바꾼다.

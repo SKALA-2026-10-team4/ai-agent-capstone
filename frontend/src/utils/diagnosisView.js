@@ -26,7 +26,9 @@ export const diagnosisLabel = (status) => DIAGNOSIS_LABEL[status] ?? status
 // 찾았는지 알린다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.5 절). INTENT_NOT_REALIZED 는
 // 수정본이 오류 없이 돌지만 담당자 의도 범위의 기준 주문이 의도대로 처리되지 않은 경우다. NEEDS_TOOL 은
 // 담당자가 새로 넣은 값을 어떤 업무 도구도 만들지 않아 SKILL.md 수정만으로는 고칠 수 없는 경우이고,
-// SkillOps 가 후보 대신 개발 요청서와 임시 대안을 낸다(2.11 절).
+// SkillOps 가 후보 대신 개발 요청서와 임시 대안을 낸다(2.11 절). NEEDS_INTENT 는 담당자가 의도를 적었지만
+// SkillOps 가 시험 조건(기대 결과)으로 바꾸지 못해 수정안을 만들지 않고 멈춘 경우다(상태는 EVALUATED).
+// skillops-agent/skillops_agent/state.py 의 같은 이름 상수와 글자가 같아야 한다.
 export const FINDING = {
   INTENT_NOT_REALIZED: {
     label: '의도가 아직 실행되지 않음',
@@ -35,6 +37,10 @@ export const FINDING = {
   NEEDS_TOOL: {
     label: '도구 개발 필요',
     note: '수정본이 쓰는 값을 지금 어떤 업무 도구도 만들지 않아 SKILL.md 수정만으로는 고칠 수 없어요. SkillOps 가 수정안 대신 개발 요청서와 임시 대안을 만들어요.',
+  },
+  NEEDS_INTENT: {
+    label: '의도 확인 필요',
+    note: '적어 주신 의도를 SkillOps 가 실제로 시험할 조건으로 바꾸지 못해 수정안을 만들지 않았어요. 기대 결과를 한 줄로 적어 다시 시험해 주세요.',
   },
 }
 // 진단 결과의 화면 이름을 돌려준다. 표에 없으면 원래 값, 값이 없으면 null 이다.
@@ -65,6 +71,21 @@ export const rootCauseOf = (run) => run?.proposal?.root_cause ?? run?.root_cause
 // 접수 요청(trigger)의 값을 쓰고, trigger 도 없으면 TypeError 가 난다.
 export const baselineSnapshotOf = (run) => run.baseline_snapshot_id ?? run.trigger.baseline_snapshot_id
 export const candidateSnapshotOf = (run) => run.snapshot_id ?? run.trigger.candidate_snapshot_id
+
+// 담당자가 의도를 적었지만 SkillOps 가 시험 조건으로 바꾸지 못해 멈춘 진단(finding NEEDS_INTENT)인지 본다.
+// skillops-agent/skillops_agent/nodes.py 의 fetch_evidence 가 이 finding 을 남긴다. frontend/src/views/DiagnosisView.vue 와
+// frontend/src/views/ProposalListView.vue 가 쓴다.
+export const needsIntent = (run) => run?.diagnosis?.finding === 'NEEDS_INTENT'
+
+// NEEDS_INTENT 진단을 다시 시험할 때 되살릴 내용이다. 기준 세트 위에 수정 세트의 바뀐 파일을 초안으로
+// 다시 얹고, 의도 글을 의도 칸에 채운다. { baselineId, candidateId, paths, intentText } 를 돌려주며
+// frontend/src/stores/workspace.js 의 restoreForRetry 가 받는다.
+export const retryPlanOf = (run) => ({
+  baselineId: baselineSnapshotOf(run),
+  candidateId: candidateSnapshotOf(run),
+  paths: run.trigger?.changed_paths ?? [],
+  intentText: run.trigger?.intent?.text ?? '',
+})
 
 // 후보의 검증 결과(valid)를 문구로 바꾼다. true 는 통과, false 는
 // 미통과이고, 그 밖의 값은 아직 검증을 마치지 않은 후보로 본다.

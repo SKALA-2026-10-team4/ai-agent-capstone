@@ -666,7 +666,8 @@ async def test_owner_intent_on_failure_path_scopes_only_candidate_runs(stub, mon
     """실패 진단에 의도가 있으면 원인 실험은 의도 없이, 후보 검증은 의도와 함께 돌린다.
 
     LLM 의 되돌리기 후보는 불합격이고, 결정적 encode_rule 후보는 원인 skill(inventory-check)에
-    규칙과 조건 키 input 을 넣는다.
+    규칙과 조건 키 input 을 넣는다. 맨 앞의 결정적 후보는 원인 skill 의 계약 칸(outputs)을
+    기준본으로 바로잡은 원문 위에 같은 규칙을 얹는다(_repair_and_encode).
     """
     monkeypatch.setattr(
         nodes,
@@ -677,7 +678,10 @@ async def test_owner_intent_on_failure_path_scopes_only_candidate_runs(stub, mon
     result = await run({"trigger": trigger, "max_steps": 40})
     assert result["error"] is None
     assert result["intent"]["source"] == "owner"
-    deterministic, revert = result["candidates"]
+    repaired, deterministic, revert = result["candidates"]
+    assert repaired["kind"] == "encode_rule" and repaired["is_revert"] is False
+    [fix] = repaired["patches"]
+    assert "+outputs: [inventory.reserved]\n" in fix["patch"] and "+rules:\n" in fix["patch"]
     assert deterministic["kind"] == "encode_rule" and deterministic["valid"] is True
     [patch] = deterministic["patches"]
     assert patch["skill"] == "inventory-check"
@@ -688,7 +692,7 @@ async def test_owner_intent_on_failure_path_scopes_only_candidate_runs(stub, mon
         ([REPLAY], {"repeat": 1, "extra_checks": None}),
     ]
     expected = {"repeat": 2, "extra_checks": None, "intent_expectations": OWNER_EXPECTATIONS}
-    assert stub.calls[2:] == [(GOLDEN, expected), ([REPLAY], expected)] * 2
+    assert stub.calls[2:] == [(GOLDEN, expected), ([REPLAY], expected)] * 3
 
 
 @pytest.mark.asyncio
@@ -974,37 +978,45 @@ async def test_text_only_b01_infers_expectations_and_encodes_rule(behavior, monk
     ids=["llm-error", "empty", "missing-field"],
 )
 @pytest.mark.asyncio
-async def test_inference_failure_keeps_old_preflight_and_notes_why(
+async def test_inference_failure_stops_as_needs_intent_and_notes_why(
     behavior, monkeypatch, output, reason
 ):
-    """추론이 실패하거나 빈 결과면 예전처럼 의도 시험 없이 VALIDATED 로 끝나고 이유를 남긴다."""
+    """추론이 실패하거나 빈 결과면 사전 검증한 뒤 의도 확인 필요(finding NEEDS_INTENT)로 멈춘다.
+
+    사전 검증이 통과해도 담당자 의도를 판정하지 못했으므로 VALIDATED 로 끝내지 않는다.
+    """
     llm = RecordingLLM({"_ExpectationsOutput": output})
     monkeypatch.setattr(nodes, "make_structured_llm", llm)
     result = await run(saved(TEXT_ONLY_INTENT))
 
     assert result["error"] is None
-    assert result["diagnosis_status"] == "VALIDATED"
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert result["diagnosis"]["finding"] == "NEEDS_INTENT"
     assert nodes_of(result) == ["init", "fetch_evidence"]
     assert llm.names() == ["_ExpectationsOutput"]
     assert behavior.scenario_calls == [(GOLDEN, None), (GOLDEN, None)]
     assert result["intent"] is None and result["root_cause"] is None
     diagnosis = result["diagnosis"]
-    assert "finding" not in diagnosis
     assert "시험 조건(expectations)으로 바꾸지 못해 의도 시험 없이 사전 검증했습니다" in (
         diagnosis["intent_note"]
     )
     assert reason in diagnosis["intent_note"]
-    assert diagnosis["explanation"] == diagnosis["intent_note"]
+    assert diagnosis["explanation"].startswith("담당자 의도를 시험 조건(기대 결과)으로 바꾸지 못해")
+    assert "모두 이전과 같게 처리됐습니다" in diagnosis["explanation"]
+    assert diagnosis["explanation"].endswith(diagnosis["intent_note"])
+    assert diagnosis["preflight_failed"] is False
+    assert diagnosis["intent_scope_keys"] == list(SCOPE_KEYS)
     assert diagnosis["failures"] == []
     assert "intent_dropped_checks" not in diagnosis
     assert messages_of(result)["fetch_evidence"] == (
-        "실제 snapshot과 실행 증거 수집, 의도 기대 결과 추론 실패(의도 시험 없이 사전 검증)"
+        "실제 snapshot과 실행 증거 수집, 의도 기대 결과 추론 실패(의도 시험 없이 사전 검증), "
+        "의도 확인 필요"
     )
 
 
 @pytest.mark.asyncio
 async def test_source_read_failure_during_inference_does_not_crash(behavior, monkeypatch):
-    """frontmatter 를 읽다가 도구가 실패해도 LLM 을 부르지 않고 예전처럼 사전 검증한다."""
+    """frontmatter 를 읽다 도구가 실패해도 LLM 을 부르지 않고 사전 검증한 뒤 의도 확인을 묻는다."""
 
     async def broken_get_skill(snapshot_id, skill_id):
         raise MCPToolError("get_skill", {"code": "UNAVAILABLE", "message": "down"})
@@ -1014,7 +1026,8 @@ async def test_source_read_failure_during_inference_does_not_crash(behavior, mon
     monkeypatch.setattr(nodes, "make_structured_llm", llm)
     result = await run(saved(TEXT_ONLY_INTENT))
     assert result["error"] is None
-    assert result["diagnosis_status"] == "VALIDATED"
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert result["diagnosis"]["finding"] == "NEEDS_INTENT"
     assert llm.names() == []
     assert "MCPToolError 오류" in result["diagnosis"]["intent_note"]
 
@@ -1075,13 +1088,14 @@ async def test_invalid_inferred_lines_are_dropped_with_reasons(behavior, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_only_unusable_inferred_lines_keep_old_preflight(behavior, monkeypatch):
-    """쓸 수 있는 줄이 하나도 없으면 의도 시험 없이 진행하고 버린 줄을 diagnosis 에 남긴다."""
+async def test_only_unusable_inferred_lines_stop_as_needs_intent(behavior, monkeypatch):
+    """쓸 수 있는 줄이 하나도 없으면 의도 확인 필요로 멈추고 버린 줄을 diagnosis 에 남긴다."""
     items = [SimpleNamespace(scope="payment.status == 'X'", checks=["order.shipments == 0"])]
     llm = RecordingLLM({"_ExpectationsOutput": SimpleNamespace(expectations=items)})
     monkeypatch.setattr(nodes, "make_structured_llm", llm)
     result = await run(saved(TEXT_ONLY_INTENT))
-    assert result["diagnosis_status"] == "VALIDATED"
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert result["diagnosis"]["finding"] == "NEEDS_INTENT"
     assert behavior.scenario_calls == [(GOLDEN, None), (GOLDEN, None)]
     diagnosis = result["diagnosis"]
     assert "버린 조건 1개" in diagnosis["intent_note"]
@@ -1385,7 +1399,8 @@ async def test_inferred_expectations_without_minimum_requirements_are_dropped(
 ):
     """기준본이 이미 통과하거나, scope 밖 기준 주문이 없거나, 맞는 기준 주문이 없는 의도는 버린다.
 
-    버리면 빈 의도로 보고 예전처럼 의도 시험 없이 사전 검증하며 intent_note 에 이유를 남긴다.
+    버리면 빈 의도로 보고 의도 시험 없이 사전 검증한 뒤 의도 확인 필요(finding NEEDS_INTENT)로
+    멈추며 intent_note 에 이유를 남긴다.
     """
     stub = stub_class()
     monkeypatch.setattr(nodes, "get_tools", lambda: stub)
@@ -1396,7 +1411,8 @@ async def test_inferred_expectations_without_minimum_requirements_are_dropped(
     result = await run(saved(TEXT_ONLY_INTENT))
 
     assert result["error"] is None
-    assert result["diagnosis_status"] == "VALIDATED"
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert result["diagnosis"]["finding"] == "NEEDS_INTENT"
     assert result["intent"] is None
     assert stub.scenario_calls == calls
     diagnosis = result["diagnosis"]
@@ -1803,3 +1819,57 @@ async def test_b05_deterministic_candidate_only_adds_the_missing_input(monkeypat
     assert (inputs_only["is_revert"], inputs_only["weakens_contract"]) == (False, False)
     assert [p["skill"] for p in intake["patches"]] == ["order-intake"]
     assert intake["valid"] is False
+
+
+def test_scope_on_result_value_names_the_value_in_the_reason():
+    """scope 에 처리 결과 값(order.final_status)을 쓰면 그 값 이름과 처음 값을 이유에 적는다."""
+    reason = nodes._scope_problem("order.final_status != 'REJECTED'")
+
+    assert "'order.final_status' 는 주문을 처리한 뒤에야 정해지는 값" in reason
+    assert all(key in reason for key in SCOPE_KEYS)
+    assert nodes._scope_problem("order.shipping.country != 'KR'") is None
+    other = nodes._scope_problem("order.items.length < 3")
+    assert "'order.items.length' 는 scope 로 주문을 고를 수 있는 값이 아닙니다" in other
+    assert "처리한 뒤에야" not in other
+
+
+def test_dropped_conditions_are_logged_with_reasons(caplog):
+    """버린 조건이 있으면 LLM 이 낸 원래 기대 결과와 조건마다의 이유를 로그로 남긴다."""
+    proposed = [{"scope": "order.final_status != 'REJECTED'", "checks": ["payment.status == null"]}]
+    dropped = [{"check": "scope: order.final_status != 'REJECTED'", "reason": "처리 결과 값"}]
+
+    with caplog.at_level("INFO", logger="skillops_agent.nodes"):
+        nodes._log_dropped("fetch_evidence", "예약 건은 제외한다.", proposed, dropped)
+        nodes._log_dropped("extract_intent", "의도", proposed, [])
+
+    lines = [r.getMessage() for r in caplog.records]
+    assert any("payment.status == null" in line and "예약 건은 제외한다." in line for line in lines)
+    expected = "[fetch_evidence] 버린 조건 scope: order.final_status != 'REJECTED': 처리 결과 값"
+    assert expected in lines
+    assert not any(line.startswith("[extract_intent]") for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_failing_save_without_usable_intent_stops_as_needs_intent(monkeypatch):
+    """수정본이 기준 주문에서 떨어져도 의도를 시험할 수 없으면 의도 확인 필요로 멈춘다.
+
+    후보는 만들지 않는다. 예전에는 원인 실험과 후보 생성을 세 번까지 하고 빈 의도라 모든 후보를
+    불합격시켰다. 사전 검증에서
+    떨어진 주문(failures)과 실패 여부(preflight_failed)는 diagnosis 에 남긴다.
+    """
+    stub = NullScopeStub(plain_fails=("g-05",))
+    monkeypatch.setattr(nodes, "get_tools", lambda: stub)
+    llm = RecordingLLM({"_ExpectationsOutput": SimpleNamespace(expectations=[])})
+    monkeypatch.setattr(nodes, "make_structured_llm", llm)
+    result = await run(saved(TEXT_ONLY_INTENT))
+
+    assert result["error"] is None
+    assert result["diagnosis_status"] == "EVALUATED"
+    assert result["diagnosis"]["finding"] == "NEEDS_INTENT"
+    assert nodes_of(result) == ["init", "fetch_evidence"]
+    assert llm.names() == ["_ExpectationsOutput"]
+    assert result["candidates"] == [] and result["root_cause"] is None
+    diagnosis = result["diagnosis"]
+    assert diagnosis["preflight_failed"] is True
+    assert "실패한 주문이 있습니다" in diagnosis["explanation"]
+    assert diagnosis["failures"]
