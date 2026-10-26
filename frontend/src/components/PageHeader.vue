@@ -96,7 +96,7 @@ h1 {
   cursor: help;
 }
 
-/* ● 안의 i 다. 강조색 면 위 글자라 --on-fill 을 써서 다크에서도 보인다 */
+/* ● 안의 i 다. 강조색(라임) 면 위 글자라 --on-fill(남색)을 쓴다 */
 .tip-mark {
   color: var(--on-fill);
   font-family: Georgia, 'Times New Roman', serif;
