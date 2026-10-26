@@ -207,6 +207,8 @@ def contract_map(skills: list[dict], initial_inputs: list[str], version: dict) -
             + "\n".join(lines)
             + "\n어떤 skill 도 만들지 않는 값을 inputs 에 요구하면 정적 검사에서 "
             "CONTRACT_VIOLATION(missing_inputs)으로 실행 전에 막힌다. "
+            "단계 skill 의 rules[].when 이 쓰는 값 이름이 그 skill 의 선언 inputs"
+            "(또는 그 아래 경로)가 아니어도 CONTRACT_VIOLATION(reason RULE_KEY_NOT_INPUT)이다. "
             "오류가 난 skill(입력을 못 받은 쪽)과 "
             "고칠 skill(값을 안 만들거나 없는 값을 요구한 쪽)은 다를 수 있다."
         ),

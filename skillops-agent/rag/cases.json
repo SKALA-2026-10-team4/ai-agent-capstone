@@ -38,7 +38,7 @@
       "after": "[order-intake, inventory-check, shipping-reserve, payment, notify]"
     },
     "root_skill": "order-flow",
-    "correct_fix": "order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 조회 전용 도구와 단계를 따로 설계해야 한다고 밝힌다",
+    "correct_fix": "order-flow steps 를 payment 다음에 shipping-reserve 가 오도록 되살린다. 결제 전 배송 조회가 필요하면 조회 전용 도구와 단계를 따로 설계해야 한다고 밝힌다. Skill 수정만으로 고칠 수 없으므로 개발 요청서(development_request, needs_tool)로 낸다",
     "anti_patterns": [
       "shipping-reserve 의 inputs·depends_on 에서 payment 를 지워 결제 확인 없이 배송하게 만들기"
     ],
@@ -86,7 +86,7 @@
       "after": "[inventory.available, inventory.reserved, inventory.reservation_reference]"
     },
     "root_skill": "inventory-check",
-    "correct_fix": "inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 도구 구현을 바꿔야 한다고 밝힌다",
+    "correct_fix": "inventory-check outputs 에서 도구가 돌려주지 않는 inventory.reservation_reference 를 뺀다. 그 값이 필요하면 도구 구현을 바꿔야 한다고 밝힌다. Skill 수정만으로 고칠 수 없으므로 개발 요청서(development_request, needs_tool)로 낸다",
     "anti_patterns": [
       "도구가 만들지 않는 값을 선언에 그대로 두거나 하위 skill 의 inputs 로 퍼뜨리기"
     ],
