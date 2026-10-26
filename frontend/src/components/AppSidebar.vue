@@ -132,7 +132,7 @@ watch(() => route.fullPath, countPending, { immediate: true })
   display: flex;
   flex-direction: column;
   width: var(--sidebar-w);
-  height: 100vh;
+  height: var(--view-h);
   padding: 16px 12px;
   background: var(--surface);
   border-right: 1px solid var(--border);

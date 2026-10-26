@@ -81,6 +81,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/proposals", "/api/proposals/*").authenticated()
                         // 로그인 사용자 조회, 승인 기록, 진단 기록의 목록과 상세도 로그인한 사람만 읽는다.
                         .requestMatchers("/api/auth/me", "/api/approvals", "/api/diagnoses", "/api/diagnoses/**").authenticated()
+                        // 실행 번호의 시험 주문 이름 조회(RunController)도 로그인한 사람만 읽는다.
+                        .requestMatchers(HttpMethod.GET, "/api/runs").authenticated()
                         // 그 밖의 경로(로그인, health, MCP /mcp, Swagger, 다른 담당자의 API)는 지금처럼 인증 없이 둔다.
                         // 새 API 에 로그인이 필요하면 이 줄 위에 규칙을 한 줄 더한다.
                         .anyRequest().permitAll())

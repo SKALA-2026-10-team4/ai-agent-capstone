@@ -360,6 +360,46 @@ def _with_rules(lines: list[str], meta: dict, rules: list[dict]) -> list[str]:
     return lines[:start] + rendered + lines[end:]
 
 
+# 실행 계약을 정하는 frontmatter 칸이다. repair_contract_lines 가 이 칸의 줄만 기준본으로 되돌린다.
+CONTRACT_KEYS = ("inputs", "outputs", "depends_on", "steps")
+
+
+def _contract_line(lines: list[str], key: str) -> int | None:
+    """frontmatter 줄 목록에서 '<key>:' 로 시작하는 한 줄짜리 칸의 위치를 찾는다.
+
+    값이 다음 줄로 이어지는 블록 목록(들여 쓴 '- ' 줄)이면 한 줄로 바꿀 수 없으므로 None 이다.
+    칸이 없어도 None 이다. repair_contract_lines 가 부른다.
+    """
+    for i, line in enumerate(lines):
+        if line.startswith(f"{key}:"):
+            following = lines[i + 1] if i + 1 < len(lines) else ""
+            if not line.split(":", 1)[1].strip() or following.startswith((" ", "\t")):
+                return None
+            return i
+    return None
+
+
+def repair_contract_lines(current: str, baseline: str) -> str | None:
+    """수정본 원문에서 실행 계약 칸(CONTRACT_KEYS)의 줄만 기준본 줄로 되돌린 원문을 돌려준다.
+
+    담당자가 의도를 적으면서 inputs·outputs·depends_on 을 잘못 고쳐 주문이 멈춘 경우, description 과
+    본문(의도를 적은 글)은 그대로 두고 깨진 계약만 바로잡으려는 것이다. 두 원문 모두 한 줄짜리 칸일
+    때만 바꾸고, 바꿀 것이 없거나 원문을 읽을 수 없으면 None 이다. 의도 규칙은 이어서 add_rules 가
+    얹는다. skillops-agent/skillops_agent/nodes.py 의 _encode_rule_candidates 가 부른다.
+    """
+    now, before = _split(current), _split(baseline)
+    if now is None or before is None:
+        return None
+    lines, rest = now
+    lines = list(lines)
+    for key in CONTRACT_KEYS:
+        i, j = _contract_line(lines, key), _contract_line(before[0], key)
+        if i is not None and j is not None and lines[i] != before[0][j]:
+            lines[i] = before[0][j]
+    revised = _join(lines, rest)
+    return None if revised == current else revised
+
+
 def add_rules(text: str, rules: list[dict]) -> str | None:
     """단계 skill 원문에 rules 를 넣고 조건 키를 inputs 에 더한 원문을 돌려준다.
 

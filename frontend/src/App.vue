@@ -32,7 +32,7 @@ const bare = computed(() => !!route.meta.public)
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-  min-height: 100vh;
+  min-height: var(--view-h);
 }
 
 .shell.bare {

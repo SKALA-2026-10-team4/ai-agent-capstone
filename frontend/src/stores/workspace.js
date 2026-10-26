@@ -13,7 +13,7 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { applyPatch } from 'diff'
 import { USE_MOCK } from '@/api/client'
-import { listExecutions, pinFixture, saveSkillEdits } from '@/api/orderAgent'
+import { getSnapshotFile, listExecutions, pinFixture, saveSkillEdits } from '@/api/orderAgent'
 import { loadSkillSet } from '@/api/skillSets'
 import { PATCH_FUZZ_FACTOR, PINNED_SNAPSHOT_LIMIT } from '@/config'
 import { shortId } from '@/utils/format'
@@ -58,6 +58,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // snapshot id 마다 변경 의도 입력 { text, expectations } 이다. text 는 의도 한 줄, expectations 는
   // 고급 입력 칸의 글 그대로다. frontend/src/views/SkillDraftView.vue 가 고치고, 저장하면 지운다.
   const intents = ref(saved.intents ?? {})
+  // snapshot id 마다 { 경로: { before, proposalId, candidateNo } } 이다. 제안서 후보를 초안에 적용한
+  // Skill 의 적용 직전 원문과 출처를 기억해, frontend/src/views/SkillDraftView.vue 가 그 후보에서
+  // 받아들인 줄을 칠하고 목록에 '수정안 반영' 꼬리표를 단다. applyPatchesToDraft 가 넣고, 초안이
+  // 원본으로 돌아가거나 저장되면 setDraft 와 dropSavedDrafts 가 지운다.
+  const accepted = ref(saved.accepted ?? {})
   // 최근 실행 목록(GET /api/executions 의 items)이다.
   const executions = ref([])
 
@@ -88,11 +93,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // 저장한 내용과 글자까지 같은 초안만 지우고 남은 초안을 돌려준다.
   // 요청 중에 다시 고친 파일은 남는다.
   function dropSavedDrafts(id, changes) {
-    return updateDrafts(id, (next) => {
+    const remaining = updateDrafts(id, (next) => {
       for (const [path, text] of Object.entries(changes)) {
         if (next[path] === text) delete next[path]
       }
     })
+    for (const path of Object.keys(changes)) if (!(path in remaining)) forgetAccepted(id, path)
+    return remaining
   }
 
   /**
@@ -141,12 +148,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     intents.value = rest
   }
 
-  // snapshotId, pinned, drafts, intents 가 바뀔 때마다 localStorage 에 쓴다.
+  // 지금 snapshot 에서 제안서 후보를 적용한 Skill 의 기록 { 경로: { before, proposalId, candidateNo } } 이다.
+  const currentAccepted = computed(() => accepted.value[snapshotId.value] ?? {})
+
+  // snapshot id 의 path 에 남은 후보 적용 기록을 지운다. 그 snapshot 에 기록이 없으면 그 칸도 지운다.
+  function forgetAccepted(id, path) {
+    if (!accepted.value[id]?.[path]) return
+    const { [path]: _gone, ...rest } = accepted.value[id]
+    const all = { ...accepted.value }
+    if (Object.keys(rest).length) all[id] = rest
+    else delete all[id]
+    accepted.value = all
+  }
+
+  // snapshotId, pinned, drafts, intents, accepted 가 바뀔 때마다 localStorage 에 쓴다.
   watch(
-    [snapshotId, pinned, drafts, intents],
+    [snapshotId, pinned, drafts, intents, accepted],
     () => {
       try {
-        const state = { snapshotId: snapshotId.value, pinned: pinned.value, drafts: drafts.value, intents: intents.value }
+        const state = {
+          snapshotId: snapshotId.value,
+          pinned: pinned.value,
+          drafts: drafts.value,
+          intents: intents.value,
+          accepted: accepted.value,
+        }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
       } catch {
         // 저장소를 못 쓰는 환경이면 새로고침 때 초안이 사라질 뿐이다.
@@ -297,6 +323,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (text === original) delete next[path]
       else next[path] = text
     })
+    if (text === original) forgetAccepted(id, path)
   }
 
   /**
@@ -304,9 +331,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * 하나라도 대상 파일이 없거나 기준 내용이 다르면 아무것도 바꾸지 않고 실패한 skill 목록을
    * { ok: false, failed } 로 돌려준다. 반쯤 적용된 초안을 만들지 않기 위해서다. 모두 적용되면
    * { ok: true, failed: [] } 이다. 문맥 줄 허용 오차는 frontend/src/config.js 의
-   * PATCH_FUZZ_FACTOR 다. frontend/src/views/ProposalView.vue 의 applyToDraft 가 부른다.
+   * PATCH_FUZZ_FACTOR 다. source 는 { proposalId, candidateNo } 출처이며, 주면 Skill 마다 적용 직전
+   * 원문과 함께 accepted 에 남겨 편집 화면이 받아들인 줄을 칠하게 한다.
+   * frontend/src/views/ProposalView.vue 의 applyToDraft 가 부른다.
    */
-  function applyPatchesToDraft(patches) {
+  function applyPatchesToDraft(patches, source = null) {
     const results = patches.map((p) => {
       const path = skillPath(p.skill)
       const base = draftSkills.value.find((s) => s.path === path)?.text
@@ -315,8 +344,30 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     })
     const failed = results.filter((r) => r.next === false).map((r) => r.skill)
     if (failed.length) return { ok: false, failed }
-    for (const r of results) setDraft(r.path, r.next)
+    const id = snapshotId.value
+    for (const r of results) {
+      const before = draftSkills.value.find((s) => s.path === r.path)?.text
+      setDraft(r.path, r.next)
+      if (source && r.path in (drafts.value[id] ?? {})) {
+        accepted.value = { ...accepted.value, [id]: { ...accepted.value[id], [r.path]: { before, ...source } } }
+      }
+    }
     return { ok: true, failed: [] }
+  }
+
+  /**
+   * 의도 확인이 필요해 멈춘 진단(NEEDS_INTENT)을 다시 시험할 수 있게 작업 상태를 되살린다. 기준 세트를 고르고,
+   * 수정 세트에서 바뀐 파일(paths)의 원문을 읽어 초안으로 얹고, 의도 글을 의도 칸에 채운다. 담당자는 고급
+   * 입력에 기대 결과만 적어 다시 저장하면 된다. 되살린 첫 Skill 의 경로를 돌려준다. 계획은
+   * frontend/src/utils/diagnosisView.js 의 retryPlanOf 가 만들고 frontend/src/views/DiagnosisView.vue 의
+   * retryWithExpectations 가 부른다.
+   */
+  async function restoreForRetry({ baselineId, candidateId, paths, intentText }) {
+    await select(baselineId)
+    const files = await Promise.all(paths.map((path) => getSnapshotFile(candidateId, path)))
+    paths.forEach((path, i) => setDraft(path, files[i].content))
+    if (intentText) setIntentDraft('text', intentText)
+    return paths[0] ?? null
   }
 
   /**
@@ -340,6 +391,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     updateDrafts(snapshotId.value, (next) => {
       delete next[path]
     })
+    forgetAccepted(snapshotId.value, path)
   }
 
   return {
@@ -353,6 +405,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     current,
     currentDrafts,
     currentIntent,
+    currentAccepted,
     setIntentDraft,
     draftSkills,
     knownSnapshots,
@@ -365,6 +418,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     labelOf,
     setDraft,
     applyPatchesToDraft,
+    restoreForRetry,
     init,
     removeDraft,
   }

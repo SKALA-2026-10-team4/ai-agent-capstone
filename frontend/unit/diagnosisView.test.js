@@ -17,6 +17,8 @@ import {
   findingLabel,
   findingNote,
   intentOf,
+  needsIntent,
+  retryPlanOf,
   rootCauseOf,
   shouldPollAgain,
 } from '../src/utils/diagnosisView.js'
@@ -92,7 +94,7 @@ test('candidateVerdict: true 통과 · false 미통과 · 그 밖 미완료', ()
 })
 
 test('findingLabel·findingNote: INTENT_NOT_REALIZED 는 의도가 아직 실행되지 않음, 모르는 값은 그대로', () => {
-  assert.deepStrictEqual(Object.keys(FINDING), ['INTENT_NOT_REALIZED', 'NEEDS_TOOL'])
+  assert.deepStrictEqual(Object.keys(FINDING), ['INTENT_NOT_REALIZED', 'NEEDS_TOOL', 'NEEDS_INTENT'])
   assert.equal(findingLabel('INTENT_NOT_REALIZED'), '의도가 아직 실행되지 않음')
   assert.ok(findingNote('INTENT_NOT_REALIZED').includes('실행 규칙(rules)'))
   assert.equal(findingLabel('SOMETHING_NEW'), 'SOMETHING_NEW')
@@ -120,4 +122,30 @@ test('findingLabel·findingNote: NEEDS_TOOL 은 도구 개발 필요(2.11 절)',
   assert.equal(findingLabel('NEEDS_TOOL'), '도구 개발 필요')
   assert.ok(findingNote('NEEDS_TOOL').includes('SKILL.md 수정만으로는 고칠 수 없어요'))
   assert.ok(findingNote('NEEDS_TOOL').includes('개발 요청서'))
+})
+
+test('needsIntent·retryPlanOf: 의도 확인 필요 진단을 가려내고 다시 시험할 내용을 만든다', () => {
+  const run = {
+    diagnosis_status: 'EVALUATED',
+    diagnosis: { finding: 'NEEDS_INTENT' },
+    baseline_snapshot_id: 'base',
+    snapshot_id: 'cand',
+    trigger: { changed_paths: ['skills/payment/SKILL.md'], intent: { text: '해외 주문 보류' } },
+  }
+  assert.equal(needsIntent(run), true)
+  assert.equal(needsIntent({ diagnosis_status: 'EVALUATED', diagnosis: { finding: 'NEEDS_TOOL' } }), false)
+  assert.equal(needsIntent(null), false)
+  assert.equal(findingLabel('NEEDS_INTENT'), '의도 확인 필요')
+  assert.deepStrictEqual(retryPlanOf(run), {
+    baselineId: 'base',
+    candidateId: 'cand',
+    paths: ['skills/payment/SKILL.md'],
+    intentText: '해외 주문 보류',
+  })
+  assert.deepStrictEqual(retryPlanOf({ trigger: { baseline_snapshot_id: 'b', candidate_snapshot_id: 'c' } }), {
+    baselineId: 'b',
+    candidateId: 'c',
+    paths: [],
+    intentText: '',
+  })
 })

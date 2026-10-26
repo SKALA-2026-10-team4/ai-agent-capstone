@@ -15,6 +15,7 @@
 // (frontend/src/components/CandidateTags.vue)를 붙인다. 종류 이름은 service 가 쓴 카드 제목에 이미
 // 있으므로 뺀다. 본문은 service 가 쓴 글 그대로 두고, 꼬리표만 Agent 원본 제안서의 후보 칸
 // (is_revert, weakens_contract)에서 읽는다.
+// names 는 사실 칸의 실행 번호와 Skill 세트 id 이름표이며 ProposalFacts 에 그대로 넘긴다.
 import CandidateTags from './CandidateTags.vue'
 import ProposalFacts from './ProposalFacts.vue'
 
@@ -26,6 +27,7 @@ const props = defineProps({
   selectedNo: { type: Number, default: null },
   canSelect: { type: Boolean, default: true },
   candidates: { type: Array, default: () => [] },
+  names: { type: Object, default: () => ({}) },
 })
 // 후보 번호로 원본 후보를 찾는다. 없으면 null 이라 꼬리표를 그리지 않는다.
 const candidateOf = (no) => props.candidates.find((c) => c.candidate_no === no) ?? null
@@ -43,7 +45,7 @@ defineEmits(['select'])
       <ul v-if="section.items.length" class="items">
         <li v-for="item in section.items" :key="item"><code>{{ item }}</code></li>
       </ul>
-      <ProposalFacts v-if="section.facts.length" :facts="section.facts" />
+      <ProposalFacts v-if="section.facts.length" :facts="section.facts" :names="names" />
       <div v-if="section.parts.length" class="parts">
         <article
           v-for="part in section.parts"
@@ -55,7 +57,7 @@ defineEmits(['select'])
           <h3>{{ part.heading }}</h3>
           <CandidateTags :candidate="candidateOf(part.candidate_no)" :show-kind="false" />
           <p v-for="(text, j) in part.paragraphs" :key="`q${j}`" class="para">{{ text }}</p>
-          <ProposalFacts v-if="part.facts.length" :facts="part.facts" stop-click />
+          <ProposalFacts v-if="part.facts.length" :facts="part.facts" :names="names" stop-click />
           <button
             type="button"
             class="ghost sm pick"

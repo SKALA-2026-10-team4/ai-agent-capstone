@@ -18,6 +18,7 @@ skillops-agent/skillops_agent/config.py 에서 바꾼다. 요청 검증 규칙�
 validate_references 가 차례로 부르는 메서드에 있다.
 """
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -33,6 +34,21 @@ from .run_store import RunStore
 from .state import DiagnosisStatus
 
 
+def _configure_logging() -> None:
+    """skillops_agent 패키지의 INFO 로그를 표준 오류로 내보낸다.
+
+    uvicorn 은 자기 로거만 설정하므로 그대로 두면 skillops-agent/skillops_agent/nodes.py 의
+    logger.info(의도 조건을 버린 이유 등)가 보이지 않는다. 처리기가 이미 있으면 다시 붙이지
+    않는다. 아래 lifespan 이 앱 시작 때 부른다.
+    """
+    package = logging.getLogger("skillops_agent")
+    package.setLevel(logging.INFO)
+    if not package.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        package.addHandler(handler)
+
+
 @asynccontextmanager
 async def lifespan(app):
     """앱이 시작할 때 지난 프로세스에서 끝나지 못한 진단을 ERROR 로 정리한다.
@@ -40,8 +56,9 @@ async def lifespan(app):
     백그라운드 파이프라인은 이 프로세스 메모리에서만 돌기 때문에 재시작하면 이어서 돌릴 방법이 없다.
     그래서 RunStore().recover() 로 QUEUED 나 RUNNING 으로 남은 실행을 ERROR 와 중단 문구로 바꿔,
     끝나지 않을 실행이 진행 중으로 남지 않게 한다. FastAPI 가 아래 app 생성 때 lifespan 으로
-    등록한다.
+    등록한다. 로그 출력도 여기서 _configure_logging 으로 켠다.
     """
+    _configure_logging()
     RunStore().recover()
     yield
 

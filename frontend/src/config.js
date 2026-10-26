@@ -30,3 +30,9 @@ export const PINNED_SNAPSHOT_LIMIT = 12
 // fuzzFactor)이다. frontend/src/stores/workspace.js 의 applyPatchesToDraft 가 쓴다. 0 이면 문맥
 // 줄이 모두 같아야 적용된다. 지울 줄과 삽입 바로 앞뒤의 문맥 줄은 이 값과 상관없이 같아야 한다.
 export const PATCH_FUZZ_FACTOR = 1
+
+// 창 폭에 맞춰 화면 전체를 비례 확대하는 기준이다. 창 폭이 baseWidth(px) 이하면 배율 1 로 지금
+// 모양 그대로 두고, 더 넓으면 창 폭 / baseWidth 만큼 키우되 maxZoom 에서 멈춘다. 좁은 창은
+// frontend/src/assets/base.css 와 각 화면의 media query(900px, 720px)가 따로 맡으므로 줄이지 않는다.
+// frontend/src/utils/viewportZoom.js 의 zoomFor 와 installViewportZoom 이 읽는다.
+export const VIEWPORT_ZOOM = { baseWidth: 1440, maxZoom: 1.5 }

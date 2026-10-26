@@ -1,0 +1,9 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "diagnose": "./skillops_agent/studio.py:diagnose_graph",
+    "trigger": "./skillops_agent/studio.py:trigger_graph"
+  },
+  "env": "../.env",
+  "python_version": "3.11"
+}

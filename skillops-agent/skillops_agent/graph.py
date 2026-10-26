@@ -136,11 +136,11 @@ def route_evidence(state: AgentState) -> str:
     fetch_evidence 가 VALIDATED, BASELINE_FAILED, VALIDATION_FAILED, NO_SKILL_CHANGES,
     INTENT_VIOLATION, EVALUATED 처럼 RUNNING 이 아닌 상태를 남겼으면 진단할 것이 없으므로 END 로
     간다. 사전 검증이 결론을 낸 저장 직후 요청과 diagnosis_only 진단이 여기서 끝난다. 사전 검증이
-    실패한 실행을 찾았으면 상태가 RUNNING 그대로라 진단을 잇는다. diagnose 는 hypothesize 로
-    간다. 사전 검증이 의도 미실현(diagnosis.finding=INTENT_NOT_REALIZED)을 남겼으면 fetch_evidence
-    가 root_cause 까지 정했으므로 intent_gap 으로 extract_intent 에 바로 간다. 실행 오류 없이 결과만
-    다른 사전 검증도 RUNNING 이라 diagnose 로 원인 실험을 잇는다. 단계 한도는 보지 않는다.
-    도구가 필요한 수정(_needs_tool)은 원인 실험을 그대로 하므로 diagnose 로 가고, 의도 미실현처럼
+    실패한 실행을 찾았으면 상태가 RUNNING 그대로라 진단을 잇는다. diagnose 는 hypothesize 로 간다.
+    사전 검증이 의도 미실현(diagnosis.finding=INTENT_NOT_REALIZED)을 남겼으면 fetch_evidence 가
+    root_cause 까지 정했으므로 intent_gap 으로 extract_intent 에 바로 간다. 실행 오류 없이 결과만
+    다른 사전 검증도 RUNNING 이라 diagnose 로 원인 실험을 잇는다. 단계 한도는 보지 않는다. 도구가
+    필요한 수정(_needs_tool)은 원인 실험을 그대로 하므로 diagnose 로 가고, 의도 미실현처럼
     fetch_evidence 가 이미 root_cause 를 정했으면 needs_tool 로 save_proposal 에 바로 간다.
     """
     if state.get("diagnosis_status") != DiagnosisStatus.RUNNING:

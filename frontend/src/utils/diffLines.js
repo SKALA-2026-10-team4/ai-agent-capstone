@@ -1,7 +1,8 @@
 // diff 를 줄 단위로 계산하는 순수 함수 모음이다. unified diff 문자열이나
 // before 와 after 텍스트를 받아 줄 목록, 나란히 보기의 짝, 추가와 삭제 통계를
 // 만든다. frontend/src/components/DiffView.vue 가 toDiffLines, pairRows,
-// countChanges 를 쓰고, frontend/unit/diffLines.test.js 가 결과를 고정한다.
+// countChanges 를 쓰고, frontend/src/views/SkillDraftView.vue 가 markLines 로 편집기 줄을 칠한다.
+// frontend/unit/diffLines.test.js 가 결과를 고정한다.
 import { diffLines } from 'diff'
 
 /**
@@ -78,3 +79,39 @@ export const countChanges = (lines) => ({
   add: lines.filter((l) => l.kind === 'add').length,
   del: lines.filter((l) => l.kind === 'del').length,
 })
+
+/**
+ * after 원문의 줄마다 before 와 비교한 표시를 붙인다. 편집기 뒤 배경 층이 수정안에서 받아들인 줄을
+ * 칠할 때 쓴다. 줄은 { text, mark, cut } 이다. mark 는 지운 줄 바로 뒤에 들어온 줄이면 'change',
+ * 새로 끼어든 줄이면 'add', 그대로인 줄이면 null 이다. cut 은 그 줄 바로 앞에서 before 의 줄이 지워지고
+ * 대신 들어온 줄이 없을 때 참이다. 파일 끝에서 지워진 줄은 마지막 줄의 cut 으로 보인다.
+ * 통계 { add, change, cut } 도 함께 돌려준다. frontend/src/views/SkillDraftView.vue 가 부른다.
+ */
+export function markLines(before, after) {
+  const lines = []
+  let pendingCut = false
+  let replacing = false
+  for (const part of diffLines(before ?? '', after ?? '')) {
+    const texts = part.value.replace(/\n$/, '').split('\n')
+    if (part.removed) {
+      pendingCut = true
+      replacing = true
+      continue
+    }
+    for (const text of texts) {
+      const mark = part.added ? (replacing ? 'change' : 'add') : null
+      lines.push({ text, mark, cut: pendingCut && !part.added })
+      pendingCut = false
+    }
+    replacing = false
+  }
+  if (pendingCut && lines.length) lines[lines.length - 1].cut = true
+  return {
+    lines,
+    stats: {
+      add: lines.filter((l) => l.mark === 'add').length,
+      change: lines.filter((l) => l.mark === 'change').length,
+      cut: lines.filter((l) => l.cut).length,
+    },
+  }
+}

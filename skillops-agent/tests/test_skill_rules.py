@@ -363,3 +363,36 @@ def test_weakens_contract_follows_the_shared_v3_definition():
     assert rules.weakens_contract({"payment": changed_when}, current, []) is True
     spaced = with_rule.replace('"order.total >= 1"', '" order.total >= 1 "')
     assert rules.weakens_contract({"payment": spaced}, current, []) is False
+
+
+INTAKE = (
+    "---\nname: order-intake\ndescription: 검수하고 해외 배송 주문은 보류한다\n"
+    "inputs: [order.id, order.shipping]\noutputs: [order.id]\ndepends_on: [inventory-check]\n"
+    "owner: 주문운영팀\nversion: 1\n---\n# 본문\n\n해외 배송 주문은 보류합니다.\n"
+)
+INTAKE_BASE = (
+    "---\nname: order-intake\ndescription: 검수한다\n"
+    "inputs: [order.id, order.shipping]\noutputs: [order.id, order.total]\ndepends_on: []\n"
+    "owner: 주문운영팀\nversion: 1\n---\n# 본문\n\n검수합니다.\n"
+)
+
+
+def test_repair_contract_lines_restores_only_contract_keys():
+    """계약 칸(outputs, depends_on)만 기준본 줄로 되돌리고 description 과 본문은 그대로 둔다."""
+    fixed = rules.repair_contract_lines(INTAKE, INTAKE_BASE)
+
+    assert "outputs: [order.id, order.total]" in fixed
+    assert "depends_on: []" in fixed
+    assert "description: 검수하고 해외 배송 주문은 보류한다" in fixed
+    assert fixed.endswith("해외 배송 주문은 보류합니다.\n")
+    assert rules.repair_contract_lines(fixed, INTAKE_BASE) is None
+
+
+def test_repair_contract_lines_skips_block_lists_and_unreadable_text():
+    """값이 블록 목록으로 이어지는 칸은 바꾸지 않고, 읽을 수 없는 원문이면 None 이다."""
+    block = INTAKE.replace("outputs: [order.id]\n", "outputs:\n  - order.id\n")
+    fixed = rules.repair_contract_lines(block, INTAKE_BASE)
+
+    assert "outputs:\n  - order.id\n" in fixed
+    assert "depends_on: []" in fixed
+    assert rules.repair_contract_lines("본문만 있음", INTAKE_BASE) is None

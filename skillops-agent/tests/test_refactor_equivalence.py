@@ -159,3 +159,39 @@ async def test_node_prompt_is_loaded_before_style(stub, monkeypatch, node):
     }
     await getattr(nodes, node)(state)
     assert loaded == [node, "style"]
+
+
+OVERSEAS_INTENT = {"text": "해외 배송 주문은 보류한다", "expectations": []}
+
+
+@pytest.mark.parametrize("owner_intent", [None, OVERSEAS_INTENT])
+async def test_candidate_prompt_puts_owner_intent_first_only_when_given(stub, owner_intent):
+    """담당자 의도가 있으면 후보 프롬프트를 의도 실행으로 시작하고 담당자 변경을 되살리지 않게 한다.
+
+    의도가 없으면 예전처럼 장애 수정으로 시작하고 그 제약을 넣지 않는다. 어느 쪽이든 하위 경로를
+    inputs 에 더하지 말라는 rules 안내는 들어간다.
+    """
+    state = {
+        "root_cause": {"skill": "inventory-check"},
+        "intent": {},
+        "diff": {},
+        "candidate_retry": 0,
+        "candidates": [],
+        "snapshot_id": StubMCPTools.CANDIDATE,
+        "trigger": {"intent": owner_intent} if owner_intent else {},
+        "skill_versions": {"inventory-check": 1},
+        "step_count": 0,
+        "events": [],
+    }
+    with pytest.raises(Exception, match="LLM returned no candidates"):
+        await nodes.generate_candidates(state)
+
+    prompt = stub.prompts[-1]
+    assert prompt.index("## 담당자 의도") < prompt.index("## 확정된 원인")
+    assert "하위 경로(order.shipping.country)는 inputs 에 따로 더하지 마세요" in prompt
+    if owner_intent:
+        assert prompt.startswith(nodes._INTENT_MISSION)
+        assert "기준본 내용으로 되살리지" in prompt
+    else:
+        assert prompt.startswith(nodes._FAILURE_MISSION)
+        assert "기준본 내용으로 되살리지" not in prompt

@@ -27,10 +27,12 @@
 // frontend/src/components/DevelopmentRequestCard.vue 로 요청서 카드를 함께 보여 준다.
 // mock 모드(frontend/src/api/client.js 의 USE_MOCK)에는 진단 경로가 없으므로 아무것도 읽지 않고
 // 안내만 보여 준다.
+// 상태가 NEEDS_INTENT('의도 확인 필요')면 시험 조건으로 쓰지 못한 조건과 이유, 범위에 쓸 수 있는 값을 보여 주고,
+// '기대 결과 적고 다시 시험' 버튼으로 같은 수정을 초안으로 되살려 Skill 편집 화면(고급 입력을 펼친 채)으로 보낸다.
 // frontend/tests/diagnosis.spec.js 가 상태 제목, '진행 로그' 제목, '전체 기록' 링크를 확인한다.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Sparkles } from 'lucide-vue-next'
+import { MessageCircleQuestion, Sparkles } from 'lucide-vue-next'
 import { USE_MOCK } from '@/api/client'
 import { getChangeDelivery, getDiagnosis, listDiagnoses } from '@/api/diagnoses'
 import CandidateTags from '@/components/CandidateTags.vue'
@@ -48,12 +50,15 @@ import {
   findingLabel,
   findingNote,
   intentOf,
+  needsIntent,
+  retryPlanOf,
   rootCauseOf,
   shouldPollAgain,
 } from '@/utils/diagnosisView'
 import { developmentRequestOf } from '@/utils/developmentRequest'
 import { overrideRows, rootCauseKind, rootCauseKindLabel } from '@/utils/proposalView'
 import { executionPath } from '@/utils/traceRun'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const route = useRoute()
 const router = useRouter()
@@ -95,6 +100,34 @@ const devContext = computed(() => ({
  * template 의 실행 번호 링크(원인 실험, 의도 검증 실패, 후보 증거, 저장 직후 검증)가 모두 쓴다.
  */
 const executionLink = (id) => executionPath(id) ?? `/executions/${id}`
+
+const ws = useWorkspaceStore()
+// 의도 확인이 필요한 진단에서 시험 조건으로 쓰지 못한 조건 { check, reason } 목록이다.
+const droppedChecks = computed(() => run.value?.diagnosis?.intent_dropped_checks ?? [])
+// 기대 결과 범위에 쓸 수 있는 값 이름이다. Agent 가 diagnosis.intent_scope_keys 로 알려 준다.
+const scopeKeys = computed(() => run.value?.diagnosis?.intent_scope_keys ?? [])
+// '기대 결과 적고 다시 시험' 을 처리하는 중인지와 그 실패 문구다.
+const retrying = ref(false)
+const retryError = ref(null)
+
+/**
+ * 의도 확인이 필요한 진단의 수정을 초안으로 되살리고 Skill 편집 화면으로 간다. 기준 세트를 고르고 수정 세트의
+ * 바뀐 파일과 의도 글을 다시 채우는 일은 frontend/src/stores/workspace.js 의 restoreForRetry 가 한다.
+ * 주소의 advanced=1 이 편집 화면의 고급 입력(기대 결과) 칸을 펼친다. '기대 결과 적고 다시 시험' 버튼이 부른다.
+ */
+async function retryWithExpectations() {
+  retrying.value = true
+  retryError.value = null
+  try {
+    const path = await ws.restoreForRetry(retryPlanOf(run.value))
+    const skill = path?.split('/')[1] ?? ''
+    await router.push({ path: `/skills/${skill}`, query: { advanced: '1' } })
+  } catch (e) {
+    retryError.value = e.message
+  } finally {
+    retrying.value = false
+  }
+}
 
 /**
  * 진단 한 건(thread)을 읽어 run 에 넣는다. 주소에 threadId 가 있으면 loadForRoute 가 부른다.
@@ -227,6 +260,19 @@ onBeforeUnmount(stopPolling)
       <p v-if="run.proposal?.storage_status === 'SAVED'">제안서를 저장했어요. 운영자가 검토하면 승인 여부가 정해져요.</p>
       <RouterLink v-if="run.proposal?.id" :to="`/proposals/${run.proposal.id}`">제안서 보기</RouterLink>
     </section>
+    <section v-if="needsIntent(run)" class="card needs-intent">
+      <h2><MessageCircleQuestion :size="18" /> 기대 결과를 알려 주세요</h2>
+      <p>SkillOps 가 의도 글을 실제로 시험할 조건으로 바꾸지 못해 수정안을 만들지 않고 멈췄어요. 기대 결과를 한 줄로 적어 주면 그대로 시험해요.</p>
+      <ul v-if="droppedChecks.length" class="dropped">
+        <li v-for="(d, i) in droppedChecks" :key="i"><code>{{ d.check }}</code><span>{{ d.reason }}</span></li>
+      </ul>
+      <p v-if="scopeKeys.length" class="small">범위에 쓸 수 있는 값: <code v-for="k in scopeKeys" :key="k">{{ k }}</code></p>
+      <p class="small muted">예: <code>order.shipping.country != 'KR' =&gt; order.final_status == 'HOLD'; payment.status == null</code></p>
+      <div class="row">
+        <button :disabled="retrying" @click="retryWithExpectations">{{ retrying ? '준비 중…' : '기대 결과 적고 다시 시험' }}</button>
+      </div>
+      <p v-if="retryError" class="error-text" role="alert">{{ retryError }}</p>
+    </section>
     <section class="card">
       <h2>진행 로그</h2>
       <ol>
@@ -294,4 +340,37 @@ li { margin-bottom: 10px; }
 time { color: var(--muted); font-size: .8rem; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 blockquote { margin: 8px 0 0; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.needs-intent {
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+
+.needs-intent h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--warn);
+}
+
+.dropped {
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-sm);
+}
+
+.dropped li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+}
+
+.needs-intent code + code {
+  margin-left: 4px;
+}
 </style>

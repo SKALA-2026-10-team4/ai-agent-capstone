@@ -56,6 +56,17 @@
   --focus: 0 0 0 3px rgb(250 255 220 / 22%);
 
   --sidebar-w: 232px;
+
+  /* 화면 배율. frontend/src/utils/viewportZoom.js 가 창 폭에 맞춰 html 요소에 다시 쓴다 */
+  --app-zoom: 1;
+  /* 배율을 걸어도 창 높이 한 화면만큼인 높이다. zoom 은 vh 도 함께 키우므로 배율로 나눈다.
+     100vh 대신 이 값을 쓴다(frontend/src/App.vue, AppSidebar.vue, ProposalListView.vue, ExecutionListView.vue) */
+  --view-h: calc(100vh / var(--app-zoom));
+}
+
+/* 창 폭에 맞춰 화면 전체를 비례 확대한다. 기준 폭과 상한은 frontend/src/config.js 의 VIEWPORT_ZOOM 이다 */
+#app {
+  zoom: var(--app-zoom);
 }
 
 * {
