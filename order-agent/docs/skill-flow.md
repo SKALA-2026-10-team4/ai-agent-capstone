@@ -216,4 +216,3 @@ version: 2
 - 조건에 쓰려는 값이 그 단계 입력에 없으면 inputs에 더한다. 앞 단계가 공급하지 않는 키를 더하면 기존 입력 공급 검사(missing_inputs)에 걸린다.
 - 모델 결정 질문 JSON에는 rules를 싣지 않는다. 규칙은 Harness가 이미 평가했기 때문이다.
 - trace 모양과 주문 단계 기록은 [agent-evidence.md](agent-evidence.md)의 "실행 규칙과 RULE_MATCHED" 절을 따른다.
-

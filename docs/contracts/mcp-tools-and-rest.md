@@ -21,7 +21,7 @@
 
 ## MCP (service, SkillOps Agent 가 부른다)
 
-전송은 Streamable HTTP `POST http://localhost:8080/mcp` 다. `SKILLOPS_SERVICE_TOKEN` 이 있으면 `/mcp` 요청마다 같은 값의 `X-Service-Token` 헤더가 필요하고(없거나 다르면 401 `{code: UNAUTHORIZED, message}`), 비어 있으면 열어 두고 기동 때 경고를 남긴다(`service/src/main/java/com/capstone4/skillops/auth/McpServiceTokenFilter.java`). 도구는 7개다.
+전송은 Streamable HTTP `POST http://localhost:8080/mcp` 다. `SKILLOPS_SERVICE_TOKEN` 이 있으면 `/mcp` 요청마다 같은 값의 `X-Service-Token` 헤더가 필요하고(없거나 다르면 401 `{code: UNAUTHORIZED, message}`), 비어 있으면 열어 두고 기동 때 경고를 남긴다(`service/src/main/java/com/capstone4/skillops/auth/McpServiceTokenFilter.java`). 도구는 기존 7개와 #88 평가 도구 4개를 합해 11개다. 새 평가 도구는 JWT를 요구하지 않지만 같은 MCP 서비스 토큰 정책을 따른다. 새 평가 REST는 JWT 권한을 유지하며 [평가 계약](evaluation-backend.md)을 따른다.
 
 | 도구 | 인자 | 구현 |
 |---|---|---|

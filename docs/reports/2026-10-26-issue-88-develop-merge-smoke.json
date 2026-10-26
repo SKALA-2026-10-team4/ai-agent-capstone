@@ -1,0 +1,226 @@
+{
+  "success": {
+    "evaluation_id": "a65af339-aee0-4e6e-a4b8-ff13de72832e",
+    "attempt_id": "ae0c4ba8-5c3b-4277-ad10-993ff465db98",
+    "status": "QUEUED",
+    "status_url": "/api/evaluations/a65af339-aee0-4e6e-a4b8-ff13de72832e"
+  },
+  "report": {
+    "evaluation_id": "a65af339-aee0-4e6e-a4b8-ff13de72832e",
+    "attempt_id": "ae0c4ba8-5c3b-4277-ad10-993ff465db98",
+    "status": "SUCCEEDED",
+    "verdict": "PASS",
+    "verification_status": "SERVER_VERIFIED",
+    "planned": 6,
+    "completed": 6,
+    "paired": 3,
+    "regression_trials": 0,
+    "regression_case_ids": [],
+    "baseline": {
+      "task_success": {
+        "numerator": 0,
+        "denominator": 3,
+        "value": 0.0
+      },
+      "selection_accuracy": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "recall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "precision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "elapsed_ms": 484,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": "0",
+      "usage_complete": false,
+      "success_by_round": [
+        0.0
+      ],
+      "success_variance": null
+    },
+    "candidate": {
+      "task_success": {
+        "numerator": 3,
+        "denominator": 3,
+        "value": 1.0
+      },
+      "selection_accuracy": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "recall": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "precision": {
+        "numerator": 0,
+        "denominator": 0,
+        "value": null
+      },
+      "elapsed_ms": 339,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_usd": "0",
+      "usage_complete": false,
+      "success_by_round": [
+        1.0
+      ],
+      "success_variance": null
+    },
+    "reasons": [],
+    "policy_version": "order-functional-v1+fixed-policy-v1",
+    "grader_version": "scenario-grader-v1",
+    "safety": "UNMEASURABLE",
+    "input": {
+      "baseline_snapshot_id": "fec78c4f-a724-4e4e-8a3f-2a1868fd0914",
+      "baseline_hash": "fb29343a83ed303cfff12470435d74b2f344094ed82e968f68ae37278b08b259",
+      "candidate_snapshot_id": "d71c53ac-de05-42ef-8142-9e87ed6de4da",
+      "candidate_hash": "199152c7964ccfcae38541194a563b6c962779385a57f1f67ff802ade508a41a",
+      "evaluation_set_id": "77263a5d-f21d-4943-b2bc-8a04fc34057c",
+      "evaluation_set_version": 1,
+      "evaluation_set_hash": "508d96f7c8af1e8b6467d3831b6d779a27c533d79e2408779f5dac53ff25c4f5",
+      "environment_ref": "eval-88-merge-isolated-v1",
+      "runner_kind": "ORDER_HARNESS",
+      "model_mode": "FIXED",
+      "repeat": 1
+    }
+  },
+  "failure": {
+    "evaluation_id": "16fd5065-4199-4f56-8052-b650b792797e",
+    "attempt_id": "8d4ff562-e214-4c9f-a3e0-fc1caecf650d",
+    "status": "QUEUED",
+    "status_url": "/api/evaluations/16fd5065-4199-4f56-8052-b650b792797e"
+  },
+  "failure_verdict": "FAIL",
+  "proposal_id": "p_fa03754c88d44ebd9d4d3d3b43744b78",
+  "approval": "approved",
+  "mcp_tools": [
+    "apply_patch",
+    "create_workspace",
+    "diff_skill",
+    "get_dependency_graph",
+    "get_evaluation",
+    "get_evaluation_report",
+    "ping",
+    "run_scenarios",
+    "save_proposal",
+    "save_proposal_v2",
+    "submit_evaluation"
+  ],
+  "inventory_restored": true,
+  "live_failures_unchanged": true,
+  "llm_api_calls": 0,
+  "source_commit": "5850783+35c0a65-merge",
+  "mcp_anonymous_tools_verified": true,
+  "mcp_idempotency_verified": true,
+  "rest_mcp_scope_separated": true,
+  "mcp_evaluation": {
+    "evaluation_id": "a2058ce9-68de-4408-ae92-8429b3d21619",
+    "attempt_id": "3d5c1f72-f606-421b-b690-d77390304fe0",
+    "status": "SUCCEEDED",
+    "reason": null,
+    "planned": 6,
+    "completed": 6,
+    "baseline_snapshot_id": "fec78c4f-a724-4e4e-8a3f-2a1868fd0914",
+    "candidate_snapshot_id": "d71c53ac-de05-42ef-8142-9e87ed6de4da",
+    "set_hash": "508d96f7c8af1e8b6467d3831b6d779a27c533d79e2408779f5dac53ff25c4f5",
+    "runner_kind": "ORDER_HARNESS",
+    "model_mode": "FIXED",
+    "created_at": "2026-10-26T00:22:26.276866Z"
+  },
+  "rest_access_checks": [
+    {
+      "path": "/api/evaluations",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/verified-proposals",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluation-sets/77263a5d-f21d-4943-b2bc-8a04fc34057c/review",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluations/a65af339-aee0-4e6e-a4b8-ff13de72832e/attempts/ae0c4ba8-5c3b-4277-ad10-993ff465db98/cancel",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluations/a65af339-aee0-4e6e-a4b8-ff13de72832e/attempts/ae0c4ba8-5c3b-4277-ad10-993ff465db98/retries",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/proposals/p_fa03754c88d44ebd9d4d3d3b43744b78/approve",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/proposals/p_fa03754c88d44ebd9d4d3d3b43744b78/reject",
+      "identity": "anonymous",
+      "status": 401
+    },
+    {
+      "path": "/api/evaluations",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/verified-proposals",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluation-sets/77263a5d-f21d-4943-b2bc-8a04fc34057c/review",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluations/a65af339-aee0-4e6e-a4b8-ff13de72832e/attempts/ae0c4ba8-5c3b-4277-ad10-993ff465db98/cancel",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/evaluations/a65af339-aee0-4e6e-a4b8-ff13de72832e/attempts/ae0c4ba8-5c3b-4277-ad10-993ff465db98/retries",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/proposals/p_fa03754c88d44ebd9d4d3d3b43744b78/approve",
+      "identity": "OWNER",
+      "status": 403
+    },
+    {
+      "path": "/api/proposals/p_fa03754c88d44ebd9d4d3d3b43744b78/reject",
+      "identity": "OWNER",
+      "status": 403
+    }
+  ],
+  "anonymous_rest_read_denied": true,
+  "owner_rest_read_allowed": true,
+  "anonymous_failed_proposal_refused": true,
+  "approved_proposal_reused": true,
+  "persisted_report_equal": true,
+  "existing_python_mcp_smoke_passed": true,
+  "actual_execution_count": 18,
+  "all_executions_fixed": true,
+  "all_executions_dry_run": true,
+  "verified_date_kst": "2026-10-26",
+  "merge_head": "35c0a65",
+  "branch_head": "5850783"
+}

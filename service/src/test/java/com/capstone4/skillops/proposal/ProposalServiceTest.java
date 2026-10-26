@@ -90,6 +90,45 @@ class ProposalServiceTest {
         assertThat(stored.getDecidedAt()).isNull();
     }
 
+    /** 실제 실패는 서버 불합격으로 교정하고 실패 후보를 진단 기록에 보존한다. */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"g-01", "g-02", ProposalTestBench.REPRO})
+    void storedFailureOverridesPassingClaim(String scenarioId) {
+        ledger.record("w_c1", scenarioId, "r_c1000000000000000000000000000002", false);
+
+        SavedProposal saved = service.save(f1());
+
+        assertThat(saved.status()).isEqualTo("no_valid_fix");
+        assertThat(saved.validCandidateNos()).isEmpty();
+        assertThat(candidate(captured().getPayload(), 0)).containsEntry("valid", false);
+        assertThat(captured().getPayload().get("server_overrides")).isNotNull();
+    }
+
+    /** valid가 없어도 서버 장부로 다시 계산하여 실제 실패를 합격시키지 않는다. */
+    @Test
+    void storedFailureOverridesClaimWithoutValid() {
+        Map<String, Object> proposal = f1();
+        candidate(proposal, 0).remove("valid");
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", false);
+
+        assertThat(service.save(proposal).validCandidateNos()).isEmpty();
+        assertThat(candidate(captured().getPayload(), 0)).containsEntry("valid", false);
+    }
+
+    /** 기존 MCP도 실제 실패 후보를 오류로 버리지 않고 불합격으로 저장한다. */
+    @Test
+    void legacyMcpPreservesFailedCandidateWithServerVerdict() {
+        ledger.record("w_c1", "g-01", "r_c1000000000000000000000000000001", false);
+
+        var result = new com.capstone4.skillops.mcp.ProposalTools(service).saveProposal(f1());
+
+        assertThat(result.isError()).isFalse();
+        String json = ((io.modelcontextprotocol.spec.McpSchema.TextContent) result.content().getFirst()).text();
+        assertThat(json).contains("no_valid_fix");
+        assertThat(captured().getValidCandidateNos()).isEmpty();
+        assertThat(candidate(captured().getPayload(), 0)).containsEntry("valid", false);
+    }
+
     @Test
     void sameThreadReturnsTheFirstProposal() {
         Proposal first = Proposal.create("p_first", "5b0c2f3e-8f0a-4a57-9a3c-1c2d3e4f5a6b", "proposed", f1(), Map.of(),

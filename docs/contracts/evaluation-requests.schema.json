@@ -1,0 +1,469 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillOps evaluation requests v1.0",
+  "$defs": {
+    "SetInput": {
+      "type": "object",
+      "required": [
+        "name",
+        "cases"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target_skill": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": [
+              "case_id",
+              "suite",
+              "order",
+              "baseline_expectation",
+              "candidate_expectation"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "case_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "suite": {
+                "enum": [
+                  "REGRESSION",
+                  "REPRODUCTION",
+                  "INTENT",
+                  "NEW_SKILL"
+                ]
+              },
+              "order": {
+                "type": "object",
+                "minProperties": 1,
+                "properties": {
+                  "customer": {},
+                  "items": {},
+                  "payment_method": {},
+                  "shipping": {}
+                },
+                "additionalProperties": false
+              },
+              "baseline_expectation": {
+                "type": "object",
+                "properties": {
+                  "skills_called": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "final_status": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shipments": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "assertions": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "required": [
+                      "final_status"
+                    ],
+                    "properties": {
+                      "final_status": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "skills_called"
+                    ],
+                    "properties": {
+                      "skills_called": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "shipments"
+                    ],
+                    "properties": {
+                      "shipments": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "assertions"
+                    ],
+                    "properties": {
+                      "assertions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "candidate_expectation": {
+                "type": "object",
+                "properties": {
+                  "skills_called": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "final_status": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shipments": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "assertions": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "required": [
+                      "final_status"
+                    ],
+                    "properties": {
+                      "final_status": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "skills_called"
+                    ],
+                    "properties": {
+                      "skills_called": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "shipments"
+                    ],
+                    "properties": {
+                      "shipments": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "assertions"
+                    ],
+                    "properties": {
+                      "assertions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "baseline_selection": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "enum": [
+                          "EXACT",
+                          "FORBID"
+                        ]
+                      },
+                      "skill": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "skill"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "candidate_selection": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "enum": [
+                          "EXACT",
+                          "FORBID"
+                        ]
+                      },
+                      "skill": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "skill"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "intent_checks": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "Submit": {
+      "type": "object",
+      "required": [
+        "baseline_snapshot_id",
+        "candidate_snapshot_id",
+        "evaluation_set_id",
+        "evaluation_set_version",
+        "runner_kind",
+        "model_mode",
+        "repeat",
+        "purpose",
+        "limits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "baseline_snapshot_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "candidate_snapshot_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "evaluation_set_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "evaluation_set_version": {
+          "const": 1
+        },
+        "runner_kind": {
+          "enum": [
+            "CONTRACT_ONLY",
+            "ORDER_HARNESS"
+          ]
+        },
+        "model_mode": {
+          "enum": [
+            "NONE",
+            "FIXED",
+            "OPENAI"
+          ]
+        },
+        "repeat": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "purpose": {
+          "enum": [
+            "CHANGE_COMPARISON",
+            "CAUSE_ANALYSIS",
+            "CANDIDATE_VERIFICATION"
+          ]
+        },
+        "environment_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "wall_time_ms",
+            "max_total_tokens",
+            "max_cost_usd"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "wall_time_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 300000
+            },
+            "max_total_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_cost_usd": {
+              "type": "string",
+              "maxLength": 32,
+              "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+            }
+          }
+        }
+      }
+    },
+    "VerifiedInput": {
+      "type": "object",
+      "required": [
+        "evaluation_id",
+        "attempt_id",
+        "summary",
+        "intent_text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "evaluation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "intent_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    }
+  },
+  "$comment": "Choose #/$defs/SetInput, Submit, or VerifiedInput. Cross-field policy, reviewed labels and supported capabilities are validated by the server."
+}

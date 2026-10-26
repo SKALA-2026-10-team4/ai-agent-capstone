@@ -4,7 +4,9 @@
 
 > **2026-10-26 갱신 (행동 변경 수정본, [계획](../plans/2026-10-26-behavior-edit-root-fix.md) 2절).** ① 확인 조건이 **조건 문법 v2**가 됐습니다(숫자 비교 `>`, `>=`, `<`, `<=`, Map 경로 찾기, 예약 키 `order.final_status`·`order.shipments`, 공용 사례 [condition-cases.json](examples/condition-cases.json)). ② `apply_patch` 응답 **v1.4**: 단계 skill 의 실행 규칙 `rules` 를 정적으로 검사해 `metadata_errors{field: rules, code: INVALID_SKILL_FORMAT}` 와 `flow_errors{code: CONTRACT_VIOLATION, reason: RULE_KEY_NOT_INPUT}` 를 냅니다([skill-rules-cases.json](examples/skill-rules-cases.json), [응답 Schema](apply-patch-result.schema.json)). ③ `run_scenarios` 에 선택 입력 `intent_expectations` 와 결과 칸 `results[].intent_scoped` 를 더했습니다. ④ `run_scenarios` 를 한 번 돌린 연습 공간은 고정되어 `apply_patch` 가 새 오류 code `WORKSPACE_FROZEN` 을 돌려줍니다. ⑤ `save_proposal` 은 Agent 의 판정을 장부와 연습 공간 기록으로 **다시 계산**하고, 다르면 거부하지 않고 서비스 값으로 덮은 뒤 `server_overrides` 에 남깁니다. ⑥ `SKILLOPS_SERVICE_TOKEN` 이 있으면 `/mcp` 가 `X-Service-Token` 을 요구합니다. ⑦ 재현 주문과 의도 scope 에 든 기준 주문은 최종 상태가 없으면(`null`) 떨어집니다. ⑧ 단계가 붙지 않은 실행 오류(`INCOMPLETE_FLOW`, `UNKNOWN_SKILL`, `INVALID_FLOW`)도 `failures[].reason` 맨 앞에 `실행 오류: <category>…` 로 남습니다. ⑨ (계약 보정 v3, 계획 2.10 절) `save_proposal` 재판정은 의도와 기준본을 **주문 Agent 의 snapshot metadata** 에서 읽고(`trigger.intent`·`baseline_snapshot_id` 칸은 보지 않음), `snapshot_id` 가 없으면 거부합니다. patches 가 없는 후보는 불합격, `repro_scenario_ids` 는 원인 근거 실행 가운데 떨어진 실행이 있어야 인정, scoped expectation 마다 맞은 실행이 있어야 `keeps_intent` 참(장부 새 칸 `intent_matches`), `weakens_contract` 정의를 하나로 맞췄습니다. ⑩ (개발 요청서, 계획 2.11 절) `save_proposal` 이 선택 칸 `development_request` 를 받아 형식과 근거 실행을 검사하고 그대로 저장합니다. 있으면 저장되는 `status` 는 늘 `no_valid_fix` 이고, 본문에 "개발 요청"·"임시 대안" 절이 생깁니다. 개발 요청서가 없는 `no_valid_fix` 개요의 "담당자가 Skill을 직접 고쳐야 합니다."는 승인할 안이 없다는 사실과 볼 곳을 쓰는 문장으로 바꿨습니다.
 
-SkillOps 서비스(`service/`)는 MCP 서버로 도구 7개를 내놓습니다. SkillOps Agent(`skillops-agent/`)는 이 도구에 값을 보내고 돌려받은 결과만 보고 판단합니다. 이 문서는 도구마다 **무엇을 보내고, 무엇을 돌려받고, 그 사이에 서비스가 어떤 저장 공간을 읽고 쓰는지**를 정리한 것입니다.
+SkillOps 서비스(`service/`)는 MCP 서버로 기존 도구 7개와 #88 평가 도구 4개, 총 11개를 내놓습니다. 기존 SkillOps Agent(`skillops-agent/`)는 기존 도구를 계속 사용합니다. 이 문서는 도구마다 **무엇을 보내고, 무엇을 돌려받고, 그 사이에 서비스가 어떤 저장 공간을 읽고 쓰는지**를 정리한 것입니다.
+
+2026-10-26 · #88: `submit_evaluation`, `get_evaluation`, `get_evaluation_report`, `save_proposal_v2`를 추가했습니다. 새 도구는 JWT 없이 호출하며 SKILLOPS_SERVICE_TOKEN 설정 시 기존 MCP와 같은 X-Service-Token 검사를 적용합니다. 입출력·실행 범위·공유 멱등 키 정책은 [평가 계약 v1.0](evaluation-backend.md#mcp)을 따릅니다. 기존 도구에는 develop의 조건 문법 v2·apply_patch v1.4·제안 재판정 계약을 적용하며 Python은 아직 #88 새 도구를 호출하지 않습니다.
 
 2026-10-23 · #72 공용 파서: service와 주문 Agent가 동일한 skill-parser 모듈을 사용합니다. 분석·workspace·실행 모두 YAML frontmatter 100,000 코드 포인트 제한과 같은 안전 옵션을 적용합니다. 초과 시 기존 파싱 오류 필드·코드로 처리하고 diff 원문 hunks는 보존합니다. 입력·응답 필드와 apply_patch v1.3은 변경하지 않습니다. [현재 SKILL 해석 계약](skill-frontmatter.md#72-최종-갱신--서버-공용-파싱-모듈-2026-10-23).
 
@@ -65,6 +67,10 @@ SkillOps 서비스(`service/`)는 MCP 서버로 도구 7개를 내놓습니다. 
 | `run_scenarios` | 연습 공간의 skill로 시험 주문을 모의 실행하고 채점합니다 | C-2 | 같은 파일 | `nodes.py`의 `_run_scenarios` |
 | `save_proposal` | 수정 제안서를 검사하고 저장합니다 | C-2 | `service/src/main/java/com/capstone4/skillops/mcp/ProposalTools.java` | `nodes.py`의 `save_proposal` 노드 |
 | `ping` | MCP 연결을 확인합니다 | 공통 | `service/src/main/java/com/capstone4/skillops/mcp/PingTools.java` | 노드는 부르지 않습니다. `scripts/mcp_smoke.py`와 테스트가 부릅니다 |
+| `submit_evaluation` | 고정 입력의 비동기 평가를 접수합니다 | 백엔드 | `mcp/EvaluationTools.java` | Python 미연결 |
+| `get_evaluation` | 평가 상태를 조회합니다 | 백엔드 | 같은 파일 | Python 미연결 |
+| `get_evaluation_report` | 전후 비교 보고서를 조회합니다 | 백엔드 | 같은 파일 | Python 미연결 |
+| `save_proposal_v2` | 서버 검증 평가로 snapshot 제안서를 저장합니다 | 백엔드 | 같은 파일 | Python 미연결 |
 
 Agent를 `SKILLOPS_USE_STUB_MCP=true`로 띄우면 이 서버 대신 `skillops-agent/skillops_agent/stub_tools.py`의 `StubMCPTools`가 같은 이름의 도구를 흉내 냅니다.
 
@@ -803,7 +809,7 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 | `proposal.candidates[].valid` | Agent가 본 합격 여부 | 참·거짓 | 아니오 | 서비스가 다시 계산한 값으로 덮습니다. 다르면 `server_overrides` 에 남습니다. |
 | `proposal.candidates[].is_revert` · `weakens_contract` | 되돌리기·계약 약화 | 참·거짓 | 아니오 | 담당자가 바꾼 SKILL.md 를 기준본과 같게 되돌렸는지, 계약을 약하게 만들었는지입니다(정의는 아래 재판정 표). 의도 요청(snapshot metadata 에 `intent` 가 있음)일 때만 서비스가 다시 계산하고 불합격 사유로 씁니다. |
 | `proposal.candidates[].validation_error` | 적용하지 못한 이유 | 글자 | 아니오 | 원문에 적용하지 못해 시험하지 않은 후보에 적습니다. 이 후보는 근거 실행이 없어도 됩니다. |
-| `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 적용한 후보면 예 | 이 후보를 시험한 모의 실행 번호입니다. 모두 그 후보의 연습 공간에서 돌린 실행이어야 합니다. |
+| `proposal.candidates[].evidence_run_ids` | 근거 실행 번호 | 목록 | 적용한 후보면 예 | 이 후보를 시험한 모의 실행 번호입니다. 모두 그 후보의 연습 공간에서 돌린 실행이어야 합니다. 합격 후보라면 인용한 실행의 서버 채점도 모두 통과해야 합니다. |
 | `proposal.candidates[].rank` · `explanation` | 순위·설명 | 정수·글자 | 아니오 | 설명은 본문의 "AI 설명" 칸에 그대로 나옵니다. |
 | `proposal.recommended_candidate_no` | 추천 후보 번호 | 정수 | `proposed`면 예 | 합격 후보 가운데 하나를 넣습니다. 서비스 판정의 합격 후보가 아니면 서비스가 합격 후보로 바꿉니다(재판정). |
 | `proposal.status` | 상태 | 글자 | 예 | 합격 후보가 있으면 `proposed`, 없으면 `no_valid_fix`입니다. |
@@ -828,6 +834,8 @@ SKILLOPS_FLOW_RUNNER=harness SKILLOPS_SCENARIOS_DIR=../scenarios/order-agent ./g
 Agent 가 보낸 값과 다르면 **거부하지 않고** 서비스 값으로 덮은 사본을 저장하고, 저장한 제안서의 `server_overrides` 에 `[{candidate_no, field, agent_value, server_value}]` 로 남깁니다. `field` 는 `results.fixes_failure` 처럼 칸 이름이고, 제안서 전체의 칸(`status`, `recommended_candidate_no`)은 `candidate_no` 가 `null` 입니다. Agent 가 보내지 않은 칸은 채우기만 하고 기록하지 않습니다(`results.evidence_matches` 거짓과 `root_cause.repro_scenario_ids` 만 예외). `server_overrides` 의 순서는 제안서 전체의 재현 근거 칸, 후보마다 `results.evidence_matches`·`fixes_failure`·`keeps_old_orders`·`no_broken_links`·`metadata_valid`·`flow_valid`·`is_revert`·`weakens_contract`·`results.keeps_intent`·`valid`, 그다음 `status`·`recommended_candidate_no` 입니다. 본문에는 "서비스 재판정" 절로 나옵니다.
 
 **합격 조건(서비스가 다시 계산):** 적용에 실패하지 않았고, `fixes_failure`가 참이고, `keeps_old_orders`의 `passed`와 `total`이 같고 `total`이 1 이상이고, `keeps_intent`가 참이고, `no_broken_links`가 참이며, 최신 Agent가 보낸 `metadata_valid`와 `flow_valid`가 모두 참입니다. 과거 제안서와 구버전 생산자 호환을 위해 `metadata_valid` 또는 `flow_valid` 필드가 없으면 해당 항목은 기존 판정을 유지하고, 명시한 결과는 Boolean true만 통과합니다. 최신 Agent의 apply_patch 응답 검증은 별도로 엄격하므로 `metadata_errors`와 `flow_errors` 누락을 허용하지 않습니다.
+
+**#88 병합 정책:** 기존 save_proposal은 develop의 ProposalJudge가 실제 실행·반복·회귀·의도·workspace 증거로 재판정하고 불일치를 server_overrides에 기록합니다. 합격 후보가 없으면 no_valid_fix로 보존하여 승인을 차단합니다. 잘못된 실행 참조·필수 snapshot 누락·증거 조회 실패는 저장을 거부합니다. #88의 별도 save_proposal_v2는 SERVER_VERIFIED 평가만 허용하며 실패 평가의 보고서는 평가 저장소에 보존합니다.
 
 ### 돌려받는 값
 
@@ -903,7 +911,7 @@ MCP 연결이 살아 있는지만 확인합니다. 다른 서비스나 저장 �
 
 ## 저장 공간 목록
 
-MCP 도구가 읽고 쓰는 서비스 데이터베이스(PostgreSQL) 표는 아래 세 개입니다. 표와 칸은 `service/src/main/resources/application.yml`의 `ddl-auto: update`가 JPA 엔티티를 보고 만듭니다. 승인 기록 표 `approvals`는 MCP 도구가 쓰지 않지만 제안서와 이어지므로 함께 적었습니다.
+기존 MCP 도구가 읽고 쓰는 서비스 데이터베이스(PostgreSQL) 표는 아래에 있습니다. #88 평가·검증의 추가 6개 표는 [평가 계약](evaluation-backend.md#상태저장재시작)을 따릅니다. 표와 칸은 `service/src/main/resources/application.yml`의 `ddl-auto: update`가 JPA 엔티티를 보고 만듭니다. 승인 기록 표 `approvals`는 MCP 도구가 쓰지 않지만 제안서와 이어지므로 함께 적었습니다.
 
 | 저장 공간 | 한글 이름 | 들어 있는 것 | 엔티티 | 쓰는 도구 | 읽는 도구 |
 |---|---|---|---|---|---|
