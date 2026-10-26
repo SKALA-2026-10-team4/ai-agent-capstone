@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { HOME_PATH, LOGIN_PATH, isLoginPath, loginRedirect, safeNext } from '../src/router/paths.js'
 
 test('경로 상수', () => {
-  assert.equal(HOME_PATH, '/proposals')
+  assert.equal(HOME_PATH, '/skills')
   assert.equal(LOGIN_PATH, '/login')
 })
 
@@ -22,9 +22,9 @@ test('isLoginPath: /login 으로 시작하는 주소', () => {
 
 test('safeNext: / 로 시작하는 글자만 믿고 아니면 첫 화면', () => {
   // 예전 frontend/src/views/LoginView.vue 의 식이다.
-  const old = (next) => (typeof next === 'string' && next.startsWith('/') ? next : '/proposals')
+  const old = (next) => (typeof next === 'string' && next.startsWith('/') ? next : '/skills')
   for (const next of ['/orders', '/skills/inventory-check', '//evil.example', 'https://evil.example', '', undefined, null, ['/orders'], 42]) {
     assert.deepStrictEqual(safeNext(next), old(next))
   }
-  assert.equal(safeNext(undefined), '/proposals')
+  assert.equal(safeNext(undefined), '/skills')
 })

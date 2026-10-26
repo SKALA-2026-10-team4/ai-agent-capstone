@@ -5,8 +5,8 @@
 // vue 와 router 를 import 하지 않으므로 frontend/unit/paths.test.js 가 Node 에서 바로 불러
 // 이 규칙을 고정한다.
 
-// 로그인 뒤 기본으로 가는 첫 화면(받은 제안서 목록)이다. '/' 주소와 없는 주소도 이 화면으로 보낸다.
-export const HOME_PATH = '/proposals'
+// 로그인 뒤 기본으로 가는 첫 화면(skill 목록)이다. '/' 주소와 없는 주소도 이 화면으로 보낸다.
+export const HOME_PATH = '/skills'
 // 로그인 화면 주소다.
 export const LOGIN_PATH = '/login'
 
