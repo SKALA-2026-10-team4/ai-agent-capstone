@@ -27,15 +27,19 @@
 // frontend/src/utils/proposalView.js 에 있다.
 // 제안서에 개발 요청서(development_request, 2.11 절)가 있으면 맨 위에 '도구 개발 필요' 안내를 띄우고,
 // 본문 아래에 frontend/src/components/DevelopmentRequestCard.vue 로 요청서 카드('마크다운으로 복사')를 그린다.
+// 본문 사실 칸의 실행 번호와 Skill 세트 id 는 loadNames 가 이름표로 바꿔 ProposalDocument 에 넘긴다.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CircleAlert, CircleCheck, FilePen, Scale, ShieldCheck, Sparkles } from 'lucide-vue-next'
+import { getSnapshot } from '@/api/orderAgent'
 import { approveProposal, getProposal, rejectProposal } from '@/api/proposals'
+import { getRuns } from '@/api/runs'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { SET_LABEL, useWorkspaceStore } from '@/stores/workspace'
 import { developmentRequestOf, markdownContextOf } from '@/utils/developmentRequest'
 import { findingLabel, findingNote } from '@/utils/diagnosisView'
+import { idsInDocument, runTag, setTag } from '@/utils/factNames'
 import { overrideRows, rootCauseKind } from '@/utils/proposalView'
 import CandidateTags from '@/components/CandidateTags.vue'
 import DevelopmentRequestCard from '@/components/DevelopmentRequestCard.vue'
@@ -60,6 +64,8 @@ const selectedNo = ref(null)
 const intentOk = ref(false)
 const busy = ref(false)
 const error = ref(null)
+// 본문 사실 칸의 번호(실행 번호, snapshot id)마다 { text, title, passed } 이름표를 담는다. 비어 있으면 번호가 그대로 보인다.
+const names = ref({})
 const applyError = ref(null)
 
 // candidates 는 제안서의 후보 목록이고, candidate 는 지금 고른 후보다.
@@ -102,6 +108,28 @@ const devContext = computed(() => markdownContextOf(detail.value))
 async function load(id) {
   detail.value = await getProposal(id)
   selectedNo.value = detail.value.recommended_candidate_no ?? candidates.value[0]?.candidate_no ?? null
+  loadNames(detail.value.document)
+}
+
+/**
+ * 본문에 나온 실행 번호와 Skill 세트 id 의 이름표를 만든다. 실행 번호는 service 장부(frontend/src/api/runs.js 의 getRuns)로
+ * 시험 주문과 통과 여부를, snapshot id 는 order-agent manifest(getSnapshot)의 metadata 로 세트 종류를 찾는다.
+ * 조회가 실패하거나 장부에 없는 번호도 frontend/src/utils/factNames.js 의 runTag 가 앞 8자로 줄인 이름을 붙인다.
+ * 이름표는 보기 좋게 하려는 것이라 실패해도 오류를 띄우지 않는다. load 가 부르고 끝날 때까지 기다리지 않는다.
+ */
+async function loadNames(document) {
+  names.value = {}
+  const { runIds, snapshotIds } = idsInDocument(document)
+  const [runs, sets] = await Promise.all([
+    // 장부에는 모의 실행 번호(r_…)만 있으므로 실제 주문의 실행 UUID 는 묻지 않는다.
+    getRuns(runIds.filter((id) => id.startsWith('r_'))).then((r) => r.items).catch(() => []),
+    Promise.all(snapshotIds.map((id) => getSnapshot(id).catch(() => null))),
+  ])
+  const byId = Object.fromEntries(runs.map((r) => [r.run_id, r]))
+  const next = {}
+  for (const id of runIds) next[id] = runTag(id, byId[id])
+  snapshotIds.forEach((id, i) => (next[id] = setTag(id, sets[i]?.metadata, SET_LABEL)))
+  if (detail.value?.document === document) names.value = next
 }
 
 // 제안서 번호가 바뀔 때마다(처음 포함) 화면 값을 비우고 다시 읽는다. 의도 확인 체크도 풀어 둔다.
@@ -154,7 +182,8 @@ async function decide(action) {
  * 고른 후보의 patch 를 지금 고른 Skill 세트의 초안에 적용하고 그 Skill 의 편집 화면으로 간다.
  * '초안으로 가져와 고치기' 버튼이 부른다.
  * 서버에는 저장하지 않는다. 세트를 아직 고르지 않았으면 적용하지 않고 안내 문구를 보여 준다.
- * 적용은 frontend/src/stores/workspace.js 의 applyPatchesToDraft 가 한다.
+ * 적용은 frontend/src/stores/workspace.js 의 applyPatchesToDraft 가 하고, 제안서 번호와 후보 번호를 출처로 넘겨
+ * Skill 편집 화면이 이 후보에서 받아들인 줄을 칠하게 한다.
  * patch 하나라도 기준 내용과 맞지 않으면 아무것도 바꾸지 않고 실패한 Skill 목록을 돌려주므로,
  * 그때는 제안서를 만든 세트를 골랐는지 확인하라는 문구를 보여 준다.
  * 기준 줄 어긋남 허용치는 frontend/src/config.js 의 PATCH_FUZZ_FACTOR 다.
@@ -165,7 +194,10 @@ function applyToDraft() {
     applyError.value = '먼저 Skill 파일 세트를 골라 주세요(Skill 편집 화면 위쪽).'
     return
   }
-  const result = ws.applyPatchesToDraft(candidate.value.patches)
+  const result = ws.applyPatchesToDraft(candidate.value.patches, {
+    proposalId: detail.value.proposal_id,
+    candidateNo: selectedNo.value,
+  })
   if (!result.ok) {
     applyError.value =
       `${result.failed.join(', ')} 의 현재 내용이 제안서의 기준과 달라 자동으로 적용하지 못했어요. ` +
@@ -206,6 +238,7 @@ function applyToDraft() {
         :document="detail.document"
         :selected-no="selectedNo"
         :candidates="candidates"
+        :names="names"
         @select="(no) => (selectedNo = no)"
       >
         <template #intent>
