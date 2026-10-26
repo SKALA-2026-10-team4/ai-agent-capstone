@@ -111,7 +111,7 @@ onMounted(() => ws.refreshExecutions())
 }
 
 .runs {
-  max-height: calc(100vh - 240px);
+  max-height: calc(var(--view-h) - 240px);
   margin: 0;
   padding: 4px 16px;
   overflow-y: auto;

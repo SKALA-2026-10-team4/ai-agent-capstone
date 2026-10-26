@@ -3,6 +3,7 @@
 // Vue 앱을 만들고 Pinia 와 router 를 설치한 뒤, frontend/src/api/client.js 의 connectAuth 로
 // 로그인 토큰 공급자와 401 처리기를 연결하고 #app 에 mount 한다.
 // 전역 스타일(색, 글꼴, 공용 class)을 담은 frontend/src/assets/base.css 는 여기서 한 번만 불러온다.
+// mount 전에 frontend/src/utils/viewportZoom.js 의 installViewportZoom 으로 창 폭에 맞는 화면 배율을 정한다.
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
@@ -11,6 +12,7 @@ import router from './router'
 import { isLoginPath, loginRedirect } from './router/paths'
 import { connectAuth } from './api/client'
 import { useAuthStore } from './stores/auth'
+import { installViewportZoom } from './utils/viewportZoom'
 import './assets/base.css'
 
 const app = createApp(App)
@@ -34,4 +36,5 @@ connectAuth({
   },
 })
 
+installViewportZoom(window, document.documentElement)
 app.mount('#app')
