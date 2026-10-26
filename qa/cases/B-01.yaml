@@ -1,0 +1,95 @@
+# 행동 변경이다. T-02 와 같은 본문 수정에 담당자 의도(expectations)를 붙여 저장했다.
+# 규칙 모드는 본문을 읽지 않아 의도가 실행되지 않는다. 의도를 실행되게 만드는 실행 규칙(rules)을 제안해야 하고, 되돌리기는 답이 아니다.
+id: B-01
+group: B
+title: 결제 본문에 '선입금 주문만 결제한다'를 적고 의도를 함께 저장함
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "재고 예약 성공을 확인합니다."
+    to: "재고 예약 성공을 확인합니다. 선입금(prepaid) 주문만 결제하고 카드 주문은 결제하지 않습니다."
+
+intent:
+  text: 선입금 주문만 결제하고 카드 주문은 결제하지 않는다
+  # 저장 요청과 POST /diagnose 로 그대로 보낸다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3).
+  expectations:
+    - scope: "order.payment_method == 'card'"
+      checks: ["order.final_status in ['HOLD', 'REJECTED']", "payment.status == null"]
+    - scope: "order.payment_method == 'prepaid'"
+      checks: ["order.final_status == 'SHIPPED'"]
+  # 수정본에 의도를 붙여 돌리면 떨어지는 의도 범위 기준 주문(재현 주문)이다. 보내지 않고 check 가 확인한다.
+  repro: [g-01, g-03, g-05, g-06]
+
+order_agent:
+  # 의도 없이 돌린 반응이다. 규칙 모드는 본문을 읽지 않으므로 모두 통과한다.
+  g-01: {result: pass}
+  g-02: {result: pass}
+  g-03: {result: pass}
+  g-04: {result: pass}
+  g-05: {result: pass}
+  g-06: {result: pass}
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [payment]
+  root_cause_kind: incomplete_edit
+  fixable: true
+  # 규칙을 둬서 의도를 살릴 수 있는 Skill 이다. 결제 도구보다 앞 단계면 된다(R2). 이 밖에 둔 합격안은 재검증한다.
+  rule_skills: [order-intake, inventory-check, payment]
+
+fixes:
+  - name: 결제에 선입금 규칙(rules)을 더함
+    change:
+      - file: skills/payment/SKILL.md
+        from: "depends_on: [inventory-check]\n"
+        to: "depends_on: [inventory-check]\nrules:\n  - when: \"order.payment_method != 'prepaid'\"\n    then: hold\n    reason: PREPAID_ONLY\n"
+    tests_pass: true
+    valid: true
+  - name: 되돌리기
+    change:
+      - file: skills/payment/SKILL.md
+        from: "재고 예약 성공을 확인합니다. 선입금(prepaid) 주문만 결제하고 카드 주문은 결제하지 않습니다."
+        to: "재고 예약 성공을 확인합니다."
+    tests_pass: false
+    failure: "order.final_status in ['HOLD', 'REJECTED']"
+    valid: false
+
+evidence:
+  - claim: 의도 없이 돌리면 표준 주문 g-01~g-06 이 모두 통과한다. 규칙 모드는 본문 정책을 실행하지 않는다
+    kind: 코드 근거
+    where: order-agent/backend/src/main/java/com/capstone4/orderagent/harness/FixedDecisionProvider.java, T-02 의 check 실행 기록
+  - claim: >-
+      의도를 붙이면 카드 주문 g-01·g-05·g-06 은 SHIPPED 라 떨어지고, g-03 은 결제를 시도해 payment.status 가 DECLINED 로 남아 떨어진다.
+      g-02 는 재고 확인에서 거절돼 결제 값이 없으므로 이미 의도를 지킨다. 선입금 주문 g-04 는 SHIPPED 로 통과한다
+    kind: 코드 근거
+    where: >-
+      order-agent/backend/src/main/java/com/capstone4/orderagent/service/OrderToolService.java 의 reserveInventory 와 chargePayment,
+      order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderHarness.java 의 stopForBusinessResult(업무 종료 단계도 선언 출력을 남긴다),
+      scenarios/README.md
+  - claim: 원인은 결제 본문 수정이고 종류는 의도 미실현(incomplete_edit)이다
+    kind: 구성, 정의
+    where: 넣은 수정이 결제 본문 하나이고 수정본은 오류 없이 돈다. docs/plans/2026-10-26-behavior-edit-root-fix.md 2.5
+  - claim: 결제에 rules 를 더하면 의도를 살린다
+    kind: 존재 증명
+    where: fixes 의 첫 안. 규칙은 결정 요청과 도구 호출 전에 평가되고, 보류해도 결제 상태를 건드리지 않는다(계획 2.2)
+  - claim: 규칙은 결제 도구보다 앞 단계(order-intake, inventory-check, payment)에 둘 때만 의도를 지킨다
+    kind: 불가능 증명
+    where: >-
+      shipping-reserve 와 notify 는 payment.charge 뒤라 규칙이 걸려도 payment.status 가 PAID 로 남는다(계획 2.2 의 종료 규칙, B-02 의
+      잘못된 위치 안). inventory-check 에 두려면 처음부터 주어지는 값 order.payment_method 를 inputs 에 더한다
+      (order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderFlowPolicy.java 의 INITIAL_INPUT_KEYS)
+  - claim: 되돌리기는 불합격이다
+    kind: 합의
+    where: qa/README.md 판정 규칙 R1. 의도가 있는 요청이라 SkillOps 와 service 도 코드로 불합격시킨다(계획 2.6)
+  - claim: 의도와 확인 조건
+    kind: 정의
+    where: 이 케이스 파일의 intent
+
+note: T-02 는 같은 수정을 의도 없이 저장한 경우라 VALIDATED 가 정답이다. 의도를 함께 보내야 이 케이스처럼 진단이 시작된다.
+
+current:
+  result: 구현 중(2026-10-26), check 미실행
+  defects: [D1]

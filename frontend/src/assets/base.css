@@ -1,31 +1,39 @@
 /* SkillOps 디자인 시스템 — 색·글꼴·간격 토큰과 공용 요소(버튼·입력·카드·배지·알림).
    기존 변수 이름(--bg, --surface, --accent, --ok, --err, --add-bg …)은 그대로 두고 확장했다. */
 
+/* 색은 "Midnight Orbit" 다크 테마 하나만 둔다(#93 에서 가져온 색). 깊은 남색 바탕, 옅은 크림 라임 강조,
+   밝은 상태 색(성공 초록 · 경고 주황 · 오류 빨강)을 쓴다. 글꼴·모서리·레이아웃은 바꾸지 않고 색 토큰만 바꾼다. */
 :root {
+  color-scheme: dark;
+
   /* 바탕과 면 */
-  --bg: #f5f6f8;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #e2e5ea;
-  --border-strong: #c9ced6;
+  --bg: #111c27;
+  --surface: #172532;
+  --surface-2: #1d2d3c;
+  --border: rgb(255 255 255 / 8%);
+  --border-strong: rgb(255 255 255 / 16%);
 
-  /* 글자 */
-  --text: #171a1f;
-  --text-2: #424955;
-  --muted: #737b88;
+  /* 글자. --muted 까지 본문 대비 AA(4.5:1)를 넘는다 */
+  --text: #f1f4f7;
+  --text-2: #c3ccd6;
+  --muted: #8c99a8;
 
-  /* 의미 색: 진한 색(글자·테두리) + 옅은 색(배경) */
-  --accent: #3b5bdb;
-  --accent-strong: #2f4ac0;
-  --accent-soft: #eef1fd;
-  --ok: #1e7d4f;
-  --ok-soft: #e6f5ed;
-  --warn: #a35f00;
-  --warn-soft: #fff3df;
-  --err: #c2332d;
-  --err-soft: #fdecea;
-  --add-bg: #e3f5e9;
-  --del-bg: #fde8e6;
+  /* 강조: 크림 라임 */
+  --accent: #faffdc;
+  --accent-strong: #ffffff;
+  --accent-soft: rgb(250 255 220 / 10%);
+  /* 강조·상태 색을 칠한 면 위의 글자색이다. 강조가 밝은 라임이라 남색을 쓴다. #fff 를 직접 쓰지 않는다 */
+  --on-fill: #172532;
+
+  /* 상태 색: 밝은 색(글자·테두리) + 12% 옅은 색(배경) */
+  --ok: #8ee3b5;
+  --ok-soft: rgb(142 227 181 / 12%);
+  --warn: #f6cf7a;
+  --warn-soft: rgb(246 207 122 / 12%);
+  --err: #ff9584;
+  --err-soft: rgb(255 149 132 / 12%);
+  --add-bg: rgb(142 227 181 / 10%);
+  --del-bg: rgb(255 149 132 / 10%);
 
   /* 글꼴 */
   --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR',
@@ -38,43 +46,16 @@
   --fs-xl: 20px;
   --fs-2xl: 24px;
 
-  /* 모양 */
+  /* 모양. 그림자 모양은 그대로 두고 색만 어두운 바탕에 맞춘다 */
   --radius-sm: 6px;
   --radius: 10px;
   --radius-lg: 14px;
-  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%);
-  --shadow: 0 1px 3px rgb(16 24 40 / 8%), 0 4px 12px rgb(16 24 40 / 5%);
-  --shadow-lg: 0 12px 32px rgb(16 24 40 / 14%);
-  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  --shadow-sm: 0 1px 2px rgb(3 9 15 / 30%);
+  --shadow: 0 1px 3px rgb(3 9 15 / 35%), 0 4px 12px rgb(3 9 15 / 25%);
+  --shadow-lg: 0 12px 32px rgb(3 9 15 / 55%);
+  --focus: 0 0 0 3px rgb(250 255 220 / 22%);
 
   --sidebar-w: 232px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121418;
-    --surface: #1b1e24;
-    --surface-2: #23272e;
-    --border: #2e333b;
-    --border-strong: #414854;
-    --text: #e8eaee;
-    --text-2: #c2c7d0;
-    --muted: #8d95a3;
-    --accent: #7c95ff;
-    --accent-strong: #98abff;
-    --accent-soft: #232b4a;
-    --ok: #4cc386;
-    --ok-soft: #173327;
-    --warn: #f0a94a;
-    --warn-soft: #3a2a12;
-    --err: #ff746c;
-    --err-soft: #3d1d1b;
-    --add-bg: #173327;
-    --del-bg: #3d1d1b;
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
-    --shadow: 0 1px 3px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 25%);
-    --shadow-lg: 0 12px 32px rgb(0 0 0 / 45%);
-  }
 }
 
 * {
@@ -187,7 +168,7 @@ button:active:not(:disabled) {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-fill); /* 강조가 밝은 라임이라 글자는 --on-fill(남색)을 쓴다 */
 }
 
 button.primary:hover:not(:disabled) {

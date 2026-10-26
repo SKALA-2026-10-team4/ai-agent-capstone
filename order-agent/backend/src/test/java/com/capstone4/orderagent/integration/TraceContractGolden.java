@@ -3,7 +3,9 @@ package com.capstone4.orderagent.integration;
 /**
  * order-agent/backend/src/test/java/com/capstone4/orderagent/integration/TraceContractIntegrationTest.java 가 비교하는 실행 경로별 기대 줄 모음이다.
  * 리팩토링 전에 관찰한 결과를 그대로 적어 두어, 주문 Agent 의 trace 이벤트 순서와 data, 실행 요약, 주문 단계 기록, 재고가 리팩토링 뒤에도
- * 같은지 확인하는 기준으로 쓴다. 상수 하나가 실행 경로 하나(정상, 재고 부족, 결제 거절, 각종 계약 위반과 모델 응답 오류, 모의 실행, 재시작 복구, 도구 재생)다.
+ * 같은지 확인하는 기준으로 쓴다. 상수 하나가 실행 경로 하나(정상, 재고 부족, 결제 거절, 실행 규칙 hold·reject, 각종 계약 위반과 모델 응답 오류, 모의 실행,
+ * 재시작 복구, 도구 재생)다. 실행 규칙 두 경로(RULE_HOLD, RULE_REJECT_AT_INTAKE)는 관찰이 아니라 코드에서 유도해 적었으므로 DB 테스트를 처음 돌릴 때
+ * 함께 확인한다. 같은 경로의 이벤트 순서는 order-agent/backend/src/test/java/com/capstone4/orderagent/harness/OrderHarnessRuleTest.java 가 DB 없이 확인한다.
  * 줄 모양은 TraceContractIntegrationTest 의 describe 가 만들고, 실행마다 달라지는 식별자, 해시, 시간, 설명 문구는 Canonical 이 자리표시자로 감춘다.
  * 기대 줄에 data 를 적지 않은 이벤트는 SHIPPED 의 같은 위치 줄과 내용이 같아 생략한 것이며, 이런 줄은 KIND:skill_id 만 비교한다.
  * 이벤트 이름이나 data 키를 일부러 바꿀 때는 이 기대 줄과 함께 trace 소비자
@@ -166,6 +168,87 @@ final class TraceContractGolden {
         SKILL_FINISHED:payment {"business_stop":true,"duration_ms":"<ms>","final_status":"HOLD","output":{"payment.status":"DECLINED"},"status":"ok","step_no":3,"version":1}
         BUSINESS_STOP:payment {"final_status":"HOLD"}
         EXECUTION_FINISHED {"completion":"COMPLETED","error_category":null,"final_status":"HOLD"}
+        """;
+
+    // 실행 규칙(rules) 경로다. payment 의 hold 규칙은 결정 요청과 결제 도구 없이 예약을 되돌리고 HOLD 로 끝나며 결제 상태는 NOT_ATTEMPTED 다.
+    // 규칙 종료의 BUSINESS_STOP 에는 도구 업무 종료(OUT_OF_STOCK, PAYMENT_DECLINED)에 없는 rule_reason 이 더 붙는다.
+    static final String RULE_HOLD = """
+        summary: completion=COMPLETED final_status=HOLD error_category=null raw_selection=order-flow resolved_skill_id=order-flow agent_id=camping-order-agent mode=live model_mode=fixed model=fixed-policy-v1 api_calls=0 input_tokens=null output_tokens=null
+        failure: none
+        order: HOLD PREPAID_ONLY payment=NOT_ATTEMPTED shipment=false notification=NOT_ATTEMPTED
+        stock: lantern=10 chair=5 mug=0
+        steps:
+        INTAKE SUCCESS null 주문 접수 완료
+        INVENTORY SUCCESS null 모든 상품의 재고 예약 완료
+        PAYMENT SKIPPED PREPAID_ONLY 업무 규칙에 따라 주문을 보류해 실행하지 않았습니다.
+        RELEASE SUCCESS null 예약 재고를 모두 복원했습니다.
+        SHIPPING SKIPPED UPSTREAM_REJECTED 앞 단계 거절로 실행하지 않았습니다.
+        NOTIFICATION SKIPPED UPSTREAM_REJECTED 앞 단계 거절로 실행하지 않았습니다.
+        events:
+        EXECUTION_STARTED
+        SNAPSHOT_FIXED
+        CANDIDATES_OFFERED
+        DECISION_INPUT
+        MODEL_RESPONSE
+        SKILL_SELECTED
+        SKILL_RESOLVED
+        SKILL_LOADED:order-flow
+        FLOW_VALIDATED:order-flow
+        SKILL_LOADED:order-intake
+        SKILL_STARTED:order-intake
+        DECISION_INPUT:order-intake
+        MODEL_RESPONSE:order-intake
+        TOOL_REQUEST:order-intake
+        TOOL_RESULT:order-intake
+        SKILL_COMPLETED:order-intake
+        SKILL_FINISHED:order-intake
+        SKILL_LOADED:inventory-check
+        SKILL_STARTED:inventory-check
+        DECISION_INPUT:inventory-check
+        MODEL_RESPONSE:inventory-check
+        TOOL_REQUEST:inventory-check
+        TOOL_RESULT:inventory-check
+        SKILL_COMPLETED:inventory-check
+        SKILL_FINISHED:inventory-check
+        SKILL_LOADED:payment {"hash":"<hash:payment>","path":"skills/payment/SKILL.md","version":1}
+        SKILL_STARTED:payment {"hash":"<hash:payment>","input":{"order.id":"<order>","order.total":30000,"order.payment_method":"card","inventory.reserved":true},"step_no":3,"version":1}
+        RULE_MATCHED:payment {"reason":"PREPAID_ONLY","rule_index":0,"skill_id":"payment","then":"hold","when":"order.payment_method != 'prepaid'"}
+        TOOL_REQUEST:payment {"arguments":{"order_id":"<order>"},"reason":"PREPAID_ONLY","tool":"inventory.release"}
+        TOOL_RESULT:payment {"arguments":{"order_id":"<order>"},"result":{"inventory.reserved":false},"tool":"inventory.release"}
+        SKILL_FINISHED:payment {"business_stop":true,"duration_ms":"<ms>","final_status":"HOLD","output":{},"rule_reason":"PREPAID_ONLY","status":"ok","step_no":3,"version":1}
+        BUSINESS_STOP:payment {"final_status":"HOLD","rule_reason":"PREPAID_ONLY"}
+        EXECUTION_FINISHED {"completion":"COMPLETED","error_category":null,"final_status":"HOLD"}
+        """;
+
+    // order-intake 의 reject 규칙은 order.shipping 하위 값으로 해외 주문을 업무 도구 없이 REJECTED 로 끝내고 업무 단계를 모두 SKIPPED 로 둔다.
+    static final String RULE_REJECT_AT_INTAKE = """
+        summary: completion=COMPLETED final_status=REJECTED error_category=null raw_selection=order-flow resolved_skill_id=order-flow agent_id=camping-order-agent mode=live model_mode=fixed model=fixed-policy-v1 api_calls=0 input_tokens=null output_tokens=null
+        failure: none
+        order: REJECTED DOMESTIC_ONLY payment=NOT_ATTEMPTED shipment=false notification=NOT_ATTEMPTED
+        stock: lantern=10 chair=5 mug=0
+        steps:
+        INTAKE SUCCESS null 주문 접수 완료
+        INTAKE SKIPPED DOMESTIC_ONLY 업무 규칙에 따라 주문을 거절해 실행하지 않았습니다.
+        INVENTORY SKIPPED UPSTREAM_REJECTED 앞 단계 거절로 실행하지 않았습니다.
+        PAYMENT SKIPPED UPSTREAM_REJECTED 앞 단계 거절로 실행하지 않았습니다.
+        SHIPPING SKIPPED UPSTREAM_REJECTED 앞 단계 거절로 실행하지 않았습니다.
+        NOTIFICATION SKIPPED UPSTREAM_REJECTED 앞 단계 거절로 실행하지 않았습니다.
+        events:
+        EXECUTION_STARTED
+        SNAPSHOT_FIXED
+        CANDIDATES_OFFERED
+        DECISION_INPUT {"inputs":{"order.customer":"c_1001","order.id":"<order>","order.items":[{"qty":1,"sku":"CAMP-LANTERN-LED"}],"order.payment_method":"card","order.shipping":{"country":"US","express":false}},"purpose":"select","skill_hash":"","tool_definition":{}}
+        MODEL_RESPONSE
+        SKILL_SELECTED
+        SKILL_RESOLVED
+        SKILL_LOADED:order-flow
+        FLOW_VALIDATED:order-flow
+        SKILL_LOADED:order-intake {"hash":"<hash:order-intake>","path":"skills/order-intake/SKILL.md","version":1}
+        SKILL_STARTED:order-intake {"hash":"<hash:order-intake>","input":{"order.id":"<order>","order.customer":"c_1001","order.items":[{"qty":1,"sku":"CAMP-LANTERN-LED"}],"order.payment_method":"card","order.shipping":{"country":"US","express":false}},"step_no":1,"version":1}
+        RULE_MATCHED:order-intake {"reason":"DOMESTIC_ONLY","rule_index":0,"skill_id":"order-intake","then":"reject","when":"order.shipping.country != 'KR'"}
+        SKILL_FINISHED:order-intake {"business_stop":true,"duration_ms":"<ms>","final_status":"REJECTED","output":{},"rule_reason":"DOMESTIC_ONLY","status":"ok","step_no":1,"version":1}
+        BUSINESS_STOP:order-intake {"final_status":"REJECTED","rule_reason":"DOMESTIC_ONLY"}
+        EXECUTION_FINISHED {"completion":"COMPLETED","error_category":null,"final_status":"REJECTED"}
         """;
 
     static final String STATIC_CONTRACT_VIOLATION = """

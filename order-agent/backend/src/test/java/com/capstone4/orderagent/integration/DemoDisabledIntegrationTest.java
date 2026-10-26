@@ -61,6 +61,7 @@ class DemoDisabledIntegrationTest {
     /** 조회, 주문, 수정 저장은 demo 설정과 무관하게 동작한다. */
     @Test void readsOrdersAndEditsStayAvailable() throws Exception {
         mvc.perform(get("/api/executions")).andExpect(status().isOk());
+        mvc.perform(get("/api/tools")).andExpect(status().isOk()).andExpect(jsonPath("tools[0].produces").isArray());
         mvc.perform(post("/api/orders").header("Idempotency-Key",UUID.randomUUID().toString()).contentType(MediaType.APPLICATION_JSON).content(ORDER))
             .andExpect(status().isCreated()).andExpect(jsonPath("status").value("SHIPPED"));
         var baseline=snapshots.capture();

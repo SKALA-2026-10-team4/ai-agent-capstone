@@ -23,6 +23,7 @@ qa 폴더에서 다음처럼 실행한다.
 
 import argparse
 import asyncio
+import contextlib
 import datetime
 import json
 import os
@@ -34,6 +35,8 @@ from pathlib import Path
 import httpx
 import yaml
 from mcp import Client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 
 import qa_logic as L
 
@@ -41,6 +44,9 @@ QA_DIR = Path(__file__).resolve().parent
 REPO_DIR = QA_DIR.parent
 # eval 의 diagnosis_only 케이스가 모의 실행할 표준 주문 파일이 있는 폴더다.
 GOLDEN_DIR = REPO_DIR / "scenarios/order-agent/golden"
+# RAG 사례집이다. 사례마다 qa_cases 칸에 그 사례가 정답을 미리 보여 주는 QA 케이스 ID 를 적는다.
+# eval 이 그 케이스를 진단할 때 사례 id 를 rag_exclude 로 보낸다(qa/README.md 의 RAG 정답 누수).
+RAG_CASES_PATH = REPO_DIR / "skillops-agent/rag/cases.json"
 # 확인 조건이 맞지 않아 떨어진 이유 앞에 붙는 문구다.
 # service/src/main/java/com/capstone4/skillops/scenario/ScenarioGrader.java 의 failedCheckReasons 가
 # 붙인다.
@@ -52,6 +58,33 @@ POLL_SECONDS = 3
 def env(name: str, default: str) -> str:
     """환경 변수 값을 읽고, 없거나 비어 있으면 기본값을 돌려준다."""
     return os.getenv(name) or default
+
+
+def service_headers() -> dict[str, str]:
+    """서버 간 토큰 헤더다. SKILLOPS_SERVICE_TOKEN 이 있으면 X-Service-Token 으로 보내고, 비면
+    빈 dict 다.
+
+    service 의 /mcp(토큰을 두면 헤더가 있어야 열린다)와 SkillOps Agent 의 POST /diagnose 가 같은
+    값을 받는다.
+    """
+    token = os.getenv("SKILLOPS_SERVICE_TOKEN", "")
+    return {"X-Service-Token": token} if token else {}
+
+
+@contextlib.asynccontextmanager
+async def mcp_client(url: str, headers: dict[str, str]):
+    """service MCP 서버에 붙는 mcp.Client 를 연다. headers 가 있으면 모든 MCP 요청에 붙인다.
+
+    mcp 2.x 는 URL 만 주면 헤더 없이 붙으므로, 헤더가 있을 때는 그 헤더를 단 HTTP 클라이언트로
+    Streamable HTTP 연결을 만든다(mcp.client.streamable_http.streamable_http_client 의 http_client).
+    """
+    if not headers:
+        async with Client(url) as client:
+            yield client
+        return
+    async with create_mcp_http_client(headers=headers) as http:
+        async with Client(streamable_http_client(url, http_client=http)) as client:
+            yield client
 
 
 class ToolError(Exception):
@@ -109,7 +142,9 @@ class OrderAgent:
         """파일 묶음을 후보 snapshot 으로 발행한다(POST /api/snapshots/candidates).
 
         저장 이벤트를 남기지 않으므로 자동 진단이 시작되지 않는다. check 와 eval 의 direct 실행이
-        쓴다.
+        쓴다. 주문 Agent 는 metadata 를 그대로 남기고 source 만 candidate 로 덮는다
+        (order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java
+        의 publishCandidate). metadata 는 qa_logic.snapshot_metadata 가 만든다.
         """
         return await self._json(
             await self.http.post(
@@ -117,21 +152,24 @@ class OrderAgent:
             )
         )
 
-    async def save_edits(self, base: dict, changes: dict[str, str]) -> httpx.Response:
+    async def save_edits(
+        self, base: dict, changes: dict[str, str], intent: dict | None = None
+    ) -> httpx.Response:
         """운영 화면의 저장과 같은 경로로 수정본을 저장한다(POST /api/snapshots/edits). 응답을
-        그대로
-        돌려준다.
+        그대로 돌려준다.
 
-        저장되면 주문 Agent 가 service 를 거쳐 SkillOps Agent 에 자동 진단을 요청한다.
+        저장되면 주문 Agent 가 service 를 거쳐 SkillOps Agent 에 자동 진단을 요청한다. intent 가
+        있으면 저장 요청의 선택 칸 intent 로 보내고, 주문 Agent 가 저장 이벤트에 실어 진단까지
+        전한다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3).
         """
-        return await self.http.post(
-            "/api/snapshots/edits",
-            json={
-                "baseline_snapshot_id": base["id"],
-                "baseline_hash": base["hash"],
-                "changes": changes,
-            },
-        )
+        body = {
+            "baseline_snapshot_id": base["id"],
+            "baseline_hash": base["hash"],
+            "changes": changes,
+        }
+        if intent is not None:
+            body["intent"] = intent
+        return await self.http.post("/api/snapshots/edits", json=body)
 
     async def delivery(self, change_id: str) -> dict:
         """저장 이벤트가 service 로 전달됐는지와 진단 번호(thread_id)를 읽는다(GET
@@ -186,11 +224,21 @@ class ServiceMcp:
         return await self.call("apply_patch", {"workspace_id": workspace_id, "patches": patches})
 
     async def run_scenarios(
-        self, workspace_id: str, ids: list[str], checks: list[str] | None = None
+        self,
+        workspace_id: str,
+        ids: list[str],
+        checks: list[str] | None = None,
+        expectations: list[dict] | None = None,
     ) -> dict:
+        """시험 주문을 한 번씩 돌린다. checks 는 extra_checks 로, expectations 는 담당자 의도의
+        intent_expectations 로 보낸다. 의도 범위 기준 주문은 결과에 intent_scoped 가 붙는다
+        (docs/plans/2026-10-26-behavior-edit-root-fix.md 2.4).
+        """
         args = {"workspace_id": workspace_id, "scenario_ids": ids, "repeat": 1}
         if checks:
             args["extra_checks"] = checks
+        if expectations:
+            args["intent_expectations"] = expectations
         return await self.call("run_scenarios", args)
 
 
@@ -269,6 +317,13 @@ def load_cases(cases_dir: Path, only: list[str] | None) -> list[dict]:
     return cases
 
 
+def load_rag_exclusions(path: Path = RAG_CASES_PATH) -> dict[str, list[str]]:
+    """RAG 사례집을 읽어 {QA 케이스 ID: [뺄 사례 id]} 를 돌려준다. 사례집이 없으면 빈 dict 다."""
+    if not path.exists():
+        return {}
+    return L.rag_exclusions(json.loads(path.read_text(encoding="utf-8")))
+
+
 def runnable(case: dict, include_openai: bool) -> bool:
     """이번 실행에서 자동으로 돌릴 케이스인지 본다. 수동 케이스는 늘 빼고, AI 모드 케이스는 요청했을
     때만 넣는다.
@@ -329,7 +384,7 @@ async def save_rejection(oa: OrderAgent, base: dict, path: str) -> str | None:
 
 
 async def check_environment(mcp: ServiceMcp, base: dict) -> None:
-    """service 가 harness 실행기로 떠 있고 기준본이 표준 주문 3개를 통과하는지 확인한다.
+    """service 가 harness 실행기로 떠 있고 기준본이 표준 주문 g-01~g-06 을 통과하는지 확인한다.
 
     contract-only 실행기는 주문 Agent 를 부르지 않는 가짜 실행이라 run_id 가 r_fake 로 시작하고,
     표준 주문도 g-01 하나뿐이다. 기준본이 떨어지면 재고 같은 환경 문제라 정답표를 판정할 수
@@ -358,8 +413,8 @@ async def check_environment(mcp: ServiceMcp, base: dict) -> None:
 async def observe_goldens(
     mcp: ServiceMcp, oa: OrderAgent, workspace_id: str
 ) -> tuple[list[dict], list[dict]]:
-    """연습 공간에서 표준 주문 3개를 한 번씩 돌리고 주문마다 관찰한 반응과 run_scenarios 결과를
-    돌려준다.
+    """연습 공간에서 표준 주문 g-01~g-06 을 한 번씩 돌리고 주문마다 관찰한 반응과 run_scenarios
+    결과를 돌려준다. 의도 조건은 붙이지 않는다(주문 Agent 의 반응 그대로).
     """
     report = await mcp.run_scenarios(workspace_id, list(L.GOLDEN_IDS))
     observations, results = [], []
@@ -388,13 +443,21 @@ async def replay_passes(
 
 
 async def run_fix(
-    mcp: ServiceMcp, snapshot_id: str, cand: dict, target: dict, replay_id: str, checks: list[str]
+    mcp: ServiceMcp,
+    snapshot_id: str,
+    cand: dict,
+    target: dict,
+    repro_ids: list[str],
+    checks: list[str],
+    expectations: list[dict] | None = None,
 ) -> dict:
-    """정답표의 안 하나를 새 연습 공간에 넣고 표준 주문 3개, 재현 주문, 의도 조건을 붙인 재현 주문을
-    돌린다.
+    """정답표의 안 하나를 새 연습 공간에 넣고 표준 주문 g-01~g-06 과 재현 주문을 돌린다.
 
     SkillOps 의 후보 판정과 같은 시험이다(표준 주문 유지, 실패 해결, 의도 유지, 끊긴 연결 없음).
-    다만 의도 조건은 정답표에 적은 그대로 보낸다. apply_patch 가 거절하면 시험 통과 실패로 본다.
+    담당자 의도(expectations)가 있으면 모든 주문을 intent_expectations 로 채점하고, 없으면 기존처럼
+    정답표의 의도 조건(checks)을 재현 주문에 붙여 한 번 더 돌린다. 재현 주문은 실패 실행의
+    f-<id> 이거나, 의도 미실현이면 떨어진 의도 범위 기준 주문이다. apply_patch 가 거절하면 시험 통과
+    실패로 본다.
     """
     ws = await mcp.create_workspace(snapshot_id)
     try:
@@ -403,9 +466,10 @@ async def run_fix(
         )
     except ToolError as exc:
         return {"tests_pass": False, "failing": [f"apply_patch 거절: {exc.payload}"]}
-    reports = [await mcp.run_scenarios(ws["workspace_id"], [*L.GOLDEN_IDS, replay_id])]
-    if checks:
-        reports.append(await mcp.run_scenarios(ws["workspace_id"], [replay_id], checks))
+    ids = list(dict.fromkeys([*L.GOLDEN_IDS, *repro_ids]))
+    reports = [await mcp.run_scenarios(ws["workspace_id"], ids, expectations=expectations)]
+    if checks and not expectations:
+        reports.append(await mcp.run_scenarios(ws["workspace_id"], repro_ids, checks))
     failing = [reason for report in reports for reason in failing_reasons(report)]
     if applied.get("broken_links"):
         failing.append(f"끊긴 연결: {applied['broken_links']}")
@@ -419,6 +483,7 @@ def preflight_problems(preflight: str, case: dict) -> list[str]:
         "VALIDATED": "VALIDATED",
         "VALIDATION_FAILED": "VALIDATION_FAILED",
         "DIAGNOSE": "EVALUATED",
+        "INTENT_GAP": "EVALUATED",
     }[preflight]
     if expected not in statuses:
         return [f"사전 검증 갈림길 {preflight} 와 정답 결론 {statuses} 가 맞지 않습니다"]
@@ -430,10 +495,16 @@ async def check_case(case: dict, oa: OrderAgent, mcp: ServiceMcp, base: dict) ->
 
     차례는 주문 Agent 반응, 사전 검증 갈림길, 원인(되돌려 보기), 정답표의 안이다. 정답표의 사실이
     실제와 다르면 시나리오나 정답표를 고쳐야 한다. SkillOps 의 결론과 맞추려고 고치지 않는다(R4).
+
+    담당자 의도(owner_intent)가 있는 케이스(B 묶음)는 표준 주문을 의도 조건을 붙여 한 번 더 돌린다.
+    오류 없이 의도 범위 주문만 떨어지면(INTENT_GAP) 그 주문들이 재현 주문이고, 원인은 담당자가 바꾼
+    Skill 이라 되돌려 보기를 하지 않는다(기준본도 의도를 실행하지 않는다). 정답표의 안은 모두 의도
+    조건으로 채점하고, 되돌리기와 검사 약화(R3)는 불합격으로 계산한다.
     """
     problems: list[str] = []
     observed: dict = {}
     answer = case["answer"]
+    intent = case["owner_intent"]
     if answer.get("save_rejected"):
         code = await save_rejection(oa, base, case["save_file"])
         observed["save_rejected"] = code
@@ -441,7 +512,7 @@ async def check_case(case: dict, oa: OrderAgent, mcp: ServiceMcp, base: dict) ->
             problems.append(f"저장 거부 기대 {answer['save_rejected']}, 실제 {code}")
         return {"problems": problems, "observed": observed}
     cand = L.apply_changes(base["texts"], case["change"])
-    snapshot = await oa.publish(cand, {"baseline_snapshot_id": base["id"], "qa_case": case["id"]})
+    snapshot = await oa.publish(cand, L.snapshot_metadata(case, base["id"]))
     snapshot_id = snapshot["snapshot_id"]
     observed["candidate_snapshot_id"] = snapshot_id
     ws = await mcp.create_workspace(snapshot_id)
@@ -467,13 +538,66 @@ async def check_case(case: dict, oa: OrderAgent, mcp: ServiceMcp, base: dict) ->
         if status not in answer["status"]:
             problems.append(f"정책 확인 결과 {status} (정답 {answer['status']})")
         return {"problems": problems, "observed": observed}
-    preflight = L.preflight_status(observations)
+    if intent is None:
+        preflight = L.preflight_status(observations)
+    else:
+        report = await mcp.run_scenarios(
+            ws["workspace_id"], list(L.GOLDEN_IDS), expectations=intent["expectations"]
+        )
+        observed["intent_failures"] = L.intent_failures(report["results"])
+        preflight = L.intent_preflight_status(observations, report["results"])
+        expected_repro = case["intent"].get("repro")
+        if expected_repro is not None and set(expected_repro) != set(observed["intent_failures"]):
+            problems.append(
+                f"의도를 붙여 떨어진 주문 기대 {expected_repro}, 실제 {observed['intent_failures']}"
+            )
     observed["preflight"] = preflight
     problems += preflight_problems(preflight, case)
-    if preflight != "DIAGNOSE":
+    if preflight not in ("DIAGNOSE", "INTENT_GAP"):
         return {"problems": problems, "observed": observed}
-    first = next(r for r in results if not r["passed"])
-    replay_id = f"f-{L.execution_uuid(first['failures'][0]['run_id'])}"
+    if preflight == "INTENT_GAP":
+        repro_ids = observed["intent_failures"]
+    else:
+        first = next(r for r in results if not r["passed"])
+        repro_ids = [f"f-{L.execution_uuid(first['failures'][0]['run_id'])}"]
+        problems += await check_causes(mcp, snapshot_id, cand, base, case, repro_ids[0], observed)
+    owner_files = L.changed_files(case["change"])
+    keys = L.scope_keys(intent)
+    observed["fixes"] = {}
+    for fix in case["fixes"]:
+        target = L.apply_changes(cand, fix["change"])
+        outcome = await run_fix(
+            mcp,
+            snapshot_id,
+            cand,
+            target,
+            repro_ids,
+            case["intent"]["checks"],
+            intent["expectations"] if intent else None,
+        )
+        outcome["reverted"] = bool(L.reverted_files(base["texts"], target, owner_files))
+        outcome["revert_allowed"] = answer["revert_allowed"]
+        outcome["weakened"] = L.weakened(cand, target, keys) if intent else []
+        observed["fixes"][fix["name"]] = outcome
+        problems += L.check_fix(fix, outcome)
+    return {"problems": problems, "observed": observed}
+
+
+async def check_causes(
+    mcp: ServiceMcp,
+    snapshot_id: str,
+    cand: dict,
+    base: dict,
+    case: dict,
+    replay_id: str,
+    observed: dict,
+) -> list[str]:
+    """원인 칸을 되돌려 보기로 확인하고 어긋난 점을 돌려준다.
+
+    원인으로 적은 수정을 모두 되돌리면 재현 주문이 통과해야 한다. 수정이 여럿이면 하나씩만 되돌려
+    보고, 원인이 하나일 때 그 원인을 되돌린 경우만 통과해야 한다. 재현 주문은 의도 조건 없이 돌린다.
+    """
+    problems = []
     causes = [c for c in case["change"] if c["cause"]]
     keep = [c for c in case["change"] if not c["cause"]]
     together = await replay_passes(
@@ -493,16 +617,7 @@ async def check_case(case: dict, oa: OrderAgent, mcp: ServiceMcp, base: dict) ->
                 problems.append(
                     f"{change['file']} 하나만 되돌렸을 때 통과 기대 {expected}, 실제 {passes}"
                 )
-    owner_files = L.changed_files(case["change"])
-    observed["fixes"] = {}
-    for fix in case["fixes"]:
-        target = L.apply_changes(cand, fix["change"])
-        outcome = await run_fix(mcp, snapshot_id, cand, target, replay_id, case["intent"]["checks"])
-        outcome["reverted"] = bool(L.reverted_files(base["texts"], target, owner_files))
-        outcome["revert_allowed"] = answer["revert_allowed"]
-        observed["fixes"][fix["name"]] = outcome
-        problems += L.check_fix(fix, outcome)
-    return {"problems": problems, "observed": observed}
+    return problems
 
 
 async def run_check(args) -> int:
@@ -514,7 +629,7 @@ async def run_check(args) -> int:
     results = []
     async with (
         httpx.AsyncClient(base_url=args.order_agent, timeout=120) as http,
-        Client(args.mcp) as client,
+        mcp_client(args.mcp, service_headers()) as client,
     ):
         oa, mcp = OrderAgent(http), ServiceMcp(client)
         bases = await pin_base(oa, targets)
@@ -548,17 +663,43 @@ def golden_order(order_id: str) -> dict:
     return json.loads((GOLDEN_DIR / f"{order_id}.json").read_text(encoding="utf-8"))["order"]
 
 
+def diagnose_extras(case: dict, rag_exclude: list[str]) -> dict:
+    """POST /diagnose 본문에 더할 칸이다. 정의한 케이스에만 넣어 기존 케이스의 요청은 그대로 둔다.
+
+    intent 는 담당자 의도가 있는 케이스(B 묶음)만, rag_exclude 는 RAG 사례집에 대응 사례가 있는
+    케이스만 넣는다. 두 칸은 skillops-agent/skillops_agent/main.py 의 DiagnoseRequest 가 받는다
+    (docs/plans/2026-10-26-behavior-edit-root-fix.md 3절 W3).
+    """
+    extras: dict = {}
+    if case["owner_intent"] is not None:
+        extras["intent"] = case["owner_intent"]
+    if rag_exclude:
+        extras["rag_exclude"] = list(rag_exclude)
+    return extras
+
+
 async def start_diagnosis(
-    case: dict, args, oa: OrderAgent, agent: SkillOpsAgent, base: dict, cand: dict
+    case: dict,
+    args,
+    oa: OrderAgent,
+    agent: SkillOpsAgent,
+    base: dict,
+    cand: dict,
+    rag_exclude: list[str],
 ) -> str:
     """케이스 하나의 진단을 시작하고 진단 번호(thread_id)를 돌려준다.
 
     diagnosis_only 케이스는 수정본으로 표준 주문 하나를 모의 실행한 뒤 그 실행에 정책 확인 조건을
     붙여 요청한다. 나머지는 trigger 에 따라 direct(후보 snapshot 을 발행하고 POST /diagnose 로
-    skill_saved 요청)나 save(운영 화면과 같은 저장 경로)로 시작한다. save 는 주문 Agent 가 설정된
-    service 로 보내므로 --agent 가 그 service 뒤의 Agent 여야 한다.
+    skill_saved 요청)나 save(운영 화면과 같은 저장 경로)로 시작한다. direct 는 diagnose_extras 의
+    intent 와 rag_exclude 를 함께 보내고, 발행하는 후보 snapshot 의 metadata 에도 같은 intent 를
+    담는다(qa_logic.snapshot_metadata). service 재판정이 의도를 그 metadata 에서 읽으므로 저장
+    경로와 같은 판정을 받게 하려는 것이다. save 는 저장 요청에 intent 만 실을 수 있고 rag_exclude 는
+    보낼 길이 없다. 또 주문 Agent 가 설정된 service 로 보내므로 --agent 가 그 service 뒤의
+    Agent 여야 한다.
     """
-    meta = {"baseline_snapshot_id": base["id"], "qa_case": case["id"]}
+    meta = L.snapshot_metadata(case, base["id"])
+    extras = diagnose_extras(case, rag_exclude)
     if case["trigger"] == "diagnosis_only":
         snapshot = await oa.publish(cand, meta)
         run = await oa.dry_run(
@@ -569,6 +710,7 @@ async def start_diagnosis(
             "execution_id": run["execution_id"],
             "diagnosis_only": True,
             "intent_checks": case["diagnosis_only"]["checks"],
+            **extras,
         }
         return (await agent.diagnose(body))["thread_id"]
     files = L.changed_files(case["change"])
@@ -580,9 +722,10 @@ async def start_diagnosis(
             "baseline_snapshot_id": base["id"],
             "changed_paths": files,
             "change_id": str(uuid.uuid4()),
+            **extras,
         }
         return (await agent.diagnose(body))["thread_id"]
-    saved = await oa.save_edits(base, {f: cand[f] for f in files})
+    saved = await oa.save_edits(base, {f: cand[f] for f in files}, case["owner_intent"])
     saved.raise_for_status()
     change_id = saved.json()["change_id"]
     deadline = time.monotonic() + 120
@@ -627,15 +770,19 @@ async def read_proposal(service: Service, run: dict) -> tuple[dict | None, list[
         )
 
 
-async def eval_case(case: dict, args, oa, agent, service, base: dict) -> dict:
-    """케이스 하나를 SkillOps 로 진단하고 정답표로 채점한 결과를 돌려준다."""
+async def eval_case(
+    case: dict, args, oa, agent, service, base: dict, rag_exclude: list[str]
+) -> dict:
+    """케이스 하나를 SkillOps 로 진단하고 정답표로 채점한 결과를 돌려준다. rag_exclude 는 이
+    케이스를 진단할 때 RAG 에서 뺄 사례 id 다.
+    """
     started = time.monotonic()
     if case["answer"].get("save_rejected"):
         code = await save_rejection(oa, base, case["save_file"])
         grade = L.grade_eval(case, None, None, [], base["texts"], base["texts"], save_rejected=code)
         return {"grade": grade, "seconds": round(time.monotonic() - started, 1)}
     cand = L.apply_changes(base["texts"], case["change"])
-    thread_id = await start_diagnosis(case, args, oa, agent, base, cand)
+    thread_id = await start_diagnosis(case, args, oa, agent, base, cand, rag_exclude)
     run = await wait_for_run(agent, thread_id, args.timeout)
     proposal, valid_nos, source = await read_proposal(service, run)
     grade = L.grade_eval(
@@ -647,6 +794,8 @@ async def eval_case(case: dict, args, oa, agent, service, base: dict) -> dict:
         "thread_id": thread_id,
         "proposal_id": (run.get("proposal") or {}).get("id"),
         "proposal_source": source,
+        "rag_exclude": rag_exclude,
+        "rag_references": run.get("rag_references"),
         "error": run.get("error"),
     }
 
@@ -655,12 +804,19 @@ async def run_eval(args) -> int:
     """eval 명령의 본체다. 자동 케이스를 repeat 번씩 진단하고 채점해 지표와 보고서를 낸다."""
     cases = load_cases(args.cases, args.only)
     targets = [c for c in cases if runnable(c, args.include_openai)]
-    token = os.getenv("SKILLOPS_SERVICE_TOKEN", "")
-    agent_headers = {"X-Service-Token": token} if token else {}
+    exclusions = load_rag_exclusions()
+    leaking = sorted(c["id"] for c in targets if exclusions.get(c["id"]))
+    if args.trigger == "save" and leaking:
+        # 저장 경로에는 rag_exclude 칸이 없다. Agent 를 SKILLOPS_RAG_EXCLUDE 로 띄워 막는다.
+        print(
+            f"주의: --trigger save 는 rag_exclude 를 보낼 수 없습니다({', '.join(leaking)}). "
+            "Agent 를 SKILLOPS_RAG_EXCLUDE 로 띄워 대응 사례를 빼세요.",
+            flush=True,
+        )
     results = []
     async with (
         httpx.AsyncClient(base_url=args.order_agent, timeout=120) as oa_http,
-        httpx.AsyncClient(base_url=args.agent, timeout=60, headers=agent_headers) as agent_http,
+        httpx.AsyncClient(base_url=args.agent, timeout=60, headers=service_headers()) as agent_http,
         httpx.AsyncClient(base_url=args.service, timeout=60) as service_http,
     ):
         oa = OrderAgent(oa_http)
@@ -668,9 +824,12 @@ async def run_eval(args) -> int:
         service = Service(service_http, args.service_user, args.service_password)
         bases = await pin_base(oa, targets)
         for case in targets:
+            rag_exclude = exclusions.get(case["id"], [])
             for attempt in range(1, args.repeat + 1):
                 try:
-                    outcome = await eval_case(case, args, oa, agent, service, bases[case["base"]])
+                    outcome = await eval_case(
+                        case, args, oa, agent, service, bases[case["base"]], rag_exclude
+                    )
                 except Exception as exc:  # noqa: BLE001 - 한 케이스가 막혀도 나머지는 평가한다
                     grade = {
                         "verdict": "FAIL",
@@ -707,6 +866,10 @@ def answer_text(case: dict) -> str:
     root = answer.get("root_cause_all") or answer.get("root_cause")
     if root:
         text += f" 원인 {'+'.join(root) if answer.get('root_cause_all') else '/'.join(root)}"
+    if answer.get("root_cause_kind") == "incomplete_edit":
+        text += "(의도 미실현)"
+    if case["owner_intent"] is not None:
+        text += " [의도]"
     return text
 
 
@@ -737,6 +900,7 @@ METRIC_LABELS = [
     ("false_alarm", "오탐률"),
     ("root_cause", "원인 특정 정확도"),
     ("fix_presented", "유효 개선안 제시율"),
+    ("intent_fix_presented", "의도 실현 안 제시율"),
     ("no_fix_correct", "'유효한 안 없음' 정답률"),
     ("revert_rate", "되돌리기 제안률"),
     ("completion", "완주율"),
