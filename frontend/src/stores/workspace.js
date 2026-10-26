@@ -5,7 +5,7 @@
 // 키를 나눈다. 화면 쪽
 // 사용처는 frontend/src/components/SnapshotPicker.vue(선택과 고정),
 // frontend/src/views/SkillDraftView.vue(초안 편집과 저장),
-// frontend/src/views/OrderView.vue(실행 목록), frontend/src/views/ExecutionView.vue(실행 당시
+// frontend/src/views/ExecutionListView.vue(실행 목록), frontend/src/views/ExecutionView.vue(실행 당시
 // 세트), frontend/src/views/SnapshotCompareView.vue(비교할 두 세트),
 // frontend/src/views/ProposalView.vue(제안서 patch 를 초안에 적용)다. 튜닝 값인 고정 이력
 // 개수와 patch 허용 오차는 frontend/src/config.js 에 있다.
@@ -182,7 +182,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   // 최근 실행 목록을 다시 읽는다. 실패하면 error 에 문구만 남긴다. init,
-  // frontend/src/views/OrderView.vue(화면을 열 때와 주문을 실행한 뒤),
+  // frontend/src/views/ExecutionListView.vue(화면을 열 때), frontend/src/views/OrderView.vue(주문을 실행한 뒤),
   // frontend/src/views/SnapshotCompareView.vue(화면을 열 때)가 부른다.
   async function refreshExecutions() {
     try {

@@ -1,7 +1,7 @@
 // frontend/src/utils/proposalView.js 의 제안서 이름표와 판정 표시를 고정한다. 후보 종류(encode_rule 포함),
 // 원인 종류(incomplete_edit), 의도 기대 결과의 출처, 후보 경고(is_revert, weakens_contract), service 가
 // 다시 계산한 판정(server_overrides) 줄을 확인한다. mock 제안서 frontend/src/mocks/proposal-b01.json 이
-// 이 칸들을 모두 가진 예시다.
+// 이 칸들을 모두 가진 예시다. 수정안 목록 화면의 규칙(상태 필터, 카드 핵심 요약)도 함께 고정한다.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -10,11 +10,14 @@ import {
   INTENT_SOURCE_LABEL,
   ROOT_CAUSE_KIND_LABEL,
   STATUS,
+  STATUS_FILTERS,
   awaitsDecision,
   candidateFlags,
   candidateKindLabel,
   intentSourceLabel,
+  matchesStatusFilter,
   overrideRows,
+  proposalHighlights,
   rootCauseKind,
   rootCauseKindLabel,
   verdictText,
@@ -117,7 +120,7 @@ test('mock 제안서 b01: 계약의 새 칸을 모두 가진다', () => {
 })
 
 test('mock 제안서 w1(개발 요청서): 검토 대기로 보이고 덮은 판정·후보 꼬리표가 없다', () => {
-  assert.equal(STATUS[w1.status].label, '쓸 수 있는 안 없음')
+  assert.equal(STATUS[w1.status].label, '통과한 후보 없음')
   assert.equal(awaitsDecision(w1), true)
   assert.equal(rootCauseKind(w1.proposal.root_cause), 'change')
   assert.deepStrictEqual(overrideRows(w1), [])
@@ -126,4 +129,37 @@ test('mock 제안서 w1(개발 요청서): 검토 대기로 보이고 덮은 판
   const headings = w1.document.sections.map((s) => s.heading)
   assert.ok(headings.includes('개발 요청') && headings.includes('임시 대안'), headings.join(', '))
   assert.ok(w1.document.summary.includes('SKILL.md 수정만으로는 해결할 수 없어 개발 요청서를 만들었습니다'))
+})
+
+const ALL = ['proposed', 'no_valid_fix', 'approved', 'rejected'].map((status) => ({ status }))
+const pick = (filter) => ALL.filter((p) => matchesStatusFilter(p, filter)).map((p) => p.status)
+
+test('상태 이름: no_valid_fix 는 통과한 후보 없음', () => {
+  assert.equal(STATUS.no_valid_fix.label, '통과한 후보 없음')
+})
+
+test('상태 필터: 전체 · 검토 대기 · 검토 완료', () => {
+  assert.deepStrictEqual(STATUS_FILTERS.map((f) => f.value), ['all', 'pending', 'done'])
+  assert.deepStrictEqual(pick('all'), ['proposed', 'no_valid_fix', 'approved', 'rejected'])
+  // 검토 대기는 사이드바 숫자와 같은 awaitsDecision 규칙이다.
+  assert.deepStrictEqual(pick('pending'), ['proposed', 'no_valid_fix'])
+  assert.deepStrictEqual(pick('done'), ['approved', 'rejected'])
+  // 표에 없는 값은 전체로 본다.
+  assert.equal(pick('unknown').length, ALL.length)
+})
+
+test('핵심 요약: 원인과 시험 결과 두 줄, 추천 후보는 시험 결과 끝에', () => {
+  const p = { root_cause_skill: 'inventory-check', candidate_count: 2, valid_candidate_nos: [1], recommended_candidate_no: 1 }
+  assert.deepStrictEqual(proposalHighlights(p), [
+    { label: '원인', value: 'inventory-check Skill 변경' },
+    { label: '시험 결과', value: '후보 2개 중 1개 통과 · 추천 후보 1번' },
+  ])
+  // 원인 Skill 을 모르고 통과한 후보가 없을 때다. 추천 후보도 붙지 않는다.
+  const none = proposalHighlights({ root_cause_skill: null, candidate_count: 3, valid_candidate_nos: [], recommended_candidate_no: null })
+  assert.deepStrictEqual(none.map((h) => h.value), ['확인 중', '후보 3개 모두 통과하지 못함'])
+})
+
+test('핵심 요약: 후보가 0개면 시험할 후보 없음(개발 요청서 w1)', () => {
+  const summary = { root_cause_skill: w1.proposal.root_cause?.skill ?? null, candidate_count: w1.proposal.candidates.length, valid_candidate_nos: w1.valid_candidate_nos, recommended_candidate_no: w1.recommended_candidate_no }
+  assert.equal(proposalHighlights(summary)[1].value, '시험할 후보 없음')
 })

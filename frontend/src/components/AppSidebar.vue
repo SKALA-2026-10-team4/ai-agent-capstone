@@ -1,8 +1,9 @@
 <script setup>
 // 왼쪽 메뉴(사이드바)다. frontend/src/App.vue 가 meta.public 이 아닌 모든 화면에 붙인다.
-// 메뉴는 담당자의 일 순서대로 묶었다. 개선안을 받고(검증·진단 기록, 받은 개선안),
-// Skill 을 손보고(Skill 편집, 버전 비교), 실행해 본다(주문 실행 · 기록).
-// '받은 개선안' 옆 숫자는 검토 대기 제안서 수다. frontend/src/api/proposals.js 의 listProposals 로
+// 메뉴는 skill 관리(skill 목록), 수정안 관리(수정안 목록, 그 아래 수정안 검증 진단),
+// 테스트 관리(테스트 실행, 테스트 목록) 세 묶음이다. 버전 비교(/compare)는 메뉴에 두지 않고
+// frontend/src/views/ExecutionView.vue 의 'snapshot 비교' 링크로 들어간다.
+// '수정안 목록' 옆 숫자는 검토 대기 제안서 수다. frontend/src/api/proposals.js 의 listProposals 로
 // 목록을 읽고 frontend/src/utils/proposalView.js 의 awaitsDecision 에 맞는 것만 센다. 목록 요청은
 // service/src/main/java/com/capstone4/skillops/api/ProposalController.java 의 list() 가 받는다.
 // 아래쪽에는 mock 모드 표시(frontend/src/api/client.js 의 USE_MOCK), 로그인한 사용자,
@@ -12,7 +13,7 @@
 // frontend/src/App.vue 와 frontend/src/components/DiffView.vue 의 기준과 같은 값이다.
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { FileDiff, FilePen, GitCompareArrows, Inbox, LogOut, PlayCircle, Sparkles } from 'lucide-vue-next'
+import { FileDiff, FilePen, Inbox, ListChecks, LogOut, PlayCircle, Sparkles } from 'lucide-vue-next'
 import { USE_MOCK } from '@/api/client'
 import { listProposals } from '@/api/proposals'
 import { HOME_PATH, LOGIN_PATH } from '@/router/paths'
@@ -27,17 +28,30 @@ const pending = ref(0)
 
 // 메뉴 묶음과 항목이다. 메뉴를 더하거나 순서를 바꿀 때 여기를 고치고,
 // to 는 frontend/src/router/index.js 의 경로와 맞춘다.
-// badge 가 true 인 항목 옆에 검토 대기 수를 붙인다.
+// badge 가 true 인 항목 옆에 검토 대기 수를 붙이고, sub 가 true 인 항목은 바로 위 항목의
+// 하위 메뉴로 들여 쓴다. active 는 지금 주소에서 이 메뉴를 선택된 것으로 볼지 정한다.
+// 상세 화면(/proposals/:id, /executions/:id)에서도 상위 메뉴에 배경이 남도록 경로 앞부분으로 본다.
+// 테스트 실행(/orders)은 새 주문과 방금 실행한 결과, 테스트 목록(/executions)은 이전 실행 기록 화면이다.
 const GROUPS = [
-  { title: '개선안', items: [{ to: '/diagnoses', label: '검증·진단 기록', icon: Sparkles }, { to: '/proposals', label: '받은 개선안', icon: Inbox, badge: true }] },
   {
-    title: 'Skill',
+    title: 'skill 관리',
+    items: [{ to: '/skills', label: 'skill 목록', icon: FilePen, active: (r) => r.path.startsWith('/skills') }],
+  },
+  {
+    title: '수정안 관리',
     items: [
-      { to: '/skills', label: 'Skill 편집', icon: FilePen },
-      { to: '/compare', label: '버전 비교', icon: GitCompareArrows },
+      { to: '/proposals', label: '수정안 목록', icon: Inbox, badge: true, active: (r) => r.path.startsWith('/proposals') },
+      { to: '/diagnoses', label: '수정안 검증 진단', icon: Sparkles, sub: true, active: (r) => r.path.startsWith('/diagnoses') },
     ],
   },
-  { title: '실행', items: [{ to: '/orders', label: '주문 실행 · 기록', icon: PlayCircle }] },
+  {
+    title: '테스트 관리',
+    items: [
+      { to: '/orders', label: '테스트 실행', icon: PlayCircle, active: (r) => r.path.startsWith('/orders') },
+      // 실행 상세(/executions/:id)도 실행 기록에서 들어가므로 테스트 목록으로 본다.
+      { to: '/executions', label: '테스트 목록', icon: ListChecks, active: (r) => r.path.startsWith('/executions') },
+    ],
+  },
 ]
 
 // 로그인 응답의 역할 이름을 화면 이름으로 바꾸는 표다. 역할 이름은
@@ -80,7 +94,16 @@ watch(() => route.fullPath, countPending, { immediate: true })
     <nav>
       <div v-for="g in GROUPS" :key="g.title" class="group">
         <span class="group-title">{{ g.title }}</span>
-        <RouterLink v-for="item in g.items" :key="item.to" :to="item.to" class="item">
+        <!-- 선택 표시는 RouterLink 의 기본 판정 대신 GROUPS 의 active 로 한다(.on 클래스). -->
+        <RouterLink
+          v-for="item in g.items"
+          :key="item.to"
+          :to="item.to"
+          class="item"
+          :class="{ on: item.active(route), sub: item.sub }"
+          active-class=""
+          exact-active-class=""
+        >
           <component :is="item.icon" :size="18" />
           <span>{{ item.label }}</span>
           <span v-if="item.badge && pending" class="count">{{ pending }}</span>
@@ -173,10 +196,17 @@ nav {
   text-decoration: none;
 }
 
-.item.router-link-active {
+/* 선택된 메뉴는 배경색을 깐다. 옅은 라임 배경(--accent-soft) + 라임 굵은 글자(--accent)다 */
+.item.on {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 700;
+}
+
+/* 하위 메뉴(수정안 검증 진단)는 위 항목보다 들여 쓴다 */
+.item.sub {
+  padding-left: 28px;
+  font-size: var(--fs-sm);
 }
 
 .count {

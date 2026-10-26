@@ -30,7 +30,7 @@
 // frontend/tests/diagnosis.spec.js 가 상태 제목, '진행 로그' 제목, '전체 기록' 링크를 확인한다.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Activity } from 'lucide-vue-next'
+import { Sparkles } from 'lucide-vue-next'
 import { USE_MOCK } from '@/api/client'
 import { getChangeDelivery, getDiagnosis, listDiagnoses } from '@/api/diagnoses'
 import CandidateTags from '@/components/CandidateTags.vue'
@@ -200,7 +200,7 @@ onBeforeUnmount(stopPolling)
 </script>
 
 <template>
-  <PageHeader title="검증·진단 기록" description="저장한 수정본이 실제 주문 흐름에서 어떻게 동작하는지 확인해요." :icon="Activity" />
+  <PageHeader title="수정안 검증 진단" description="저장한 수정본이 실제 주문 흐름에서 어떻게 동작하는지 확인해요." :icon="Sparkles" description-tip />
   <p class="callout">수정본은 새 파일 세트로 저장돼요. 이 세트를 지정한 검증·주문에만 적용되며, 5174의 기본 주문에는 자동 반영되지 않아요.</p>
   <p v-if="USE_MOCK" class="callout">실제 검증·진단 기록은 서버 모드에서 확인할 수 있어요.</p>
   <p v-if="error" class="callout err" role="alert">{{ error }} 잠시 후 다시 조회합니다.</p>
