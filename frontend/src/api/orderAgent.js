@@ -80,7 +80,7 @@ export const listExecutions = () => get('/api/executions')
 
 // 실행 실패(completion 이 FAILED 나 INTERRUPTED)만 읽는다. 재고 부족, 결제 거절 같은
 // 업무 거절은 들어가지 않는다. GET /api/executions/failed 는 EvidenceController 의
-// failed() 가 받는다. frontend/src/views/OrderView.vue 의 showFailed 가 부른다.
+// failed() 가 받는다. frontend/src/views/ExecutionListView.vue 의 showFailed 가 부른다.
 export const listFailedExecutions = () => get('/api/executions/failed')
 
 // 실행 한 건의 trace(실행 정보와 events)를 읽는다.

@@ -1,11 +1,11 @@
 <script setup>
 // 화면 맨 위의 제목 줄이다. 아이콘, 제목, 한 줄 설명을 그리고 오른쪽에 actions slot 을 둔다.
 // 제목 위에는 back 링크와 crumbs slot 을, 제목 옆에는 badges slot 을 넣을 수 있다.
-// frontend/src/views 아래 화면 7개(DiagnosisView, ExecutionView, OrderView, ProposalListView,
+// frontend/src/views 아래 화면 8개(DiagnosisView, ExecutionListView, ExecutionView, OrderView, ProposalListView,
 // ProposalView, SkillDraftView, SnapshotCompareView)가 모두 이 컴포넌트로 머리를 그린다.
 // badges 는 ProposalView 의 상태 배지가 쓰고, actions 와 crumbs 를 쓰는 화면은 지금 없다.
 // descriptionTip 을 켜면 설명을 제목 아래 글 대신 제목 옆 ● 의 툴팁으로 보여 준다.
-// 지금은 ProposalListView, SkillDraftView, DiagnosisView, OrderView 가 켠다. 나머지 화면
+// 지금은 ProposalListView, SkillDraftView, DiagnosisView, OrderView, ExecutionListView 가 켠다. 나머지 화면
 // (ProposalView, ExecutionView, SnapshotCompareView)은 설명 줄을 그대로 보여 준다.
 import { ArrowLeft } from 'lucide-vue-next'
 
