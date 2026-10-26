@@ -1,0 +1,107 @@
+{
+  "method": "actual save-event/service/Python graph/MCP/order-agent/approval; deterministic LLM substitute",
+  "normal": {
+    "change_id": "b4a9d15c-8070-48a3-8206-580bedcc05d0",
+    "thread_id": "cf49ec4e-e419-409d-968c-f09531ec0c2c",
+    "status": "VALIDATED"
+  },
+  "repair": {
+    "change_id": "d3402335-23bd-4185-ba98-7401717b00c7",
+    "thread_id": "fe54e3ff-8ceb-422f-8beb-f86aa810428b",
+    "delivery_status": "ACCEPTED",
+    "diagnosis_status": "EVALUATED",
+    "proposal_id": "p_5db524d8673d49549083f8c122a1f7c7",
+    "proposal_status": "approved",
+    "valid_candidate_nos": [
+      1
+    ],
+    "nodes": [
+      "init",
+      "fetch_evidence",
+      "hypothesize",
+      "ablate",
+      "check_ablation",
+      "extract_intent",
+      "generate_candidates",
+      "verify_candidates",
+      "check_valid",
+      "rank_and_explain",
+      "save_proposal"
+    ],
+    "root_cause_confirmed": true
+  },
+  "baseline_failed": {
+    "change_id": "c6396890-7b9d-428c-9484-ea57ccf2a4f0",
+    "thread_id": "8fa8eea5-e08c-42ed-a681-9369a4c3f56e",
+    "status": "BASELINE_FAILED"
+  },
+  "inventory_restored": true,
+  "live_failures_unchanged": true,
+  "intent_gap": {
+    "thread_id": "a735e3c9-a6a5-4376-847c-c0179a309e6d",
+    "change_id": "7c32e4c1-4f44-4bdc-b8ca-2c937dbcd650",
+    "diagnosis_status": "EVALUATED",
+    "finding": "INTENT_NOT_REALIZED",
+    "nodes": [
+      "init",
+      "fetch_evidence",
+      "extract_intent",
+      "generate_candidates",
+      "verify_candidates",
+      "check_valid",
+      "rank_and_explain",
+      "save_proposal"
+    ],
+    "proposal_id": "p_1a84f553f5e54a4892ec95ffc00ca091",
+    "candidate_kinds": [
+      "encode_rule",
+      "encode_rule",
+      "same_skill"
+    ]
+  },
+  "needs_tool": {
+    "thread_id": "96300b4a-0162-4d92-8153-f922918f9d77",
+    "change_id": "bd60f1cc-2076-4d7e-8128-c3b56143c0e5",
+    "diagnosis_status": "EVALUATED",
+    "finding": "NEEDS_TOOL",
+    "nodes": [
+      "init",
+      "fetch_evidence",
+      "hypothesize",
+      "ablate",
+      "check_ablation",
+      "save_proposal"
+    ],
+    "proposal_id": "p_57cead006dce4df6be1b051f9e996085",
+    "candidate_kinds": [],
+    "proposal_status": "no_valid_fix",
+    "approval_refused": true
+  },
+  "intent_rejection_verified": true,
+  "rag_case_conversion_count": 1,
+  "rag_requires_separate_collection": true,
+  "rag_reload_requires_restart": true,
+  "actual_llm_verified": false,
+  "deterministic_llm_substitute": true,
+  "actual_order_executions": 162,
+  "actual_model_api_calls": 0,
+  "all_executions_fixed": true,
+  "all_executions_dry_run": true,
+  "saved_change_events": 5,
+  "delivered_change_events": 5,
+  "delivery_failures": 0,
+  "proposal_counts": {
+    "approved": 1,
+    "rejected": 1,
+    "no_valid_fix": 1
+  },
+  "final_inventory_matches_seed": true,
+  "llm_substitute_schema_calls": {
+    "_HypothesesOutput": 2,
+    "_IntentOutput": 1,
+    "_CandidatesOutput": 2,
+    "_RankExplanationsOutput": 2
+  },
+  "browser_e2e_verified": false,
+  "verified_date_kst": "2026-10-26"
+}
