@@ -161,7 +161,7 @@ watch(() => route.fullPath, countPending, { immediate: true })
   height: 30px;
   border-radius: 8px;
   background: var(--accent);
-  color: var(--on-fill); /* 강조색 면 위 글자. 다크에서는 검정이 된다 */
+  color: var(--on-fill); /* 강조색(라임) 면 위 글자. 남색이다 */
 }
 
 nav {
@@ -201,7 +201,7 @@ nav {
   text-decoration: none;
 }
 
-/* 선택된 메뉴는 배경색을 깐다. 블랙&화이트에서는 회색 배경 + 검정 글자다 */
+/* 선택된 메뉴는 배경색을 깐다. 옅은 라임 배경(--accent-soft) + 라임 굵은 글자(--accent)다 */
 .item.on {
   background: var(--accent-soft);
   color: var(--accent);
