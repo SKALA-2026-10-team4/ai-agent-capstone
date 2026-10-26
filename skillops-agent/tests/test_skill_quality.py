@@ -240,3 +240,16 @@ def test_sample_eval_set_skill_files_pass_rule_checks():
     for s in skills:
         _, findings = check_skill_md(s["skill_md"], s["folder"], names)
         assert failed(findings) == [], s["name"]
+
+
+def test_rules_frontmatter_key_is_allowed():
+    """단계 skill 의 rules(2.2)는 정해진 frontmatter 키라 rule.allowed_keys 가 통과한다."""
+    text = (
+        "---\nname: payment\ndescription: 결제한다\ninputs: [order.payment_method]\n"
+        "outputs: []\ndepends_on: []\nowner: team\nversion: 1\nrules:\n"
+        "  - when: \"order.payment_method != 'prepaid'\"\n"
+        "    then: hold\n    reason: PREPAID_ONLY\n"
+        "---\n결제합니다.\n"
+    )
+    _, findings = check_skill_md(text, folder="payment")
+    assert "rule.allowed_keys" not in ids_failed(findings)

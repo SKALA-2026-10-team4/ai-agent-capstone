@@ -17,14 +17,17 @@ order_agent:
   g-01: {result: pass}
   g-02: {result: pass}
   g-03: {result: pass}
+  g-04: {result: pass}
+  g-05: {result: pass}
+  g-06: {result: pass}
 
 answer:
   status: [VALIDATED]
 
 evidence:
-  - claim: 표준 주문 3개가 모두 통과한다
-    kind: 관찰
-    where: check 실행 기록
+  - claim: 표준 주문 g-01~g-06 이 모두 통과한다
+    kind: 관찰(g-01~g-03), 코드 근거(g-04~g-06)
+    where: check 실행 기록, scenarios/README.md 의 기준 주문 유도 근거
   - claim: 규칙 모드는 본문 정책을 지키지 않는다
     kind: 코드 근거
     where: >-
@@ -32,7 +35,9 @@ evidence:
       order-agent/backend/src/test/java/com/capstone4/orderagent/integration/AgentEvidenceIntegrationTest.java 의
       bodyOnlyPrepaidPolicyIsDeliveredButNotEnforcedByFixedMode
 
-note: 본문 정책이 실행에 반영되지 않는다는 사실은 같은 수정본에 정책 확인 요청을 보내는 T-02b 로 잡는다(한계 L1).
+note: >-
+  본문 정책이 실행에 반영되지 않는다는 사실은 같은 수정본에 정책 확인 요청을 보내는 T-02b 로 잡는다(한계 L1). 같은 수정을 담당자
+  의도(expectations)와 함께 저장하면 B-01 이 되고, 그때는 의도를 실행되게 만드는 rules 안이 정답이다.
 
 current:
   checked: 2026-10-23

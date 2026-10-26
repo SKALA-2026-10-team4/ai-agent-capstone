@@ -29,7 +29,10 @@ import tools.jackson.databind.json.JsonMapper;
  * (service/src/test/resources/proposal/golden)과 한 글자씩 비교하는 특성 테스트다.
  * F1 픽스처(service/src/test/resources/proposal/f1-proposed.json)를 조금씩 바꾼 변형마다 본문 JSON 을 만들어, 문장 틀, 절 순서,
  * JSON 키 이름, 경계 입력(빈 값, 잘못된 모양, 소수 번호)의 처리가 바뀌지 않았는지 본다. kind 가 없거나 공백인 후보에서
- * NullPointerException 이 나는 지금 동작도 고정한다. 골든 파일은 리팩토링 전 코드로 만들었다.
+ * NullPointerException 이 나는 지금 동작도 고정한다. 골든 파일은 리팩토링 전 코드로 만들었다. 개발 요청서가 없는 no_valid_fix 의 개요
+ * 마지막 문장은 2026-10-26 에 "담당자가 Skill을 직접 고쳐야 합니다."에서 승인할 안이 없다는 사실과 볼 곳을 쓰는 문장으로 바꿨고,
+ * 그 문장만 골든 파일에서 고쳤다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11 절). needs_tool 두 파일은 개발 요청서 픽스처
+ * (service/src/test/resources/proposal/needs-tool.json)로 만든 본문이다.
  * 파일이 없으면 지금 출력으로 새로 만들고 테스트를 실패시키므로, 내용을 확인한 뒤 다시 돌린다.
  * 문장을 일부러 바꿨다면 해당 골든 파일을 지우고 다시 만들어 차이를 검토한다.
  */
@@ -135,7 +138,26 @@ class ProposalDocumentWriterGoldenTest {
                 variant("candidate_no_text", f1(p -> {
                     candidate(p, 0).put("candidate_no", "1");
                     candidate(p, 0).put("explanation", "이 기능을 통해 고쳤습니다.");
+                })),
+                // 개발 요청서(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.11 절). 이 두 파일은 개발 요청 기능을 넣을 때 만들었다.
+                variant("needs_tool", fixture("needs-tool.json")),
+                variant("needs_tool_minimal", needsTool(p -> {
+                    Map<String, Object> request = map(p, "development_request");
+                    request.remove("interim");
+                    request.put("options", List.of(maps(request.get("options")).get(0)));
+                    request.remove("change_points");
+                    Map<String, Object> outputGap = map(maps(request.get("gaps")).get(1));
+                    outputGap.put("key", "shipping.rain_hold");
+                    outputGap.put("field", "outputs");
+                    outputGap.put("kind", "tool_output_missing");
                 })));
+    }
+
+    /** 개발 요청서 픽스처(service/src/test/resources/proposal/needs-tool.json)를 새로 읽어 change 로 고친 제안서를 돌려준다. */
+    static Map<String, Object> needsTool(Consumer<Map<String, Object>> change) {
+        Map<String, Object> proposal = fixture("needs-tool.json");
+        change.accept(proposal);
+        return proposal;
     }
 
     /** 변형 하나의 본문을 보기 좋게 줄 바꾼 JSON 으로 만들어 골든 파일과 비교한다. 파일이 없으면 만들고 실패한다. */

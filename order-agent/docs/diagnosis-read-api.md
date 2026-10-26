@@ -16,6 +16,7 @@
 | Skill 본문 읽기 | 주문 Agent | GET /api/snapshots/{snapshot_id}/skills/{skill_id} | 구현됨 |
 | 두 버전 비교 | MCP | diff_skill | 두 snapshot의 Skill 조회 API를 조합해 비교 |
 | 연결 관계 보기 | MCP | get_dependency_graph | snapshot의 Skill 목록·본문 API로 분석 |
+| 업무 도구 목록(개발 요청서 판단) | 주문 Agent | GET /api/tools | 구현됨 (2026-10-26, 10절) |
 
 snapshot manifest와 관련 파일 조회 API도 기존 구현을 재사용한다. 주문 Agent에 diff·그래프 API를 중복 구현하지 않는다. API 네 기능을 직접 HTTP 도구로 등록할지 기존 MCP 서버에서 감쌀지는 호출 담당자의 선택이며, 데이터 제공·분석 책임은 위 표를 따른다.
 
@@ -137,7 +138,10 @@ error는 실제 EXECUTION_ERROR 이벤트의 상세를 사용한다. 오류 종�
       "inputs": ["order.id", "order.total", "order.payment_method", "inventory.reserved"],
       "outputs": ["payment.id", "payment.status"],
       "depends_on": ["inventory-check"],
-      "steps": []
+      "steps": [],
+      "rules": [
+        {"when": "order.payment_method != 'prepaid'", "then": "hold", "reason": "PREPAID_ONLY"}
+      ]
     }
   ],
   "partial": false,
@@ -145,7 +149,7 @@ error는 실제 EXECUTION_ERROR 이벤트의 상세를 사용한다. 오류 종�
 }
 ```
 
-items는 skill_id 순으로 정렬한다. 현재 파일 수 제한 내에서는 전체 목록을 반환하며 페이지 분할하지 않는다. steps는 flow에서 읽고 단계 Skill은 빈 배열로 반환한다. 실행 로더와 동일하게 name·description·owner·양의 정수 version·본문을 검증한다. 단계 Skill의 inputs/outputs/depends_on은 필수 문자열 배열이며 flow의 선택 배열 미기재만 빈 배열로 반환한다. 필수 필드 누락·잘못된 형식·이름과 폴더 불일치·중복 YAML 키·잘못된 UTF-8은 정상 값으로 바꾸지 않고 해당 파일을 items에서 제외하며 parse_errors에 path/code/message를 기록한다. 따라서 이 API의 파싱 성공이 Skill 간 계약 검증 통과를 뜻하지는 않는다.
+items는 skill_id 순으로 정렬한다. 현재 파일 수 제한 내에서는 전체 목록을 반환하며 페이지 분할하지 않는다. steps는 flow에서 읽고 단계 Skill은 빈 배열로 반환한다. rules(2026-10-26 추가 칸)는 실행 로더가 읽고 형식을 검증한 단계 Skill의 실행 규칙을 frontmatter 순서대로 `{when, then, reason}` 목록으로 반환하며, 규칙이 없거나 flow Skill이면 빈 배열이다(형식은 [skill-flow.md](skill-flow.md) 9절). 조건 키가 선언 입력인지는 이 API가 아니라 실행 전 흐름 검사가 본다. 기존 소비자는 모르는 칸을 무시한다. 같은 칸은 `GET /api/snapshots/{snapshot_id}/skills/{skill_id}` 응답에도 있다. 실행 로더와 동일하게 name·description·owner·양의 정수 version·본문을 검증한다. 단계 Skill의 inputs/outputs/depends_on은 필수 문자열 배열이며 flow의 선택 배열 미기재만 빈 배열로 반환한다. 필수 필드 누락·잘못된 형식·이름과 폴더 불일치·중복 YAML 키·잘못된 UTF-8은 정상 값으로 바꾸지 않고 해당 파일을 items에서 제외하며 parse_errors에 path/code/message를 기록한다. 따라서 이 API의 파싱 성공이 Skill 간 계약 검증 통과를 뜻하지는 않는다.
 
 partial=true인 응답은 완전한 그래프의 근거로 취급하지 않는다. 파싱에 실패한 원문은 기존 파일 API로 읽을 수 있게 유지한다. 파일 변조처럼 snapshot 무결성이 깨진 경우는 부분 성공이 아니라 요청 오류다.
 
@@ -215,3 +219,40 @@ MCP diff_skill 권장 입력은 skill_id, before_snapshot_id, after_snapshot_id�
 이 HTTP 응답은 공용 MCP v1 응답과 동일하지 않다. 호출 측이 HTTP를 직접 지원하거나 명시적으로 변환해야 한다. items→failed_runs/skills, skill_id→skill, content→full_text 등의 표기 변환은 가능하지만 events→steps의 완전한 이력·Registry 저장 정보는 단순 이름 변경으로 채울 수 없다. saved_at/saved_by/last_working_version은 현재 제공하지 않는다. snapshot 생성 시각을 Skill 버전 저장 시각으로 대신하지 않는다.
 
 기존 두 MCP 도구는 snapshot manifest와 files API를 사용한다. 두 API의 경로와 snapshot_id/hash/files 및 path/hash/size/encoding/content 응답을 유지했다. diff_skill/get_dependency_graph의 현재 snapshot 입력과 v1의 버전 입력 차이는 MCP 담당과 별도 합의한다. 일반 주문·프론트 흐름과 Runner는 변경하지 않는다.
+
+## 10. 업무 도구 목록
+
+`GET /api/tools` (2026-10-26 추가, [근본 개선 계획](../../docs/plans/2026-10-26-behavior-edit-root-fix.md) 2.11절)
+
+주문 Agent 서버 코드가 가진 업무 도구와, flow 정적 검증이 처음부터 공급된다고 보는 입력 키를 돌려준다. SkillOps Agent는 담당자 수정이 **어떤 업무 도구도 만들지 않는 값**을 요구하는지(개발 요청서) 판단할 때 이 응답을 읽고 사본을 두지 않는다. 요청 파라미터가 없고, DB·snapshot을 읽지 않는 읽기 전용 조회다. 시연 전용 API가 아니므로 `order-agent.demo-enabled=false`에서도 200이다.
+
+```json
+{
+  "initial_input_keys": ["order.id", "order.items", "order.customer", "order.payment_method", "order.shipping"],
+  "tools": [
+    {"tool": "order.inspect", "skill": "order-intake", "description": "Read the accepted order and server-calculated total. Does not create another order.",
+     "produces": ["order.id", "order.customer", "order.items", "order.payment_method", "order.shipping", "order.total"]},
+    {"tool": "inventory.reserve", "skill": "inventory-check", "description": "Atomically reserve all order items or return OUT_OF_STOCK. Arguments: order_id, items[{sku,qty}].",
+     "produces": ["inventory.available", "inventory.reservable_quantity", "inventory.reserved"]},
+    {"tool": "payment.charge", "skill": "payment", "description": "Mock charge a reserved order. Arguments: order_id, amount (server total), method (card/prepaid).",
+     "produces": ["payment.status", "payment.id"]},
+    {"tool": "shipping.reserve", "skill": "shipping-reserve", "description": "Reserve shipment only for a paid and reserved order. Arguments: order_id, country, express.",
+     "produces": ["shipping.id", "shipping.eta"]},
+    {"tool": "notify.send", "skill": "notify", "description": "Record success notification only after shipment. Arguments: order_id, customer.",
+     "produces": ["notify.sent", "notify.channel"]}
+  ]
+}
+```
+
+| 필드 | 내용 |
+|---|---|
+| initial_input_keys | 주문 접수 때 컨텍스트에 이미 있는 키. 실행 코드의 `OrderFlowPolicy.INITIAL_INPUT_KEYS` 그대로다. 서버가 계산한 `order.total`은 여기 없고 `order.inspect`의 produces로만 나온다 |
+| tools[].tool | 업무 도구 이름. 서버 전용 재고 해제 `inventory.release`는 단계 Skill에 묶이지 않아 목록에 없다 |
+| tools[].skill | 이 도구를 부를 수 있는 단계 Skill(1:1) |
+| tools[].description | 모델에 보여 주는 도구 설명과 같은 문장 |
+| tools[].produces | 도구가 **성공 경로**에서 출력(trace TOOL_RESULT의 `result.context`)에 넣는 키 전부. 업무 거절 경로는 그 일부만 낸다(결제 거절은 `payment.id` 없이 `payment.status`만) |
+
+- 값의 원천은 `order-agent/backend/src/main/java/com/capstone4/orderagent/harness/ToolCatalog.java`의 BINDINGS다. produces가 `OrderToolService`의 실제 출력 키와 같은지는 `OrderToolServiceProducesTest`가, 응답 모양은 `ToolControllerTest`가 고정한다.
+- 응답은 실행 중인 서버 코드 기준이며 snapshot의 SKILL.md(선언 inputs/outputs)와 무관하다. tools의 순서에는 의미가 없으니 읽는 쪽은 도구 이름으로 찾는다.
+- 덮음 판정(2.11절): 키 k는 `initial_input_keys ∪ 모든 produces`에 그대로 있거나, 그 가운데 p에 대해 k가 `p + "."`로 시작하면 덮인다(예: `order.shipping.country` ← `order.shipping`). 판정은 호출 측(SkillOps Agent)이 하며 이 API는 목록만 준다.
+- 읽지 못하면(연결 실패·5xx) 호출 측은 도구 빈틈 탐지를 건너뛰고 기존 흐름대로 진행한다. 빈 목록으로 바꿔 모든 키를 빈틈으로 보지 않는다.

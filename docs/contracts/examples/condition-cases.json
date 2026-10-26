@@ -1,0 +1,142 @@
+{
+  "description": "조건 문법 v2 공용 사례. service Check, order-agent RuleCondition, skillops-agent contracts 가 같은 결과를 내야 한다. docs/plans/2026-10-26-behavior-edit-root-fix.md 2.1 절.",
+  "version": 2,
+  "context": {
+    "order.payment_method": "card",
+    "order.total": 90000,
+    "order.customer": "c_1001",
+    "order.shipping": {
+      "country": "US",
+      "express": false
+    },
+    "payment.status": "PAID",
+    "notify.sent": true,
+    "inventory.reserved": true,
+    "order.final_status": "SHIPPED",
+    "order.shipments": 1
+  },
+  "evaluate": [
+    {
+      "text": "order.payment_method == 'card'",
+      "holds": true
+    },
+    {
+      "text": "order.payment_method != 'prepaid'",
+      "holds": true
+    },
+    {
+      "text": "order.payment_method in ['card', 'prepaid']",
+      "holds": true
+    },
+    {
+      "text": "order.total >= 100000",
+      "holds": false
+    },
+    {
+      "text": "order.total > 89999.5",
+      "holds": true
+    },
+    {
+      "text": "order.total <= 90000.0",
+      "holds": true
+    },
+    {
+      "text": "order.total < 90000",
+      "holds": false
+    },
+    {
+      "text": "order.shipping.country != 'KR'",
+      "holds": true
+    },
+    {
+      "text": "order.shipping.express == false",
+      "holds": true
+    },
+    {
+      "text": "order.shipping.missing == null",
+      "holds": true
+    },
+    {
+      "text": "payment.id == null",
+      "holds": true
+    },
+    {
+      "text": "payment.id != null",
+      "holds": false
+    },
+    {
+      "text": "payment.status > 1",
+      "holds": false
+    },
+    {
+      "text": "payment.id < 1",
+      "holds": false
+    },
+    {
+      "text": "notify.sent == true",
+      "holds": true
+    },
+    {
+      "text": "order.shipments == 1",
+      "holds": true
+    },
+    {
+      "text": "order.final_status in ['HOLD', 'REJECTED']",
+      "holds": false
+    },
+    {
+      "text": "  order.customer   ==   'c_1001'  ",
+      "holds": true
+    },
+    {
+      "text": "notify.sent == 1",
+      "holds": false
+    },
+    {
+      "text": "notify.sent > 0",
+      "holds": false
+    },
+    {
+      "text": "order.total == '90000'",
+      "holds": false
+    },
+    {
+      "text": "order.total.x == null",
+      "holds": true
+    },
+    {
+      "text": "order.payment_method in []",
+      "holds": false
+    },
+    {
+      "text": "order.shipping.country.code == null",
+      "holds": true
+    },
+    {
+      "text": "order.ship == null",
+      "holds": true
+    }
+  ],
+  "unreadable": [
+    "",
+    "order.total",
+    "order.total >= ",
+    "order.total => 1",
+    "order.total >= 'abc' extra",
+    "order.total >= [1, 2]",
+    "order.payment_method in 'card'",
+    "order.payment_method == card",
+    "order.total >= 1e3",
+    "order.total >= +1",
+    "order.total >= 'abc'",
+    "order.total > null",
+    "order.total>=1",
+    "order.total >= true"
+  ],
+  "notes": [
+    "숫자 비교(>,>=,<,<=)의 오른쪽은 숫자만 읽는다. 글자·null·true/false 는 unreadable",
+    "true/false 는 숫자 1/0 과 같지 않다(Python bool 주의)",
+    "값 찾기는 정확한 이름 → 점으로 나눈 가장 긴 앞부분의 Map 경로 순서이며, 더 짧은 앞부분으로 다시 시도하지 않는다",
+    "연산자 앞뒤에 공백이 하나 이상 있어야 한다"
+  ]
+}

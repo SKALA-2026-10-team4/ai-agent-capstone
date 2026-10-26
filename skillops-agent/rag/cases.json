@@ -20,7 +20,8 @@
     ],
     "outcome": "scenario",
     "evidence": {},
-    "source": "order-agent/docs/scenarios/S2-inventory-output-deletion.md"
+    "source": "order-agent/docs/scenarios/S2-inventory-output-deletion.md",
+    "qa_cases": ["C-01", "U-01", "G-01", "G-02"]
   },
   {
     "id": "case-S3",
@@ -43,7 +44,8 @@
     ],
     "outcome": "scenario",
     "evidence": {},
-    "source": "order-agent/docs/scenarios/S3-shipping-before-payment.md"
+    "source": "order-agent/docs/scenarios/S3-shipping-before-payment.md",
+    "qa_cases": ["D-01"]
   },
   {
     "id": "case-S4",
@@ -66,7 +68,8 @@
     ],
     "outcome": "scenario",
     "evidence": {},
-    "source": "order-agent/docs/scenarios/S4-missing-notify.md"
+    "source": "order-agent/docs/scenarios/S4-missing-notify.md",
+    "qa_cases": ["D-03"]
   },
   {
     "id": "case-S6",
@@ -89,6 +92,7 @@
     ],
     "outcome": "scenario",
     "evidence": {},
-    "source": "order-agent/docs/scenarios/S6-unproduced-output.md"
+    "source": "order-agent/docs/scenarios/S6-unproduced-output.md",
+    "qa_cases": ["U-01", "U-02", "U-03"]
   }
 ]

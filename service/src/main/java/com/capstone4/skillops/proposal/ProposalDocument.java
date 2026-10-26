@@ -13,7 +13,8 @@ import tools.jackson.databind.annotation.JsonNaming;
  * frontend/src/components/ProposalDocument.vue 가 sections 를 그린다. 목록 응답(service/src/main/java/com/capstone4/skillops/api/ProposalController.java)은
  * title 과 summary 를 꺼내 쓴다. JSON 키 이름은 화면과 맞춘 약속이므로 칸 이름을 바꾸면 화면도 함께 고친다.
  *
- * @param toneWarnings 후보 설명(explanation)에서 ToneCheck 가 찾은 금지 표현 목록이다. 기록으로만 남기고 화면에는 보여 주지 않는다
+ * @param toneWarnings 후보 설명(explanation)과 개발 요청서의 제목·임시 대안 요약에서 ToneCheck 가 찾은 금지 표현 목록이다. 기록으로만
+ *                     남기고 화면에는 보여 주지 않는다
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record ProposalDocument(String title, String summary, List<Section> sections, List<ToneWarning> toneWarnings) {
@@ -24,8 +25,8 @@ public record ProposalDocument(String title, String summary, List<Section> secti
      * frontend/src/views/ProposalView.vue 가 그 자리에 의도 확인 체크와 고른 후보의 패치 비교를 넣는다. 그래서 key 값을 바꾸면 화면도 고친다.
      * ProposalDocumentWriter 는 목록 칸을 비어 있어도 null 이 아닌 빈 목록으로 채운다. 화면이 목록의 length 를 바로 읽기 때문이다.
      *
-     * @param quote       따로 인용해 보여 줄 글이다. 변경 의도 절의 intent.text 가 들어가고, 없으면 null 이다
-     * @param items       글머리표 목록이다. 변경 의도 절의 의도 확인 조건이 들어간다
+     * @param quote       따로 인용해 보여 줄 글이다. 변경 의도 절의 intent.text, 임시 대안 절의 patch(unified diff)가 들어가고, 없으면 null 이다
+     * @param items       글머리표 목록이다. 변경 의도 절의 의도 확인 조건, 개발 요청 절의 개발 방법이 들어간다
      * @param parts       수정안 절이 품는 후보 카드 목록이다. 다른 절에서는 빈 목록이다
      * @param candidateNo 후보 카드이면 그 후보 번호이고, 아니면 null 이다. 화면은 이 번호로 승인할 후보를 고른다
      */
@@ -42,7 +43,10 @@ public record ProposalDocument(String title, String summary, List<Section> secti
     public record Fact(String label, String value) {
     }
 
-    /** 금지 표현 하나가 어디서 나왔는지 남긴다. where 는 candidates[후보 번호].explanation 모양이고 phrase 는 찾은 표현이다. */
+    /**
+     * 금지 표현 하나가 어디서 나왔는지 남긴다. where 는 candidates[후보 번호].explanation, development_request.title,
+     * development_request.interim.summary 가운데 하나이고 phrase 는 찾은 표현이다.
+     */
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record ToneWarning(String where, String phrase) {
     }

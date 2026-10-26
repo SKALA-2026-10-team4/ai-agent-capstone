@@ -1,17 +1,22 @@
 // frontend/src/utils/diagnosisView.js 를 보호한다. 진단 상태 라벨, 다시 조회할지
 // 판단, 후보와 원인 선택, 세트 id 선택, 후보 검증 문구가 예전
-// frontend/src/views/DiagnosisView.vue 안의 식과 같은 결과를 내는지 확인한다.
+// frontend/src/views/DiagnosisView.vue 안의 식과 같은 결과를 내는지 확인한다. 진단 결과
+// (diagnosis.finding) 이름표와 담당자 의도 고르기도 확인한다.
 // 라벨 가운데 둘은 frontend/tests/diagnosis.spec.js 가 화면에서 찾는 문구다.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DIAGNOSIS_LABEL,
+  FINDING,
   IN_PROGRESS_STATUSES,
   baselineSnapshotOf,
   candidateSnapshotOf,
   candidatesOf,
   candidateVerdict,
   diagnosisLabel,
+  findingLabel,
+  findingNote,
+  intentOf,
   rootCauseOf,
   shouldPollAgain,
 } from '../src/utils/diagnosisView.js'
@@ -84,4 +89,35 @@ test('candidateVerdict: true 통과 · false 미통과 · 그 밖 미완료', ()
   assert.equal(candidateVerdict(true), '검증 통과')
   assert.equal(candidateVerdict(false), '검증 미통과')
   assert.equal(candidateVerdict(undefined), '검증 미완료')
+})
+
+test('findingLabel·findingNote: INTENT_NOT_REALIZED 는 의도가 아직 실행되지 않음, 모르는 값은 그대로', () => {
+  assert.deepStrictEqual(Object.keys(FINDING), ['INTENT_NOT_REALIZED', 'NEEDS_TOOL'])
+  assert.equal(findingLabel('INTENT_NOT_REALIZED'), '의도가 아직 실행되지 않음')
+  assert.ok(findingNote('INTENT_NOT_REALIZED').includes('실행 규칙(rules)'))
+  assert.equal(findingLabel('SOMETHING_NEW'), 'SOMETHING_NEW')
+  assert.equal(findingNote('SOMETHING_NEW'), null)
+  for (const v of [null, undefined, '']) {
+    assert.equal(findingLabel(v), null)
+    assert.equal(findingNote(v), null)
+  }
+  // 진단 상태 이름은 늘리지 않는다(2.5 절).
+  assert.equal(Object.keys(DIAGNOSIS_LABEL).length, 9)
+})
+
+test('intentOf: 저장된 제안서 → 진단 결과 → 접수 요청 순서로 담당자 의도를 고른다', () => {
+  const a = { text: 'a' }
+  const b = { text: 'b' }
+  const c = { text: 'c' }
+  assert.equal(intentOf({ proposal: { intent: a }, intent: b, trigger: { intent: c } }), a)
+  assert.equal(intentOf({ proposal: { intent: null }, intent: b, trigger: { intent: c } }), b)
+  assert.equal(intentOf({ trigger: { intent: c } }), c)
+  assert.equal(intentOf({ trigger: {} }), null)
+  assert.equal(intentOf(null), null)
+})
+
+test('findingLabel·findingNote: NEEDS_TOOL 은 도구 개발 필요(2.11 절)', () => {
+  assert.equal(findingLabel('NEEDS_TOOL'), '도구 개발 필요')
+  assert.ok(findingNote('NEEDS_TOOL').includes('SKILL.md 수정만으로는 고칠 수 없어요'))
+  assert.ok(findingNote('NEEDS_TOOL').includes('개발 요청서'))
 })

@@ -55,8 +55,37 @@ app = FastAPI(title="SkillOps Agent", version="0.1.0", lifespan=lifespan)
 _pending_approvals: dict[str, str] = {}
 
 
+# 담당자 의도의 expectation 하나다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3). scope 는
+# 조건 문법 v2 한 줄 또는 null 이며 시험 주문의 처음 값(다섯 키)으로 평가한다. checks 는 조건 문법
+# v2 1~10개다. 여기서는 모양(칸 이름과 타입)만 본다. 문법, scope 키, checks 개수가 맞지 않는 항목은
+# 422 로 요청 전체를 막지 않고 받는다(2.10 V3-2: 잘못된 조건 하나가 주문 Agent 의 전달 큐를 영구히
+# 막지 않게). 그런 항목은 skillops-agent/skillops_agent/nodes.py 의 _owner_expectations 가 빼고
+# intent.dropped_checks 와 diagnosis.intent_note 에 남긴다. 이 클래스에는 docstring 을 넣지 않는다
+# (OpenAPI 문서에 들어간다).
+class IntentExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope: str | None = None
+    checks: list[str] = Field(default_factory=list)
+
+
+# 담당자가 저장 요청에 적은 의도다. 주문 Agent 의 저장 요청 → 저장 이벤트 → service 중계를 거쳐 같은
+# 모양으로 온다. text 는 1~500자이고 공백만 있으면 안 된다. expectations 는 0~10개이며, 비면 Agent
+# 가 text·diff 로 만든다(출처 inferred).
+class OwnerIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=500)
+    expectations: list[IntentExpectation] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def validate_text(self):
+        if not self.text.strip():
+            raise ValueError("intent text must not be blank")
+        return self
+
+
 # POST /diagnose 요청 본문이다. skill 저장 이벤트(type=skill_saved)와 실패 진단
-# 요청(type=failure)을 받고, extra="forbid" 로 정의하지 않은 칸을 422 로 막는다. model_dump()
+# 요청(type=failure)을 받고, extra="forbid" 로 정의하지 않은 칸을 422 로 막는다. 의도(intent) 안의
+# 칸도 같다. model_dump()
 # 결과가 그대로 trigger 가 되어 RunStore 의 중복 판정 fingerprint 와 파이프라인 초기 state 에
 # 들어간다. 그래서 칸을 더하거나 이름이나 기본값을 바꾸면 같은 이벤트라도 fingerprint 가 달라져,
 # 바꾸기 전에 접수한 change_id 의 재전송이 409 가 된다. 이 클래스와 메서드에는 docstring 을 넣지
@@ -88,6 +117,12 @@ class DiagnoseRequest(BaseModel):
     # skill 과 version 은 v0 요청 칸이다. trigger 에 남지만 노드는 읽지 않는다.
     skill: str | None = None
     version: int | None = None
+    # 담당자 의도({text, expectations})다. 있으면 사전 검증의 수정본 세트와 후보 검증에 의도 시험을
+    # 붙이고, 되돌리기·계약 약화 후보를 불합격으로 본다(skillops-agent/skillops_agent/nodes.py).
+    intent: OwnerIntent | None = None
+    # RAG 참고 자료에서 이번 진단만 뺄 자료 id 다. 환경 변수 SKILLOPS_RAG_EXCLUDE 에 더해 뺀다
+    # (skillops-agent/skillops_agent/rag.py 의 excluded_ids). QA 평가가 정답 사례를 가리는 데 쓴다.
+    rag_exclude: list[str] = Field(default_factory=list, max_length=50)
 
     # 실행 번호 정규화와 규칙 검사 세 개를 아래 순서로 부르고, 먼저 실패한 검사의 메시지가 422
     # 응답에 실린다. ValueError 와 그 하위 클래스인 ContractError 를 pydantic 이 검증 오류로 바꾼다.

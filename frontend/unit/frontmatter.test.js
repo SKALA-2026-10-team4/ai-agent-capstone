@@ -62,6 +62,7 @@ test('parseSkillMd: 필드를 읽고 목록은 글 목록만 받으며 원래 �
     depends_on: ['inventory-check'],
     steps: ['notify'],
     invalid_lists: [],
+    rules: [],
     body: '# 결제',
     raw: {
       name: 'payment',
@@ -90,6 +91,7 @@ test('parseSkillMd: 없는 필드는 기본값, 형식이 틀린 목록 필드�
     depends_on: [],
     steps: [],
     invalid_lists: ['inputs'],
+    rules: [],
     body: 'body',
     raw: { inputs: 'order.id', version: '1' },
     error: null,

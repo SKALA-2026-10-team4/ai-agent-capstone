@@ -58,6 +58,7 @@ test('toSkill: 게시본 Skill 은 오류 없이 frontmatter 필드를 펼친다
     depends_on: ['inventory-check'],
     steps: [],
     invalid_lists: [],
+    rules: [],
     name: 'payment',
     description: '예약된 주문 금액을 결제한다',
     version: 1,
@@ -173,6 +174,7 @@ test('toSkill: 구분선 오류면 기본 목록 필드를 두고 error·error_m
     depends_on: [],
     steps: [],
     invalid_lists: [],
+    rules: [],
     error: 'INVALID_SKILL_FORMAT',
     error_message: '맨 위 --- 구분선과 YAML 형식을 확인해 주세요.',
   })

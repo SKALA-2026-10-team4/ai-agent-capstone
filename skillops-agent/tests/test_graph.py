@@ -177,10 +177,12 @@ async def test_checks_are_scoped_to_replay_and_all_trials_have_evidence(tools, m
 
     monkeypatch.setattr(tools, "run_scenarios", scenarios)
     result = await run(initial())
-    assert any(ids == ["g-01", "g-02", "g-03"] for ids, _ in calls)
+    assert any(ids == ["g-01", "g-02", "g-03", "g-04", "g-05", "g-06"] for ids, _ in calls)
     assert all(all(i.startswith("f-") for i in ids) for ids, kw in calls if kw.get("extra_checks"))
-    # 회귀 3개, 재현 1개, 의도 1개를 각각 VERIFY_REPEAT(2)번 돌린 실행 ID 다.
-    assert len(result["candidates"][0]["evidence_run_ids"]) == 10
+    # 의도가 없는 요청은 intent_expectations 를 보내지 않는다.
+    assert not any("intent_expectations" in kw for _, kw in calls)
+    # 회귀 6개, 재현 1개, 의도 1개를 각각 VERIFY_REPEAT(2)번 돌린 실행 ID 다.
+    assert len(result["candidates"][0]["evidence_run_ids"]) == 16
     assert "inventory.reserve" in result["candidates"][0]["results"]["tools_called"]
 
 

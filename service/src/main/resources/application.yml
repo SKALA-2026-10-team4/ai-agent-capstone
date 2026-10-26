@@ -43,10 +43,15 @@ skillops:
   #   harness: 주문 Agent(order-agent.base-url)에 연습 공간 파일을 후보 snapshot 으로 올리고 모의 실행(POST /api/dry-runs)한다.
   #            연습 공간을 create_workspace 의 snapshot_id 로 만들어야 하고, 재현 주문도 돌린다
   flow-runner: ${SKILLOPS_FLOW_RUNNER:contract-only}
+  # save_proposal 재판정(proposal/ProposalJudge.java). 후보가 합격하려면 재현·기준 주문이 한 연습 공간에서 min-repeat 번 이상 돌고 모두 통과해야 한다.
+  min-repeat: ${SKILLOPS_MIN_REPEAT:2}
+  # keeps_old_orders 의 기준 주문 세트(쉼표로 구분). 비우면 기준 주문 폴더의 모든 g-NN. contract-only(scenarios/golden)는 g-01 뿐이다.
+  golden-ids: ${SKILLOPS_GOLDEN_IDS:}
   agent:
     # SkillOps 진단 Agent(skillops-agent/). 진단 요청 중계와 진단 기록 조회(DiagnosisController)에 쓴다.
     base-url: ${SKILLOPS_AGENT_URL:http://localhost:8000}
     # skillops-agent 의 X-Service-Token 과 같은 값. 비어 있으면 헤더를 보내지 않는다(Agent 개발 모드).
+    # 값이 있으면 /internal/skill-changes 와 MCP /mcp 도 같은 값의 X-Service-Token 을 요구한다(auth/McpServiceTokenFilter.java).
     service-token: ${SKILLOPS_SERVICE_TOKEN:}
   auth:
     # HS256 서명 키, 32바이트 이상. 비어 있으면 기동할 때마다 임시 키를 만든다(재시작하면 다시 로그인).

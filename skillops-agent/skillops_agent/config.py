@@ -37,7 +37,8 @@ ORDER_AGENT_BASE_URL = os.getenv("ORDER_AGENT_BASE_URL", "http://localhost:8081"
 # /diagnose 엔드포인트를 보호하는 서버 간 토큰(SKILLOPS_SERVICE_TOKEN)이다.
 # skillops-agent/skillops_agent/main.py 의 verify_token 이 X-Service-Token 헤더와 비교하며
 # /runs 조회도 같은 토큰으로 막는다. 비어 있으면 검증을 건너뛴다(개발 모드). service 에도 같은
-# 값을 준다.
+# 값을 준다. service 의 /mcp 도 이 값이 있으면 X-Service-Token 헤더를 요구하므로
+# skillops-agent/skillops_agent/mcp_client.py 의 mcp_client 가 MCP 요청마다 같은 헤더를 붙인다.
 SERVICE_TOKEN = os.getenv("SKILLOPS_SERVICE_TOKEN", "")
 
 # false 이면 진단 노드가 RAG 참고 자료(skillops-agent/rag/rag_data.json)를 붙이지 않는다. 기본값은
@@ -45,7 +46,8 @@ SERVICE_TOKEN = os.getenv("SKILLOPS_SERVICE_TOKEN", "")
 RAG_ENABLED = os.getenv("SKILLOPS_RAG_ENABLED", "true").lower() == "true"
 # RAG 참고 자료에서 빼고 고를 자료 id 목록(SKILLOPS_RAG_EXCLUDE, 쉼표로 구분)이다. 장애 사례로
 # 평가할 때 같은 케이스의 사례(예: case-S2)를 빼서 답을 미리 보여 주지 않는 데 쓴다. 기본값은 빈
-# 목록이다.
+# 목록이다. 진단 요청의 rag_exclude(skillops-agent/skillops_agent/main.py 의 DiagnoseRequest)가 오면
+# skillops-agent/skillops_agent/rag.py 의 references 가 이 목록에 더해 뺀다.
 RAG_EXCLUDED_IDS = [
     v.strip() for v in os.getenv("SKILLOPS_RAG_EXCLUDE", "").split(",") if v.strip()
 ]
@@ -61,9 +63,95 @@ USE_STUB_MCP = os.getenv("SKILLOPS_USE_STUB_MCP", "false").lower() == "true"
 # service/src/main/java/com/capstone4/skillops/scenario/ScenarioCatalog.java 가
 # skillops.scenarios-dir 아래 golden 폴더에서 읽은 시나리오 ID 와 같아야 한다. 목록이 비면
 # skillops-agent/skillops_agent/nodes.py 의 _run_scenarios 가 ContractError 를 던진다.
+# 기본값은 주문 Agent 실행기용 기준 주문 g-01..g-06(scenarios/order-agent/golden, 계획
+# docs/plans/2026-10-26-behavior-edit-root-fix.md 2.8)이다. g-04 선입금, g-05 해외 배송, g-06 10만
+# 원 이상 주문이 행동 변경(의도) 시험의 범위 안·밖을 가른다. contract-only
+# 실행기(scenarios/golden)는 g-01 만 있으므로 그 모드에서는 SKILLOPS_GOLDEN_IDS=g-01 로 둔다. 같은
+# 목록을 skillops-agent/skillops_agent/stub_tools.py 의 _GOLDEN_FIXTURE_IDS 가 따로 들고 있다.
 GOLDEN_IDS = [
-    v.strip() for v in os.getenv("SKILLOPS_GOLDEN_IDS", "g-01,g-02,g-03").split(",") if v.strip()
+    v.strip()
+    for v in os.getenv("SKILLOPS_GOLDEN_IDS", "g-01,g-02,g-03,g-04,g-05,g-06").split(",")
+    if v.strip()
 ]
+
+# 기준 주문 g-01..g-06 의 설명, 의도 없이 돌렸을 때의 기대 최종 상태, 의도 scope 가 보는 처음
+# 값(skillops-agent/skillops_agent/contracts.py 의 SCOPE_KEYS)이다. 담당자가 의도 글만 주면
+# skillops-agent/skillops_agent/nodes.py 의 _infer_expectations 가 이 표를 GOLDEN_IDS 순서로 펼쳐
+# skillops-agent/prompts/infer_expectations.md 에 넣는다. Agent 에는 기준 주문 파일을 읽는 도구가
+# 없어서(파일은 service 의 skillops.scenarios-dir 에만 있다) scenarios/order-agent/golden/*.json 의
+# order·expect.final_status 와, 주문 Agent 상품 단가
+# (order-agent/backend/src/main/resources/data.sql)로 계산한 order.total 을 여기에 옮겨 두었다.
+# service 도 같은 방법(단가 × 수량 합)으로 total 을 계산한다. 기준 주문이나 단가를 바꾸면 이 표도
+# 고친다. skillops-agent/tests/test_behavior_intent.py 가 두 파일과 같은지 본다. GOLDEN_IDS 에
+# 있는데 이 표에 없는 주문은 프롬프트에 '처음 값 모름'으로 나간다.
+GOLDEN_ORDERS = {
+    "g-01": {
+        "name": "랜턴 1개 카드 결제 정상 주문",
+        "final_status": "SHIPPED",
+        "values": {
+            "order.payment_method": "card",
+            "order.customer": "c_1001",
+            "order.shipping.country": "KR",
+            "order.shipping.express": False,
+            "order.total": 30000,
+        },
+    },
+    "g-02": {
+        "name": "머그컵 재고 없음 업무 거절(결제 전)",
+        "final_status": "REJECTED",
+        "values": {
+            "order.payment_method": "card",
+            "order.customer": "c_1001",
+            "order.shipping.country": "KR",
+            "order.shipping.express": False,
+            "order.total": 12000,
+        },
+    },
+    "g-03": {
+        "name": "결제 거절 고객 보류",
+        "final_status": "HOLD",
+        "values": {
+            "order.payment_method": "card",
+            "order.customer": "c_declined",
+            "order.shipping.country": "KR",
+            "order.shipping.express": False,
+            "order.total": 30000,
+        },
+    },
+    "g-04": {
+        "name": "랜턴 1개 선입금 결제 정상 주문",
+        "final_status": "SHIPPED",
+        "values": {
+            "order.payment_method": "prepaid",
+            "order.customer": "c_1001",
+            "order.shipping.country": "KR",
+            "order.shipping.express": False,
+            "order.total": 30000,
+        },
+    },
+    "g-05": {
+        "name": "랜턴 1개 카드 결제 미국 배송 정상 주문",
+        "final_status": "SHIPPED",
+        "values": {
+            "order.payment_method": "card",
+            "order.customer": "c_1001",
+            "order.shipping.country": "US",
+            "order.shipping.express": False,
+            "order.total": 30000,
+        },
+    },
+    "g-06": {
+        "name": "랜턴 4개 카드 결제 고액 정상 주문",
+        "final_status": "SHIPPED",
+        "values": {
+            "order.payment_method": "card",
+            "order.customer": "c_1001",
+            "order.shipping.country": "KR",
+            "order.shipping.express": False,
+            "order.total": 120000,
+        },
+    },
+}
 
 # ── 진단 파이프라인 튜닝 값 ─────────────────────────────────────────────────────
 # 흐름의 한도, 반복 횟수, 기본값은 여기서만 바꾼다. 환경 변수로는 열지 않는다.
@@ -119,10 +207,12 @@ INTENT_CHECK_REPEAT = 2
 # 원본 재현 확인(control)과 hunk 복원 실험의 횟수다. root_cause.proof_run_ids 는 이 값의 두 배만큼
 # 실행 ID 를 담는다.
 ABLATION_REPEAT = 1
-# 후보 검증(회귀, 재현, 의도)의 횟수다. 후보 하나의 evidence_run_ids 는
-# (회귀 시나리오 수 + 2) × VERIFY_REPEAT 개이고, 의도 조건이 없으면 (회귀 시나리오 수 + 1) ×
-# VERIFY_REPEAT 개다. skillops-agent/tests/test_graph.py 의 근거 실행 10개 단언과
-# skillops-agent/tests/test_flow_characterization.py 의 10개, 8개 단언이 이 값에 기댄다.
+# 후보 검증(회귀, 재현, 의도)의 횟수다. 재현 주문이 f-<실행> 하나인 기존 흐름에서 후보 하나의
+# evidence_run_ids 는 (회귀 시나리오 수 + 2) × VERIFY_REPEAT 개이고, 의도 조건이 없으면 (회귀
+# 시나리오 수 + 1) × VERIFY_REPEAT 개다. 재현 주문이 기준 주문(결과 불일치·의도 미실현)이면 회귀
+# 실행을 그대로 재현 근거로 쓰므로 회귀 시나리오 수 × VERIFY_REPEAT 개다.
+# skillops-agent/tests/test_graph.py 의 근거 실행 16개 단언과
+# skillops-agent/tests/test_flow_characterization.py 의 16개, 14개 단언이 이 값에 기댄다.
 VERIFY_REPEAT = 2
 # 의존성 그래프를 읽을 시작 skill 이다. 요청에 entry_skill_id 가 없을 때 쓴다.
 # skillops-agent/skillops_agent/main.py 의 DiagnoseRequest.entry_skill_id 기본값이고,
