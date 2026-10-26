@@ -4,7 +4,7 @@
 // 흩어져 있던 식과 같은 결과를 내는지 확인한다.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { UUID_RE, isUuid, shortId, shortUuid, shortenUuidsIn, won } from '../src/utils/format.js'
+import { UUID_RE, dateTime, isUuid, shortId, shortUuid, shortenUuidsIn, won } from '../src/utils/format.js'
 
 // 옮기기 전 코드를 그대로 복사한 비교 기준이다.
 const OLD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -61,4 +61,12 @@ test('shortId: 앞 8자', () => {
 test('won: 실행 환경 locale 의 자릿수 구분 + 원', () => {
   for (const n of [0, 12000, 30000, 1234567, -500, 1.5]) assert.equal(won(n), oldWon(n))
   assert.equal(won(30000), `${(30000).toLocaleString()}원`)
+})
+
+test('dateTime: 실행 환경 시간대의 yyyy.mm.dd HH:mm', () => {
+  // 시간대와 상관없이 맞도록 로컬 시각으로 만든 값을 넣는다.
+  assert.equal(dateTime(new Date(2026, 9, 21, 5, 7).toISOString()), '2026.10.21 05:07')
+  assert.equal(dateTime(new Date(2026, 0, 1, 23, 59).toISOString()), '2026.01.01 23:59')
+  // 값이 없거나 읽을 수 없으면 빈 글자다.
+  for (const v of [null, undefined, '', 'not-a-date']) assert.equal(dateTime(v), '', String(v))
 })

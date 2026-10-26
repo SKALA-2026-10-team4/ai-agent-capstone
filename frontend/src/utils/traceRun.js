@@ -1,6 +1,6 @@
 // order-agent trace 의 events 를 Skill 별 실행 상태로 계산한다.
 // frontend/src/views/ExecutionView.vue 의 단계별 결과가 traceRun 과 RUN_LABEL 을 쓴다.
-// 실행 목록 한 줄 라벨(executionLabel)은 frontend/src/views/OrderView.vue 가, 실행 번호를
+// 실행 목록 한 줄 라벨(executionLabel)은 frontend/src/views/ExecutionListView.vue 가, 실행 번호를
 // 실행 화면 주소로 바꾸는 executionPath 는 frontend/src/components/ProposalFacts.vue 와
 // frontend/src/views/DiagnosisView.vue 가 쓴다. 이벤트 종류와 data 모양은
 // order-agent/backend/src/main/java/com/capstone4/orderagent/trace/TraceService.java,
@@ -167,7 +167,7 @@ export function traceRun(trace, steps) {
 
 // 실행 목록 한 줄 라벨을 만든다. 시작 시각(월-일 시:분), 최종 상태,
 // 오류 분류, 실행 번호 앞 8자를 가운뎃점으로 잇고 오류 분류는 있을
-// 때만 넣는다. frontend/src/views/OrderView.vue 의 runLabel 이 쓴다.
+// 때만 넣는다. frontend/src/views/ExecutionListView.vue 의 runLabel 이 쓴다.
 export const executionLabel = (x) =>
   `${x.started_at?.slice(5, 16).replace('T', ' ')} · ${x.final_status ?? x.completion}` +
   `${x.error_category ? ` · ${x.error_category}` : ''} · ${shortId(x.execution_id)}`

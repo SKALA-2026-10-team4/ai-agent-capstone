@@ -20,6 +20,7 @@ import { PUBLISHED_FILES, fixtureFiles, prepaidPolicyFiles } from './skillFiles'
 import proposalB01 from './proposal-b01.json'
 import proposalF1 from './proposal-f1.json'
 import proposalW1 from './proposal-w1.json'
+import { sampleProposals } from './proposalSamples'
 
 // 실서버처럼 응답이 조금 늦게 오도록 요청마다 기다리는 시간(밀리초)이다. handleMock 이 쓴다.
 const MOCK_LATENCY_MS = 120
@@ -50,15 +51,17 @@ const products = [
 // 실행 기록을 두고, proposals 는 frontend/src/mocks/proposal-f1.json(입력·출력 연결이 끊긴 결함)과
 // frontend/src/mocks/proposal-b01.json(본문 정책을 실행 규칙으로 옮기는 encode_rule 후보),
 // frontend/src/mocks/proposal-w1.json(notify 가 어떤 도구도 만들지 않는 shipping.weather 를 요구해 후보 대신
-// 개발 요청서를 낸 no_valid_fix) 세 건으로 시작한다.
+// 개발 요청서를 낸 no_valid_fix) 세 건과, frontend/src/mocks/proposalSamples.js 의 수정안 목록 확인용
+// 표본으로 시작한다.
 const snapshots = {}
 const orders = {}
 const executions = {}
-const proposals = {
-  [proposalF1.proposal_id]: clone(proposalF1),
-  [proposalB01.proposal_id]: clone(proposalB01),
-  [proposalW1.proposal_id]: clone(proposalW1),
-}
+const proposals = Object.fromEntries(
+  [clone(proposalF1), clone(proposalB01), clone(proposalW1), ...sampleProposals(proposalF1, clone)].map((p) => [
+    p.proposal_id,
+    p,
+  ]),
+)
 
 // 파일 묶음을 새 snapshot 으로 저장하고 manifest 를 돌려준다. 파일 hash 목록과 metadata 로 묶음
 // hash 를 만든다. publishFixture 와 createOrder(세트를 고르지 않은 주문의 게시본 실행)가 부른다.

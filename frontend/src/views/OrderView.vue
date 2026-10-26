@@ -1,5 +1,6 @@
 <script setup>
-// 주문 실행과 실행 기록 화면이다. frontend/src/router/index.js 가 /orders 경로에 연결한다.
+// 테스트 실행 화면이다. 사이드바(frontend/src/components/AppSidebar.vue)의 '테스트 실행' 메뉴이며
+// frontend/src/router/index.js 가 /orders 경로에 연결한다.
 // order-agent 의 실제 Harness 가 고른 snapshot 의 Skill 로 주문을 처리하고 trace 를 남긴다.
 // 주문은 frontend/src/api/orderAgent.js 의 createOrder(POST /api/orders)로 보내고
 // order-agent/backend/src/main/java/com/capstone4/orderagent/controller/OrderController.java 의
@@ -13,19 +14,16 @@
 // 상품 선택지는 orderAgent.js 의 listProducts(GET /api/products)로 읽고,
 // order-agent/backend/src/main/java/com/capstone4/orderagent/controller/ProductController.java 의
 // list() 가 돌려준다.
-// 실행 기록은 두 탭으로 보여 준다. '최근' 탭은 GET /api/executions 가 주는 최근 20건으로,
-// frontend/src/stores/workspace.js 의 executions 에 들어 있다. '실행 실패만' 탭은 orderAgent.js 의
-// listFailedExecutions 로 읽는 GET /api/executions/failed 목록이고,
-// order-agent/backend/src/main/java/com/capstone4/orderagent/controller/EvidenceController.java 의
-// failed() 가 돌려준다. 줄을 누르면 frontend/src/views/ExecutionView.vue 의 실행 상세 화면으로
-// 간다.
+// 화면은 위에서 아래로 Skill 세트 선택, 새 주문, 실행 결과 순서다. 실행 결과에는 이 화면에 들어온 뒤
+// 실행한 주문만 최신순으로 쌓고, 가장 최근 것은 펼쳐 보여 주며 나머지는 한 줄 요약으로 둔다.
+// 화면을 나갔다 오면 비워진다. 이전 실행 기록 전체는 테스트 목록 화면
+// (frontend/src/views/ExecutionListView.vue, /executions)에서 본다.
 // 프리셋은 order-agent/docs/team-scenarios.md 의 시나리오 1과 2이며, 기본 폼(form)과 함께
 // 이 파일 위쪽의 PRESETS 에서 고친다.
 import { computed, onMounted, reactive, ref } from 'vue'
-import { createOrder, listFailedExecutions, listProducts } from '@/api/orderAgent'
+import { createOrder, listProducts } from '@/api/orderAgent'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { won } from '@/utils/format'
-import { executionLabel } from '@/utils/traceRun'
 import { PlayCircle } from 'lucide-vue-next'
 import PageHeader from '@/components/PageHeader.vue'
 import SnapshotPicker from '@/components/SnapshotPicker.vue'
@@ -47,9 +45,13 @@ const form = reactive({
 // true 면 위에서 고른 snapshot 으로 실행하고,
 // false 면 snapshot_id 없이 보내 현재 게시본을 새로 고정해 실행한다.
 const usePinned = ref(true)
-// 마지막 주문 응답이다. 모양은
-// order-agent/backend/src/main/java/com/capstone4/orderagent/dto/order/OrderResponse.java 와 같다.
-const result = ref(null)
+// 이 화면에서 실행한 주문 결과다. 최신순이고 항목은 { res, ranAt } 이다. res 의 모양은
+// order-agent/backend/src/main/java/com/capstone4/orderagent/dto/order/OrderResponse.java 와 같고,
+// ranAt 은 결과를 받은 시각이다. 화면을 나가면 비워진다.
+const runs = ref([])
+// 펼쳐 보여 줄 가장 최근 결과와, 한 줄 요약으로 둘 그 이전 결과들이다.
+const latest = computed(() => runs.value[0]?.res ?? null)
+const earlier = computed(() => runs.value.slice(1))
 const busy = ref(false)
 const error = ref(null)
 
@@ -67,42 +69,15 @@ const product = computed(() => products.value.find((p) => p.sku === form.sku))
 // 주문에 실을 snapshot_id 다. null 이면 order-agent 가 현재 게시본을 새로 고정한다.
 const snapshotForOrder = computed(() => (usePinned.value ? ws.snapshotId : null))
 
-// 실행 기록 탭이다. 'recent' 는 최근 실행(최대 20건)이고, 'failed' 는 실행 실패만 모은 목록이다.
-// 실행 실패 목록(GET /api/executions/failed)에는 재고 부족이나 결제 거절 같은
-// 업무 거절이 들어가지 않는다.
-const listMode = ref('recent')
-const failed = ref([])
-const shownRuns = computed(() => (listMode.value === 'failed' ? failed.value : ws.executions))
+// 결과를 받은 시각을 '14:03:21' 처럼 쓴다. 이전 결과 한 줄 요약의 맨 앞에 둔다.
+const clock = (d) => d.toLocaleTimeString('ko-KR', { hour12: false })
 
 /**
- * '실행 실패만' 탭으로 바꾸고 frontend/src/api/orderAgent.js 의 listFailedExecutions 로
- * 목록을 읽는다. EvidenceController 의 failed() 가 답하며, 탭을 누를 때마다 다시 읽는다.
- */
-async function showFailed() {
-  listMode.value = 'failed'
-  try {
-    failed.value = (await listFailedExecutions()).items
-  } catch (e) {
-    error.value = e.message
-  }
-}
-
-/**
- * 실행 기록 한 줄의 글이다. template 의 실행 기록 목록이 줄마다 부른다.
- * 줄 모양은 frontend/src/utils/traceRun.js 의 executionLabel 이 정한다.
- * 실행 실패 목록의 항목은 오류를 error 객체로 주므로, 그 category 를 error_category 자리에 넣고
- * 실패한 skill_id 를 뒤에 붙인다.
- */
-const runLabel = (x) =>
-  x.error ? `${executionLabel({ ...x, error_category: x.error.category })} · ${x.error.skill_id ?? ''}` : executionLabel(x)
-
-/**
- * 입력 예시 하나를 폼에 채우고 이전 결과를 지운다. 입력 예시 버튼이 부른다.
- * 수량은 1로 되돌리고 배송 칸은 그대로 둔다.
+ * 입력 예시 하나를 폼에 채운다. 입력 예시 버튼이 부른다.
+ * 수량은 1로 되돌리고 배송 칸은 그대로 둔다. 시나리오를 이어 돌려 비교할 수 있도록 지난 결과는 지우지 않는다.
  */
 function preset(p) {
   Object.assign(form, { customer: p.customer, sku: p.sku, payment_method: p.payment_method, qty: 1 })
-  result.value = null
 }
 
 /**
@@ -142,8 +117,8 @@ const orderErrorMessage = (e) =>
 
 /**
  * 폼으로 주문을 실행한다. '주문 실행' 버튼이 부른다.
- * createOrder 가 결과를 끝까지 확인해 돌려주면 결과 칸에 보여 주고,
- * 최근 실행 목록과 상품 재고를 다시 읽는다.
+ * createOrder 가 결과를 끝까지 확인해 돌려주면 실행 결과 맨 위에 쌓고,
+ * 최근 실행 목록(테스트 목록이 쓰는 store 값)과 상품 재고를 다시 읽는다.
  * Agent 실행이 실패한 주문도 createOrder 가 다시 조회한 FAILED 주문으로 돌려주므로 오류가 아니라
  * 결과로 보이고, 실행 trace 링크로 원인을 확인할 수 있다. 입력 오류나 결과를 끝내 확인하지 못한
  * 경우처럼 createOrder 가 던진 오류는 오류 문구로 보여 준다.
@@ -151,9 +126,9 @@ const orderErrorMessage = (e) =>
 async function submit() {
   busy.value = true
   error.value = null
-  result.value = null
   try {
-    result.value = await createOrder(toOrderRequest(form), { snapshotId: snapshotForOrder.value })
+    const res = await createOrder(toOrderRequest(form), { snapshotId: snapshotForOrder.value })
+    runs.value.unshift({ res, ranAt: new Date() })
     await Promise.all([ws.refreshExecutions(), loadProducts()])
   } catch (e) {
     error.value = orderErrorMessage(e)
@@ -162,24 +137,23 @@ async function submit() {
   }
 }
 
-// 화면을 열 때 상품 목록과 최근 실행 목록을 함께 읽는다.
-onMounted(() => {
-  loadProducts()
-  ws.refreshExecutions()
-})
+// 화면을 열 때 상품 목록을 읽는다. 이전 실행 기록은 테스트 목록 화면이 읽는다.
+onMounted(loadProducts)
 </script>
 
 <template>
   <PageHeader
-    title="주문 실행 · 기록"
-    description="고른 Skill 세트로 실제 주문 Agent 를 돌려 보고, 실행 기록에서 단계별 결과를 확인해요."
+    title="테스트 실행"
+    description="고른 Skill 세트로 실제 주문 Agent 를 돌려 보고, 방금 실행한 주문의 단계별 결과를 확인해요. 이전 기록은 테스트 목록에서 볼 수 있어요."
     :icon="PlayCircle"
+    description-tip
   />
   <div class="card toolbar">
     <SnapshotPicker />
   </div>
 
-  <div class="grid">
+  <!-- 새 주문 아래에 실행 결과를 두는 세로 한 줄 배치다. -->
+  <div class="stack">
     <section class="card">
       <h2>새 주문</h2>
       <p class="muted small">외부 결제·배송이 발생하지 않는 데모 주문이다. 재고는 실제로 줄어든다.</p>
@@ -235,51 +209,53 @@ onMounted(() => {
       <button class="primary" :disabled="busy" @click="submit">{{ busy ? '실행 중…' : '주문 실행' }}</button>
     </section>
 
+    <!-- 이 화면에서 실행한 주문의 결과다. 가장 최근 것은 펼치고, 그 이전 것은 한 줄 요약으로 둔다. -->
     <section class="card">
-      <template v-if="result">
+      <h2>실행 결과</h2>
+      <p v-if="!latest" class="muted">
+        주문을 실행하면 결과가 여기에 쌓여요. 이전 기록은 <RouterLink to="/executions">테스트 목록</RouterLink>에서 볼 수 있어요.
+      </p>
+      <template v-else>
         <div class="head">
-          <h2>결과</h2>
-          <StatusBadge :status="result.status" />
-          <code v-if="result.result_code">{{ result.result_code }}</code>
+          <strong>방금 실행</strong>
+          <StatusBadge :status="latest.status" />
+          <code v-if="latest.result_code">{{ latest.result_code }}</code>
         </div>
-        <p>{{ result.message }}</p>
+        <p>{{ latest.message }}</p>
         <dl>
           <dt>주문</dt>
-          <dd><code>{{ result.order_id }}</code> · {{ won(result.total_amount) }}</dd>
+          <dd><code>{{ latest.order_id }}</code> · {{ won(latest.total_amount) }}</dd>
           <dt>결제</dt>
-          <dd><StatusBadge :status="result.payment.status" /></dd>
+          <dd><StatusBadge :status="latest.payment.status" /></dd>
           <dt>배송</dt>
-          <dd>{{ result.shipment?.estimated_delivery_date ?? '—' }}</dd>
+          <dd>{{ latest.shipment?.estimated_delivery_date ?? '—' }}</dd>
           <dt>알림</dt>
-          <dd><StatusBadge :status="result.notification.status" /></dd>
+          <dd><StatusBadge :status="latest.notification.status" /></dd>
         </dl>
         <ol class="steps">
-          <li v-for="s in result.steps" :key="s.sequence">
+          <li v-for="s in latest.steps" :key="s.sequence">
             <span>{{ s.step }}</span>
             <StatusBadge :status="s.status" />
             <span class="muted">{{ s.result_code ?? '' }} {{ s.message }}</span>
           </li>
         </ol>
-        <RouterLink v-if="result.execution_id" :to="`/executions/${result.execution_id}`" class="go">
+        <RouterLink v-if="latest.execution_id" :to="`/executions/${latest.execution_id}`" class="go">
           실행 trace 보기 →
         </RouterLink>
-      </template>
 
-      <div class="list-head" :class="{ spaced: result }">
-        <h2>실행 기록</h2>
-        <div class="tabs">
-          <button class="ghost sm" :class="{ on: listMode === 'recent' }" @click="listMode = 'recent'">최근</button>
-          <button class="ghost sm" :class="{ on: listMode === 'failed' }" @click="showFailed">실행 실패만</button>
-        </div>
-      </div>
-      <p v-if="!shownRuns.length" class="muted">
-        {{ listMode === 'failed' ? '실행이 실패한 주문이 없어요. (재고 부족·결제 거절은 정상 업무 결과라 여기 없어요)' : '아직 실행 기록이 없어요.' }}
-      </p>
-      <ul class="recent">
-        <li v-for="x in shownRuns" :key="x.execution_id">
-          <RouterLink :to="`/executions/${x.execution_id}`">{{ runLabel(x) }}</RouterLink>
-        </li>
-      </ul>
+        <template v-if="earlier.length">
+          <h3 class="spaced">이 화면에서 앞서 실행한 주문</h3>
+          <ul class="recent">
+            <li v-for="r in earlier" :key="r.ranAt.getTime()">
+              <span class="muted">{{ clock(r.ranAt) }}</span>
+              <StatusBadge :status="r.res.status" />
+              <code v-if="r.res.result_code">{{ r.res.result_code }}</code>
+              <span class="msg">{{ r.res.message }}</span>
+              <RouterLink v-if="r.res.execution_id" :to="`/executions/${r.res.execution_id}`">trace →</RouterLink>
+            </li>
+          </ul>
+        </template>
+      </template>
     </section>
   </div>
 </template>
@@ -290,17 +266,11 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+/* 새 주문과 실행 결과를 위아래로 쌓는다. 예전 2열 grid 를 대신한다 */
+.stack {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  align-items: start;
-}
-
-@media (max-width: 800px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .presets {
@@ -396,32 +366,7 @@ dd {
   margin-top: 20px;
 }
 
-.list-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.list-head h2 {
-  margin: 0;
-}
-
-.tabs {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-}
-
-.tabs .on {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: var(--shadow-sm);
-}
-
+/* 앞서 실행한 주문의 한 줄 요약이다. 시각, 상태, 결과 코드, 문구, trace 링크 순서이고 문구는 길면 말줄임한다 */
 .recent {
   list-style: none;
   margin: 0;
@@ -429,8 +374,19 @@ dd {
 }
 
 .recent li {
-  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+}
+
+.recent .msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

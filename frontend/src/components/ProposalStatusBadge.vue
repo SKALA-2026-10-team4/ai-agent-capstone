@@ -1,5 +1,5 @@
 <script setup>
-// 제안서 상태 배지다(검토 대기, 쓸 수 있는 안 없음, 승인됨, 거절됨).
+// 제안서 상태 배지다(검토 대기, 통과한 후보 없음, 승인됨, 거절됨).
 // 라벨과 색 톤은 frontend/src/utils/proposalView.js 의 STATUS 를 따르고,
 // 표에 없는 상태는 값을 그대로 보여 준다.
 // 상태 값(proposed, no_valid_fix, approved, rejected)은

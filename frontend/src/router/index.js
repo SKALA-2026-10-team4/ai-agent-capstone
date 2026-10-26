@@ -9,8 +9,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { HOME_PATH, LOGIN_PATH, loginRedirect } from './paths'
 
-// 화면은 받은 제안서 목록(첫 화면), 제안서 상세, Skill 편집, 버전 비교, 검증·진단 기록, 주문 실행,
-// 실행 상세, 로그인이다. 로그인 화면 말고는 로그인이 필요하다.
+// 화면은 Skill 편집(첫 화면, 메뉴의 skill 목록), 받은 제안서 목록, 제안서 상세, 버전 비교, 검증·진단 기록,
+// 주문 실행(메뉴의 테스트 실행), 실행 기록 목록(메뉴의 테스트 목록), 실행 상세, 로그인이다.
+// 로그인 화면 말고는 로그인이 필요하다.
 // /skills/:skill? 는 :skill 이 없으면 화면이 세트의 첫 Skill 로 옮긴다.
 // /diagnoses/:threadId? 는 threadId 가 없으면 목록이고, ?change_id= 가 붙으면
 // 저장 직후의 전달 대기다.
@@ -24,6 +25,7 @@ const router = createRouter({
     { path: '/compare', name: 'compare', component: () => import('@/views/SnapshotCompareView.vue') },
     { path: '/diagnoses/:threadId?', name: 'diagnoses', component: () => import('@/views/DiagnosisView.vue') },
     { path: '/orders', name: 'orders', component: () => import('@/views/OrderView.vue') },
+    { path: '/executions', name: 'executions', component: () => import('@/views/ExecutionListView.vue') },
     { path: '/executions/:id', name: 'execution', component: () => import('@/views/ExecutionView.vue') },
     { path: '/proposals', name: 'proposals', component: () => import('@/views/ProposalListView.vue') },
     { path: '/proposals/:id', name: 'proposal', component: () => import('@/views/ProposalView.vue') },
