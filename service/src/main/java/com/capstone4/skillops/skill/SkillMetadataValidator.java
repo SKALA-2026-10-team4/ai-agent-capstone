@@ -6,7 +6,11 @@ import java.util.Map;
 
 import org.yaml.snakeyaml.error.YAMLException;
 
-/** 주문 Agent의 필수 정보 기준을 검사한다. flow 연결 및 목록 검사는 별도 책임이다. */
+/**
+ * 주문 Agent의 필수 정보 기준을 검사한다. flow 연결 및 목록 검사는 별도 책임이다.
+ * 실행 규칙 rules 의 형식(SkillRules.problemOf)도 여기서 field rules 오류로 낸다. 조건 키가 inputs 에 없는 오류는
+ * FlowStructureValidator.ruleKeyErrors 가 flow_errors 로 낸다.
+ */
 public final class SkillMetadataValidator {
 
     /** 필수 정보 오류의 대상 Skill, 필드, 실행기 오류 코드와 설명이다. */
@@ -40,6 +44,11 @@ public final class SkillMetadataValidator {
         requireText(errors, skill, fields, "description");
         if (document.body().strip().isEmpty()) {
             errors.add(error(skill, "body", "본문은 비어 있으면 안 됩니다"));
+        }
+        // 실행 규칙(rules)의 형식은 주문 Agent 가 로드할 때 INVALID_SKILL_FORMAT 으로 거부하는 조건과 같다. 조건 키 검사는 flow 검사 몫이다.
+        String rulesProblem = SkillRules.problemOf(fields);
+        if (rulesProblem != null) {
+            errors.add(error(skill, SkillRules.FIELD, rulesProblem));
         }
         return List.copyOf(errors);
     }

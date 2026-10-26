@@ -55,6 +55,49 @@ class ScenarioGraderTest {
         assertThat(r.reasons()).containsExactly("확인 조건 실패: inventory.예약가능수량 != null (실제 null)");
     }
 
+    /** 확인 조건 문맥에는 예약 키 order.final_status 와 order.shipments 가 늘 들어 있다. */
+    @Test
+    void reservedKeysAreInTheCheckContext() {
+        List<Check> checks = List.of(Check.parse("order.final_status == 'SHIPPED'"), Check.parse("order.shipments == 1"),
+                Check.parse("order.shipments >= 1"));
+        assertThat(grader.grade(Expectation.of(g01().expect()), checks, shippedRun()).passed()).isTrue();
+
+        GradeResult held = grader.grade(Expectation.replay(),
+                List.of(Check.parse("order.final_status in ['HOLD', 'REJECTED']"), Check.parse("order.shipments == 0")),
+                runWithFinalStatus("SHIPPED"));
+        assertThat(held.reasons()).containsExactly(
+                "확인 조건 실패: order.final_status in ['HOLD', 'REJECTED'] (실제 'SHIPPED')",
+                "확인 조건 실패: order.shipments == 0 (실제 1)");
+    }
+
+    /** 불변식은 최종 상태가 없는(null) 실행도 떨어뜨린다. 재현 주문과 의도 scope 에 든 기준 주문이 이 기준을 쓴다. */
+    @Test
+    void invariantFailsWithoutFinalStatus() {
+        GradeResult replay = grader.grade(Expectation.replay(), List.of(), runWithFinalStatus(null));
+        GradeResult scoped = grader.grade(Expectation.inScope(List.of(Check.parse("payment.status == null"))), List.of(),
+                runWithFinalStatus(null));
+
+        assertThat(replay.reasons()).containsExactly("오류로 멈추지 않아야 하는데 최종 상태가 없음");
+        assertThat(scoped.reasons()).containsExactly("오류로 멈추지 않아야 하는데 최종 상태가 없음",
+                "확인 조건 실패: payment.status == null (실제 'PAID')");
+    }
+
+    /** 의도 scope 에 든 기준 주문은 파일의 기대 결과를 보지 않는다. HOLD 로 끝나도 맞는 checks 만 지키면 합격이다. */
+    @Test
+    void inScopeExpectationIgnoresTheScenarioFile() {
+        RunOutcome held = new RunOutcome("r_hold", "HOLD", List.of(
+                ok("order-intake", Map.of("order.id", "o_1", "order.total", 39000)),
+                ok("inventory-check", Map.of("inventory.available", 10, "inventory.reserved", true)),
+                ok("payment", Map.of())));
+
+        GradeResult r = grader.grade(Expectation.inScope(List.of(
+                Check.parse("order.final_status in ['HOLD', 'REJECTED']"), Check.parse("payment.status == null"))),
+                List.of(), held);
+
+        assertThat(r.passed()).isTrue();
+        assertThat(grader.grade(Expectation.of(g01().expect()), List.of(), held).passed()).isFalse();
+    }
+
     @Test
     void replayPassesUnlessFailed() {
         assertThat(grader.grade(Expectation.replay(), List.of(), runWithFinalStatus("REJECTED")).passed()).isTrue();

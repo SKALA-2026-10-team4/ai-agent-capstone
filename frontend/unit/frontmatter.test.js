@@ -61,6 +61,7 @@ test('parseSkillMd: 필드를 읽고 목록 요소는 글자로 바꾸며 원래
     outputs: ['payment.id'],
     depends_on: ['inventory-check'],
     steps: ['1', 'true', 'null'],
+    rules: [],
     body: '# 결제',
     raw: {
       name: 'payment',
@@ -87,6 +88,7 @@ test('parseSkillMd: 없는 필드는 기본값, 목록이 아닌 목록 필드�
     outputs: [],
     depends_on: [],
     steps: [],
+    rules: [],
     body: 'body',
     raw: { inputs: 'order.id', version: '1' },
     error: null,

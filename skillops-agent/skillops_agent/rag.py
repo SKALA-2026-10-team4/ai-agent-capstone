@@ -19,7 +19,8 @@
 skillops-agent/skillops_agent/nodes.py 의 hypothesize, extract_intent, generate_candidates 가
 references 를 불러 _ask_llm 에 넘기고, _ask_llm 이 프롬프트 맨 끝에 붙인다. rank_and_explain 은 쓰지
 않는다. 자료 파일이 없거나 SKILLOPS_RAG_ENABLED=false 이면 빈 글을 돌려주고 진단은 자료 없이 그대로
-진행한다.
+진행한다. 빼고 고를 자료 id 는 환경 변수 SKILLOPS_RAG_EXCLUDE 와 진단 요청의 rag_exclude 를 합친
+것이다(excluded_ids).
 """
 
 import json
@@ -148,6 +149,16 @@ def render(picked: list[dict]) -> str:
     return "\n\n" + HEADER + "\n" + "\n".join(lines) + "\n"
 
 
+def excluded_ids(state: dict) -> frozenset[str]:
+    """고르지 않을 자료 id 다. 환경 변수(config.RAG_EXCLUDED_IDS)와 요청의 rag_exclude 를 합친다.
+
+    QA 실행기(qa/run_qa.py)는 평가하는 케이스와 대응하는 사례 id 를 /diagnose 의 rag_exclude 로 보내
+    정답이 프롬프트에 새지 않게 한다(docs/plans/2026-10-26-behavior-edit-root-fix.md 0절 5).
+    """
+    requested = (state.get("trigger") or {}).get("rag_exclude") or []
+    return frozenset(config.RAG_EXCLUDED_IDS) | frozenset(requested)
+
+
 def references(state: dict, path: Path = DATA_PATH) -> tuple[str, list[str]]:
     """진단 상태로 참고 자료를 골라 (프롬프트에 붙일 글, 고른 자료 id 목록)을 돌려준다."""
     if not config.RAG_ENABLED:
@@ -155,5 +166,5 @@ def references(state: dict, path: Path = DATA_PATH) -> tuple[str, list[str]]:
     data = _load(str(path))
     if not data:
         return "", []
-    picked = select(state, data.get("items", []), frozenset(config.RAG_EXCLUDED_IDS))
+    picked = select(state, data.get("items", []), excluded_ids(state))
     return render(picked), [item["id"] for item in picked]

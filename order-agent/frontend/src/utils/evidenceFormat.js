@@ -14,7 +14,8 @@ import { labelOf, timestamp } from "./format.js";
 // order-agent/backend/src/main/java/com/capstone4/orderagent/trace/TraceService.java 등이 기록한다.
 // 표에 없는 kind 는 원래 이름으로 보인다. 백엔드가 이미 내보내는 SKILL_STARTED 와 SKILL_FINISHED 도 지금은 표에 없어
 // 원래 이름으로 보이며, 루트 frontend 의 frontend/src/utils/eventView.js 에는 이 두 라벨이 있다.
-// 라벨을 더하면 order-agent/frontend/tests/evidence.test.js 의 개수 단언(21개)도 함께 고친다.
+// RULE_MATCHED 는 단계 Skill 의 실행 규칙(rules)이 매치돼 도구 없이 주문을 보류하거나 거절했다는 기록이며, 같은 단계의 BUSINESS_STOP 이 뒤따른다.
+// 라벨을 더하면 order-agent/frontend/tests/evidence.test.js 의 개수 단언(22개)도 함께 고친다.
 export const EVENT_KIND_TEXT = {
   SNAPSHOT_FIXED: "실행 파일 고정",
   CANDIDATES_OFFERED: "실제 제공한 후보",
@@ -31,6 +32,7 @@ export const EVENT_KIND_TEXT = {
   TOOL_REPLAY: "멱등 결과 재사용",
   SKILL_COMPLETED: "단계 결과 전달",
   EXECUTION_ERROR: "실행 오류",
+  RULE_MATCHED: "업무 규칙 적용",
   BUSINESS_STOP: "정상 업무 종료",
   EXECUTION_FINISHED: "실행 종료",
   EXECUTION_STARTED: "실행 시작",

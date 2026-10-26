@@ -62,6 +62,22 @@ class OrderAgentRunClientTest {
         server.verify();
     }
 
+    /** 상품 목록에서 SKU 별 단가만 읽는다. 단가가 숫자가 아니거나 SKU 가 없는 줄은 버린다. */
+    @Test
+    void unitPricesReadSkuAndUnitPrice() {
+        server.expect(requestTo(BASE + "/api/products")).andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{\"items\":[{\"sku\":\"CAMP-LANTERN-LED\",\"name\":\"랜턴\",\"unit_price\":30000,"
+                        + "\"stock_quantity\":5},{\"sku\":\"CAMP-MUG-STEEL\",\"unit_price\":12000.5},"
+                        + "{\"sku\":\"BROKEN\",\"unit_price\":\"free\"},{\"unit_price\":1}]}", MediaType.APPLICATION_JSON));
+
+        Map<String, java.math.BigDecimal> prices = client.unitPrices();
+
+        assertThat(prices).containsOnlyKeys("CAMP-LANTERN-LED", "CAMP-MUG-STEEL");
+        assertThat(prices.get("CAMP-LANTERN-LED")).isEqualByComparingTo("30000");
+        assertThat(prices.get("CAMP-MUG-STEEL")).isEqualByComparingTo("12000.5");
+        server.verify();
+    }
+
     @Test
     void originalOrderAcceptsRunIdAlias() {
         expectTraceAndOrder();

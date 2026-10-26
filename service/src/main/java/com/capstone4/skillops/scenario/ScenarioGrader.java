@@ -14,13 +14,15 @@ import org.springframework.stereotype.Component;
  * 모의 실행 결과(RunOutcome)를 시험 주문의 기대값(Expectation)과 비교해 합격 여부와 떨어진 이유를 낸다.
  * "LLM 은 제안하고 harness 가 판정한다"에서 판정이 여기서 나온다.
  *
- * 떨어진 이유의 순서와 문구는 계약이다. 이유는 거친 skill 순서, 최종 상태, 재현 기준, 배송 건수, 확인 조건 순으로 쌓고,
- * 불합격이면서 오류가 난 단계가 있으면 "&lt;skill&gt; 단계 오류: &lt;error&gt;" 를 맨 앞에 붙인다.
+ * 떨어진 이유의 순서와 문구는 계약이다. 이유는 거친 skill 순서, 최종 상태, 불변식(재현 기준), 배송 건수, 확인 조건 순으로 쌓고,
+ * 불합격이면서 오류가 난 단계가 있으면 "&lt;skill&gt; 단계 오류: &lt;error&gt;" 를, 단계 없이 실행 오류만 있으면
+ * "실행 오류: &lt;error&gt;" 를 맨 앞에 붙인다.
  * ScenarioRunner 가 이 목록을 "; " 로 이어 계약 5 의 failures[].reason 으로 내보내므로, 순서나 문구를 바꾸면 Agent 가 읽는 값이 바뀐다.
  * 진단 Agent 의 skillops-agent/skillops_agent/contracts.py 에 있는 CHECK_FAILURE_PREFIX 는 "확인 조건 실패:" 와 글자 그대로 같아야 하고,
  * skillops-agent/skillops_agent/nodes.py 의 _evaluate_intent_checks 가 그 앞머리로 의도 위반을 가린다.
  * skillops-agent/skillops_agent/nodes.py 의 _reproduce_failure 는 reason 에 원래 오류 category 가 들어 있는지 보는데,
  * category 는 맨 앞의 단계 오류 이유에 들어간다.
+ * 단계가 붙지 않은 실행 오류(RunOutcome.error)는 "실행 오류: &lt;category&gt;: ..." 로 맨 앞에 붙어 category 가 같은 자리에 남는다.
  * 순서와 문구는 service/src/test/java/com/capstone4/skillops/scenario/ScenarioGraderTest.java 가 글자 단위로 고정한다.
  *
  * service/src/main/java/com/capstone4/skillops/scenario/ScenarioRunner.java 의 gradeAndRecord() 가 실행 한 번마다 grade 를 부른다.
@@ -36,6 +38,13 @@ public class ScenarioGrader {
     static final String SHIPPING_SKILL = "shipping-reserve";
     /** SHIPPING_SKILL 단계가 이 이름의 값을 null 이 아닌 값으로 내놓았으면 배송 한 건으로 센다. */
     static final String SHIPMENT_OUTPUT_KEY = "shipping.id";
+    /**
+     * 확인 조건 문맥의 예약 키다. 최종 상태(RunOutcome.finalStatus)를 담는다. 담당자 의도의 checks 가
+     * order.final_status in ['HOLD', 'REJECTED'] 처럼 쓴다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3 절).
+     */
+    public static final String FINAL_STATUS_KEY = "order.final_status";
+    /** 확인 조건 문맥의 예약 키다. 배송 건수(shipmentsOf)를 숫자로 담는다. */
+    public static final String SHIPMENTS_KEY = "order.shipments";
 
     /**
      * 실행 한 번을 채점한다. 규칙 메서드가 돌려준 이유를 목록 순서대로 모으고, 이유가 하나도 없어야 합격이다.
@@ -56,10 +65,13 @@ public class ScenarioGrader {
         reasons.addAll(failedCheckReasons(expectation, extraChecks, run));
 
         // 오류 단계 이유는 불합격일 때만 맨 앞에 붙인다. 합격이면 오류 단계가 있어도 이유를 비워 둔다.
+        // 어느 단계의 오류인지 모르는 실행 오류(skill 없는 EXECUTION_ERROR)는 "실행 오류:" 로 붙여, 오류 category 가 reason 에 남게 한다.
         RunOutcome.Step errorStep = firstErrorStep(run);
         boolean passed = reasons.isEmpty();
         if (!passed && errorStep != null) {
             reasons.addFirst(errorStep.skill() + " 단계 오류: " + errorStep.error());
+        } else if (!passed && run.error() != null) {
+            reasons.addFirst("실행 오류: " + run.error());
         }
         return new GradeResult(passed, errorStep == null ? null : errorStep.skill(), List.copyOf(reasons));
     }
@@ -91,12 +103,19 @@ public class ScenarioGrader {
     }
 
     /**
-     * 재현 주문 기준을 본다. Expectation.mustNotFail 이 켜져 있는데 최종 상태가 FAILED 면 그 이유를 돌려주고,
-     * 아니면 null 을 돌려준다. REJECTED 나 HOLD 로 끝나는 것은 이 기준에서 합격이다.
+     * 불변식(재현 주문과 의도 scope 에 든 기준 주문의 기준)을 본다. Expectation.mustNotFail 이 켜져 있는데 최종 상태가 FAILED 거나
+     * 최종 상태가 없으면(null) 그 이유를 돌려주고, 아니면 null 을 돌려준다. REJECTED 나 HOLD 로 끝나는 것은 이 기준에서 합격이다.
+     * 최종 상태가 없는 실행은 끝까지 처리됐는지 알 수 없으므로 합격으로 보지 않는다.
      */
     private static String stoppedByErrorReason(Expectation expectation, RunOutcome run) {
-        if (expectation.mustNotFail() && RunOutcome.FAILED.equals(run.finalStatus())) {
+        if (!expectation.mustNotFail()) {
+            return null;
+        }
+        if (RunOutcome.FAILED.equals(run.finalStatus())) {
             return "오류로 멈추지 않아야 하는데 최종 상태가 FAILED";
+        }
+        if (run.finalStatus() == null) {
+            return "오류로 멈추지 않아야 하는데 최종 상태가 없음";
         }
         return null;
     }
@@ -106,14 +125,19 @@ public class ScenarioGrader {
         if (expectation.shipments() == null) {
             return null;
         }
-        long shipments = run.steps().stream()
-                .filter(s -> SHIPPING_SKILL.equals(s.skill()) && RunOutcome.Step.OK.equals(s.status()))
-                .filter(s -> s.output() != null && s.output().get(SHIPMENT_OUTPUT_KEY) != null)
-                .count();
+        long shipments = shipmentsOf(run);
         if (shipments == expectation.shipments()) {
             return null;
         }
         return "배송 건수 기대 " + expectation.shipments() + ", 실제 " + shipments;
+    }
+
+    /** 성공(ok)한 SHIPPING_SKILL 단계 가운데 SHIPMENT_OUTPUT_KEY 를 null 이 아닌 값으로 내놓은 단계 수, 곧 배송 건수다. */
+    static long shipmentsOf(RunOutcome run) {
+        return run.steps().stream()
+                .filter(s -> SHIPPING_SKILL.equals(s.skill()) && RunOutcome.Step.OK.equals(s.status()))
+                .filter(s -> s.output() != null && s.output().get(SHIPMENT_OUTPUT_KEY) != null)
+                .count();
     }
 
     /**
@@ -138,8 +162,9 @@ public class ScenarioGrader {
 
     /**
      * 확인 조건이 값을 찾는 문맥을 만든다. 모든 단계의 받은 값과 내놓은 값을 순서대로 합치고, 같은 이름이면 뒤 단계 값이 이긴다.
+     * 그 위에 예약 키 FINAL_STATUS_KEY(최종 상태)와 SHIPMENTS_KEY(배송 건수, shipmentsOf)를 늘 덧붙인다. 예약 키는 단계 값보다 이긴다.
      * failedCheckReasons 가 부른다. 진단 Agent 가 조건에 쓸 값 이름을 고를 때 보는
-     * skillops-agent/skillops_agent/contracts.py 의 context_keys 도 받은 값과 내놓은 값이라는 같은 범위를 쓴다.
+     * skillops-agent/skillops_agent/contracts.py 의 context_keys 도 받은 값과 내놓은 값, 예약 키라는 같은 범위를 쓴다.
      * 범위를 바꾸면 그 함수도 함께 고친다.
      */
     static Map<String, Object> contextOf(RunOutcome run) {
@@ -152,6 +177,8 @@ public class ScenarioGrader {
                 context.putAll(step.output());
             }
         }
+        context.put(FINAL_STATUS_KEY, run.finalStatus());
+        context.put(SHIPMENTS_KEY, shipmentsOf(run));
         return context;
     }
 }

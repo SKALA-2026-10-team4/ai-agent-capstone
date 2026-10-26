@@ -3,7 +3,7 @@
 // 캐시한다. API 를 부르는 이 로딩을 frontend/src/utils/skillSet.js 와 떼어 둔 덕분에
 // utils 쪽은 Node 단위 테스트(frontend/unit/skillSet.test.js)가 바로 불러올 수 있다.
 import { getSnapshot, getSnapshotFile, getSnapshotSkill, listSnapshotSkills } from './orderAgent'
-import { splitSkillMd } from '@/utils/frontmatter'
+import { parseSkillMd, splitSkillMd } from '@/utils/frontmatter'
 import { isSkillFile, toSkill } from '@/utils/skillSet'
 
 /**
@@ -11,6 +11,9 @@ import { isSkillFile, toSkill } from '@/utils/skillSet'
  * 칸 이름은 frontend/src/utils/skillSet.js 의 toSkill 결과와 같고, 파싱 원본인
  * raw 칸만 없다. 서버가 이미 실행 로더와 같은 규칙으로 읽은 Skill 이므로 error 는
  * null 이고, 본문은 splitSkillMd 로 잘라 둔다. file_hash 는 서버의 hash 칸에서 온다.
+ * 실행 규칙 rules 는 서버 메타데이터에 있으면 그 값을, 없으면 원문 frontmatter 에서 읽는다.
+ * 주문 Agent 의 SkillQueryService metadata 는 rules 를 늘 담으므로(없으면 빈 목록) 원문 대체는
+ * 그 칸이 없던 이전 서버와 mock 을 위한 것이다.
  */
 function fromServer(item, content) {
   return {
@@ -26,6 +29,7 @@ function fromServer(item, content) {
     outputs: item.outputs,
     depends_on: item.depends_on,
     steps: item.steps,
+    rules: item.rules ?? parseSkillMd(content).rules ?? [],
     body: splitSkillMd(content).body ?? '',
     error: null,
     error_message: null,

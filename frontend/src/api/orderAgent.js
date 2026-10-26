@@ -125,15 +125,19 @@ export const FIXTURES = ['baseline', 'broken-contract', 'repaired']
 export const pinFixture = (fixture) => post('/api/snapshots', { fixture })
 
 // 브라우저 초안을 기준 snapshot 위에 덮어 새 snapshot 으로 저장한다. changes 는 경로마다 수정한
-// 전체 원문을 담은 객체다. POST /api/snapshots/edits 는 EvidenceController 의 saveEdits() 가 받아
-// 201 과 함께 change_id 와 validation_status QUEUED 를 돌려준다. 기준 hash 가 서버와 다르면
-// BASELINE_HASH_MISMATCH 로 거절된다. 저장한 변경은 order-agent 가 service 를 거쳐 진단 Agent 로
-// 전달하고, 화면은 change_id 로 frontend/src/views/DiagnosisView.vue 에서 진행을 본다.
+// 전체 원문을 담은 객체다. intent 는 담당자가 적은 변경 의도 { text, expectations } 이고, null 이면
+// 요청 본문에서 칸을 아예 뺀다. 모양은 docs/plans/2026-10-26-behavior-edit-root-fix.md 2.3 절이고
+// frontend/src/utils/intentInput.js 의 buildIntent 가 만든다. order-agent 는 이 값을 snapshot
+// metadata 와 진단 요청에 그대로 실어 보낸다. POST /api/snapshots/edits 는 EvidenceController 의
+// saveEdits() 가 받아 201 과 함께 change_id 와 validation_status QUEUED 를 돌려준다. 기준 hash 가
+// 서버와 다르면 BASELINE_HASH_MISMATCH 로 거절된다. 저장한 변경은 order-agent 가 service 를 거쳐
+// 진단 Agent 로 전달하고, 화면은 change_id 로 frontend/src/views/DiagnosisView.vue 에서 진행을 본다.
 // frontend/src/stores/workspace.js 의 saveDrafts 가 부른다. mock 에는 이 경로가 없고 workspace 가
 // mock 모드에서 저장을 막는다. 명세는 order-agent/docs/skill-edit-save-api.md 에 있다.
-export const saveSkillEdits = (baselineSnapshotId, baselineHash, changes) =>
+export const saveSkillEdits = (baselineSnapshotId, baselineHash, changes, intent = null) =>
   post('/api/snapshots/edits', {
     baseline_snapshot_id: baselineSnapshotId,
     baseline_hash: baselineHash,
     changes,
+    ...(intent ? { intent } : {}),
   })

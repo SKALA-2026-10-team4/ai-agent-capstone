@@ -36,6 +36,15 @@ function applyEvent(s, e) {
     case 'SKILL_STARTED':
       if (s) s.started = e.data
       break
+    // 단계의 실행 규칙(rules)이 맞아 도구 없이 주문을 멈췄다. 결제 거절(HOLD) 같은 업무 종료와 같게
+    // stopped 로 두고, hold 는 HOLD, reject 는 REJECTED 를 final_status 로 미리 둔다. 뒤이은
+    // SKILL_FINISHED 와 BUSINESS_STOP 이 서버가 정한 값으로 다시 채운다.
+    case 'RULE_MATCHED':
+      if (!s) break
+      s.rule = e.data
+      s.status = 'stopped'
+      s.final_status = e.data.then === 'reject' ? 'REJECTED' : 'HOLD'
+      break
     // 단계 끝 이벤트다. 오류면 먼저 남은 오류 내용을 유지하고,
     // output 이 없으면 앞서 전달한 값을 둔다.
     case 'SKILL_FINISHED':
@@ -119,9 +128,10 @@ function settleUnfinished(ensure, steps, trace, error) {
 /**
  * trace 와 단계 순서(steps)로 { bySkill, error } 를 계산한다. bySkill 은 Skill 마다
  * { status, loaded, started, tools, declared_output, duration_ms, error,
- * final_status } 이고, error 는 마지막 EXECUTION_ERROR 의 data 다. status 는 ok(완료),
- * stopped(REJECTED 나 HOLD 로 끝난 정상 업무 종료), error, running, blocked(정적 검사에서
- * 막혀 실행하지 않음), skipped 가운데 하나다. frontend/src/views/ExecutionView.vue 가
+ * final_status, rule } 이고, error 는 마지막 EXECUTION_ERROR 의 data 다. status 는 ok(완료),
+ * stopped(REJECTED 나 HOLD 로 끝난 정상 업무 종료, 실행 규칙으로 멈춘 경우 포함), error, running,
+ * blocked(정적 검사에서 막혀 실행하지 않음), skipped 가운데 하나다. rule 은 그 단계에서 맞은 실행
+ * 규칙(RULE_MATCHED 의 data)이고 없으면 null 이다. frontend/src/views/ExecutionView.vue 가
  * FLOW_VALIDATED 의 steps, 없으면 세트의 order-flow 순서로 부른다.
  */
 export function traceRun(trace, steps) {
@@ -139,11 +149,14 @@ export function traceRun(trace, steps) {
       duration_ms: null,
       error: null,
       final_status: null,
+      rule: null,
     })
 
   let error = null
   for (const e of events) {
-    applyEvent(e.skill_id ? ensure(e.skill_id) : null, e)
+    // RULE_MATCHED 는 data 에도 skill_id 가 있으므로 이벤트 칸이 비면 그 값으로 단계를 찾는다.
+    const id = e.skill_id ?? (e.kind === 'RULE_MATCHED' ? e.data?.skill_id : null)
+    applyEvent(id ? ensure(id) : null, e)
     if (e.kind === 'EXECUTION_ERROR') error = e.data
   }
   // 순서가 결과를 정한다. skill_id 없는 오류를 먼저 단계에 붙이고, 그 뒤 남은 단계를 채운다.

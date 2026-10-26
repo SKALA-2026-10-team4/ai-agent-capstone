@@ -19,10 +19,19 @@ const entry = (over = {}) => ({
   duration_ms: null,
   error: null,
   final_status: null,
+  rule: null,
   ...over,
 })
 // SKILL_LOADED 이벤트의 data 모양이다.
 const loaded = (id, version = 1) => ({ path: `skills/${id}/SKILL.md`, version, hash: `hash-${id}` })
+
+// 실행 규칙 항목(when · then · reason)을 만든다. 칸 이름 then 을 객체 글자로 쓰면 lint
+// (unicorn/no-thenable)가 막으므로 이름 목록으로 만든다. extra 는 앞에 덧붙일 칸이다.
+const RULE_FIELDS = ['when', 'then', 'reason']
+const ruleOf = (when, then, reason, extra = {}) => {
+  const values = [when, then, reason]
+  return { ...extra, ...Object.fromEntries(RULE_FIELDS.map((k, i) => [k, values[i]])) }
+}
 
 test('RUN_LABEL: 단계 상태 → 담당자가 읽는 말', () => {
   assert.deepStrictEqual(RUN_LABEL, {
@@ -323,4 +332,55 @@ test('executionPath: r_ + 32자리 16진수와 UUID 만 실행 화면 주소로 
   assert.equal(executionPath(''), null)
   assert.equal(executionPath(undefined), null)
   assert.equal(executionPath(null), null)
+})
+
+test('실행 규칙 종료: RULE_MATCHED 단계는 결제 거절처럼 stopped·HOLD·rule 이 되고, 뒤 단계는 skipped', () => {
+  const rule = ruleOf("order.payment_method != 'prepaid'", 'hold', 'PREPAID_ONLY', { skill_id: 'payment', rule_index: 0 })
+  const release = { order_id: 'o-1' }
+  const trace = {
+    completion: 'COMPLETED',
+    events: [
+      ev('SKILL_LOADED', 'inventory-check', loaded('inventory-check')),
+      ev('SKILL_COMPLETED', 'inventory-check', { declared_output: { 'inventory.reserved': true } }),
+      ev('SKILL_LOADED', 'payment', loaded('payment')),
+      ev('SKILL_STARTED', 'payment', { step_no: 3 }),
+      ev('RULE_MATCHED', 'payment', rule),
+      ev('TOOL_REQUEST', 'payment', { tool: 'inventory.release', arguments: release, reason: 'PREPAID_ONLY' }),
+      ev('TOOL_RESULT', 'payment', { tool: 'inventory.release', arguments: release, result: { 'inventory.reserved': false } }),
+      ev('SKILL_FINISHED', 'payment', {
+        step_no: 3,
+        status: 'ok',
+        business_stop: true,
+        final_status: 'HOLD',
+        rule_reason: 'PREPAID_ONLY',
+        duration_ms: 4,
+        output: {},
+      }),
+      ev('BUSINESS_STOP', 'payment', { final_status: 'HOLD' }),
+      ev('EXECUTION_FINISHED', null, { completion: 'COMPLETED', final_status: 'HOLD', error_category: null }),
+    ],
+  }
+  const run = traceRun(trace, ['inventory-check', 'payment', 'shipping-reserve'])
+  assert.deepStrictEqual(run.bySkill.payment, {
+    ...entry({ loaded: loaded('payment'), started: { step_no: 3 } }),
+    status: 'stopped',
+    final_status: 'HOLD',
+    rule,
+    tools: [{ tool: 'inventory.release', arguments: release, reason: 'PREPAID_ONLY', result: { 'inventory.reserved': false }, elapsed_ms: null }],
+    declared_output: {},
+    duration_ms: 4,
+  })
+  assert.equal(run.bySkill['inventory-check'].status, 'ok')
+  assert.deepStrictEqual(run.bySkill['shipping-reserve'], entry({ status: 'skipped' }))
+  assert.equal(run.error, null)
+  assert.equal(RUN_LABEL[run.bySkill.payment.status], '업무 규칙으로 멈춤')
+})
+
+test('실행 규칙 종료: RULE_MATCHED 만 있어도 stopped 이고 reject 는 REJECTED, 이벤트에 skill_id 가 없으면 data 의 값으로 찾는다', () => {
+  const rule = ruleOf("order.shipping.country != 'KR'", 'reject', 'DOMESTIC_ONLY', { skill_id: 'order-intake', rule_index: 0 })
+  const run = traceRun({ events: [ev('RULE_MATCHED', null, rule)] }, ['order-intake', 'payment'])
+  assert.deepStrictEqual(run.bySkill['order-intake'], entry({ status: 'stopped', final_status: 'REJECTED', rule }))
+  assert.equal(run.bySkill.payment.status, 'skipped')
+  // 이벤트 칸과 data 에 모두 skill_id 가 없으면 어느 단계에도 붙이지 않는다.
+  assert.deepStrictEqual(traceRun({ events: [ev('RULE_MATCHED', null, ruleOf(undefined, 'hold', undefined))] }, []), { bySkill: {}, error: null })
 })

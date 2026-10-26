@@ -1,0 +1,91 @@
+# 행동 변경이다. 담당자가 결제에 실행 규칙(rules)을 직접 넣었지만 조건 키(order.customer)를 inputs 에 넣지 않았다.
+# 실행 전 검사가 계약 오류로 멈춘다. 규칙을 지우는 것은 담당자 의도를 지우는 되돌리기라 답이 아니고, inputs 를 더해야 한다.
+id: B-05
+group: B
+title: 결제에 고객 조건 규칙을 넣었지만 order.customer 를 inputs 에 넣지 않음
+set: dev
+run: auto
+
+change:
+  - file: skills/payment/SKILL.md
+    from: "depends_on: [inventory-check]\n"
+    to: "depends_on: [inventory-check]\nrules:\n  - when: \"order.customer == 'c_declined'\"\n    then: hold\n    reason: DECLINED_HISTORY\n"
+
+intent:
+  text: 결제 거절 이력 고객(c_declined)은 결제를 시도하지 않고 보류한다
+  expectations:
+    - scope: "order.customer == 'c_declined'"
+      checks: ["order.final_status == 'HOLD'", "payment.status == null"]
+
+order_agent:
+  # 규칙 조건 키가 선언 input 이 아니면 업무 도구를 부르기 전 flow 검증에서 멈춘다(details.reason=RULE_KEY_NOT_INPUT).
+  g-01: &blocked {result: error, category: CONTRACT_VIOLATION, skill: payment}
+  g-02: *blocked
+  g-03: *blocked
+  g-04: *blocked
+  g-05: *blocked
+  g-06: *blocked
+
+answer:
+  status: [EVALUATED]
+  proposal: [proposed]
+  root_cause: [payment]
+  root_cause_kind: change
+  fixable: true
+  rule_skills: [order-intake, inventory-check, payment]
+
+fixes:
+  - name: 결제 inputs 에 order.customer 를 더함
+    change:
+      - file: skills/payment/SKILL.md
+        from: "inputs: [order.id, order.total, order.payment_method, inventory.reserved]"
+        to: "inputs: [order.id, order.total, order.payment_method, inventory.reserved, order.customer]"
+    tests_pass: true
+    valid: true
+  - name: 되돌리기(규칙 지우기)
+    change:
+      - file: skills/payment/SKILL.md
+        from: "rules:\n  - when: \"order.customer == 'c_declined'\"\n    then: hold\n    reason: DECLINED_HISTORY\n"
+        to: ""
+    tests_pass: false
+    failure: "payment.status == null"
+    valid: false
+  # 시험은 통과하지만 결제 파일이 기준본으로 돌아가므로 되돌리기(R1)이고, 담당자가 넣은 규칙을 지우므로 검사 약화(R3)다.
+  - name: 규칙을 주문 접수로 옮김
+    change:
+      - file: skills/payment/SKILL.md
+        from: "rules:\n  - when: \"order.customer == 'c_declined'\"\n    then: hold\n    reason: DECLINED_HISTORY\n"
+        to: ""
+      - file: skills/order-intake/SKILL.md
+        from: "depends_on: []\n"
+        to: "depends_on: []\nrules:\n  - when: \"order.customer == 'c_declined'\"\n    then: hold\n    reason: DECLINED_HISTORY\n"
+    tests_pass: true
+    valid: false
+
+evidence:
+  - claim: 결제 단계가 업무 도구를 부르기 전 flow 검증에서 CONTRACT_VIOLATION(RULE_KEY_NOT_INPUT)으로 멈춘다
+    kind: 코드 근거
+    where: >-
+      docs/plans/2026-10-26-behavior-edit-root-fix.md 2.2 의 오류 줄, docs/contracts/examples/skill-rules-cases.json,
+      order-agent/backend/src/main/java/com/capstone4/orderagent/harness/SkillLoader.java 의 validateFlow
+  - claim: 원인은 결제 rules 수정이다
+    kind: 구성, 되돌려 보기
+    where: 넣은 수정이 하나이고 check 에서 그것을 되돌리면 재현 주문이 통과한다
+  - claim: inputs 에 order.customer 를 더하면 의도를 살린다
+    kind: 존재 증명
+    where: >-
+      fixes 의 첫 안. order.customer 는 처음부터 주어지는 값이라
+      (order-agent/backend/src/main/java/com/capstone4/orderagent/harness/OrderFlowPolicy.java 의 INITIAL_INPUT_KEYS) 입력 공급이 깨지지
+      않는다. 결과는 B-04 의 첫 안과 같다
+  - claim: 규칙을 지우거나 옮기는 안은 불합격이다
+    kind: 합의
+    where: >-
+      qa/README.md 판정 규칙 R1·R3. 결제 파일이 기준본과 같아지고 담당자가 넣은 rules 가 사라진다. 의도가 있는 요청이라 SkillOps 와
+      service 도 is_revert·weakens_contract 로 불합격시킨다(계획 2.6)
+  - claim: 의도와 확인 조건
+    kind: 정의
+    where: 이 케이스 파일의 intent
+
+current:
+  result: 구현 중(2026-10-26), check 미실행
+  defects: [D1]

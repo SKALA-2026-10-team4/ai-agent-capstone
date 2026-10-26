@@ -9,6 +9,7 @@ qa/qa_logic.py 는 서버를 부르지 않는 순수 함수만 모은다. qa/run
 import pytest
 
 from qa_logic import (
+    GOLDEN_IDS,
     CaseError,
     PatchError,
     apply_changes,
@@ -17,14 +18,23 @@ from qa_logic import (
     execution_uuid,
     fix_verdict,
     grade_eval,
+    intent_failures,
+    intent_preflight_status,
     load_case,
     match_expectation,
     observe_golden,
     preflight_status,
+    rag_exclusions,
     reverted_files,
+    rule_changes,
+    rule_whens,
+    scope_keys,
+    skill_rules,
+    snapshot_metadata,
     summarize,
     unified_patch,
     validate_case_ids,
+    weakened,
 )
 
 INV = "skills/inventory-check/SKILL.md"
@@ -419,6 +429,391 @@ def test_grade_eval_needs_every_cause_for_multi_cause_case():
     assert graded["root_cause_ok"] is False
 
 
+def test_multi_cause_case_can_pass_with_one_cause_and_a_fix_for_all():
+    """제안서는 원인을 하나만 담으므로(D3), 원인 하나를 짚고 모든 원인을 고친 합격안을 내면 맞다.
+
+    예전에는 set(root_cause_all) <= {found} 라 원인이 둘인 G-01 은 어떤 답으로도 통과할 수 없었다.
+    """
+    data = minimal_case(fixes=[GOOD_FIX])
+    data["answer"]["root_cause_all"] = ["inventory-check", "shipping-reserve"]
+    case = load_case(data, "G-01.yaml")
+    cand = apply_changes(BASE, case["change"])
+    good = apply_changes(cand, GOOD_FIX["change"])[INV]
+    graded = grade_eval(
+        case, "EVALUATED", proposal_with([candidate(1, cand[INV], good)]), [1], BASE, cand
+    )
+    assert graded["root_cause_ok"] is True
+    assert graded["verdict"] == "PASS"
+    outside = proposal_with([candidate(1, cand[INV], good)], root_skill="payment")
+    assert grade_eval(case, "EVALUATED", outside, [1], BASE, cand)["root_cause_ok"] is False
+
+
+def test_fixable_case_without_any_valid_candidate_fails():
+    case = c01_case()
+    cand = apply_changes(BASE, case["change"])
+    good = apply_changes(cand, GOOD_FIX["change"])[INV]
+    # 제안서는 proposed 지만 service 가 다시 계산한 합격 후보가 없다.
+    proposal = proposal_with([candidate(1, cand[INV], good)])
+    graded = grade_eval(case, "EVALUATED", proposal, [], BASE, cand)
+    assert graded["verdict"] == "FAIL"
+    assert any("합격안이 하나도 없습니다" in r for r in graded["reasons"])
+    # 제안서를 읽지 못한 경우도 안을 내지 못한 것이다.
+    assert grade_eval(case, "EVALUATED", None, [], BASE, cand)["verdict"] == "FAIL"
+
+
+def test_no_valid_fix_is_not_a_failure_when_the_answer_allows_it():
+    case = c01_case(proposal=["proposed", "no_valid_fix"])  # U-01 처럼
+    cand = apply_changes(BASE, case["change"])
+    graded = grade_eval(case, "EVALUATED", proposal_with([], status="no_valid_fix"), [], BASE, cand)
+    assert graded["verdict"] == "PASS"
+    assert graded["presented_fix"] is False
+
+
+# ── 담당자 의도(B 묶음) ──────────────────────────────────────────────────────
+
+PAY = "skills/payment/SKILL.md"
+INTAKE = "skills/order-intake/SKILL.md"
+SHIP = "skills/shipping-reserve/SKILL.md"
+B_BASE = {
+    INTAKE: (
+        "---\nname: order-intake\ninputs: [order.id, order.customer, order.shipping]\n"
+        "outputs: [order.id, order.total]\ndepends_on: []\n---\n본문\n"
+    ),
+    PAY: (
+        "---\nname: payment\ninputs: [order.id, order.total, order.payment_method]\n"
+        "outputs: [payment.id, payment.status]\ndepends_on: [order-intake]\n---\n결제한다.\n"
+    ),
+    SHIP: (
+        "---\nname: shipping-reserve\ninputs: [order.id, order.shipping, payment.status]\n"
+        "outputs: [shipping.id]\ndepends_on: [payment]\n---\n배송한다.\n"
+    ),
+}
+B_OWNER = [{"file": PAY, "from": "결제한다.", "to": "결제한다. 선입금 주문만 결제한다."}]
+PREPAID_RULE = (
+    "depends_on: [order-intake]\nrules:\n  - when: \"order.payment_method != 'prepaid'\"\n"
+    "    then: hold\n    reason: PREPAID_ONLY\n"
+)
+B_GOOD = {
+    "name": "결제에 규칙",
+    "change": [{"file": PAY, "from": "depends_on: [order-intake]\n", "to": PREPAID_RULE}],
+    "tests_pass": True,
+    "valid": True,
+}
+B_INTENT = {
+    "text": "선입금 주문만 결제한다",
+    "expectations": [
+        {
+            "scope": "order.payment_method == 'card'",
+            "checks": ["order.final_status in ['HOLD', 'REJECTED']", "payment.status == null"],
+        },
+        {
+            "scope": "order.payment_method == 'prepaid'",
+            "checks": ["order.final_status == 'SHIPPED'"],
+        },
+    ],
+    "repro": ["g-01"],
+}
+
+
+def b_case(**answer):
+    data = {
+        "id": "B-01",
+        "group": "B",
+        "title": "선입금 규칙",
+        "set": "dev",
+        "run": "auto",
+        "change": B_OWNER,
+        "intent": B_INTENT,
+        "fixes": [B_GOOD],
+        "answer": {
+            "status": ["EVALUATED"],
+            "proposal": ["proposed"],
+            "root_cause": ["payment"],
+            "root_cause_kind": "incomplete_edit",
+            "fixable": True,
+            "rule_skills": ["order-intake", "payment"],
+            **answer,
+        },
+    }
+    return load_case(data, "B-01.yaml")
+
+
+def b_proposal(cand, result, kind="incomplete_edit"):
+    patches = [
+        {
+            "skill": path.split("/")[1],
+            "base_version": 1,
+            "patch": unified_patch(path, cand[path], result[path]),
+        }
+        for path in sorted(result)
+        if result[path] != cand[path]
+    ]
+    return {
+        "status": "proposed",
+        "root_cause": {"skill": "payment", "kind": kind, "repro_scenario_ids": ["g-01"]},
+        "candidates": [{"candidate_no": 1, "valid": True, "patches": patches}],
+    }
+
+
+def test_golden_ids_are_the_fixed_six():
+    assert GOLDEN_IDS == ("g-01", "g-02", "g-03", "g-04", "g-05", "g-06")
+
+
+def test_owner_intent_is_sent_only_when_expectations_are_written():
+    case = b_case()
+    assert case["owner_intent"] == {
+        "text": B_INTENT["text"],
+        "expectations": B_INTENT["expectations"],
+    }  # repro 는 보내지 않는다.
+    assert (
+        load_case(minimal_case(intent={"text": "x", "checks": ["a == 1"]}), "C.yaml")[
+            "owner_intent"
+        ]
+        is None
+    )
+    assert scope_keys(case["owner_intent"]) == ["order.payment_method"]
+
+
+@pytest.mark.parametrize(
+    "intent",
+    [
+        {"text": "", "expectations": []},
+        {"text": "x", "expectations": [{"scope": None, "checks": []}]},
+        {"text": "x", "expectations": [{"scope": None, "checks": ["a == 1"], "extra": 1}]},
+        {"text": "x", "expectations": [{"scope": "", "checks": ["a == 1"]}]},
+        {"text": "x", "expectations": "a == 1"},
+    ],
+)
+def test_owner_intent_rejects_bad_shapes(intent):
+    with pytest.raises(CaseError, match="intent"):
+        load_case(minimal_case(intent=intent), "bad.yaml")
+
+
+def test_intent_case_cannot_allow_reverts():
+    data = minimal_case(intent=B_INTENT)
+    data["answer"]["revert_allowed"] = True
+    with pytest.raises(CaseError, match="revert_allowed"):
+        load_case(data, "bad.yaml")
+
+
+def test_rag_exclusions_map_qa_cases_to_rag_case_ids():
+    rag = [
+        {"id": "case-S2", "qa_cases": ["C-01", "U-01"]},
+        {"id": "case-S6", "qa_cases": ["U-01"]},
+        {"id": "case-S3"},
+    ]
+    assert rag_exclusions(rag) == {"C-01": ["case-S2"], "U-01": ["case-S2", "case-S6"]}
+
+
+def test_rules_are_read_from_front_matter_and_rule_changes_name_the_skill():
+    cand = apply_changes(B_BASE, B_OWNER)
+    fixed = apply_changes(cand, B_GOOD["change"])
+    assert skill_rules(fixed[PAY]) == [
+        ("order.payment_method != 'prepaid'", "hold", "PREPAID_ONLY")
+    ]
+    assert skill_rules(cand[PAY]) == []
+    assert rule_changes(cand, fixed) == ["payment"]
+    assert rule_changes(fixed, cand) == []  # 지운 것은 weakened 가 본다.
+
+
+def test_weakened_finds_deleted_rules_and_inputs_used_by_conditions():
+    cand = apply_changes(apply_changes(B_BASE, B_OWNER), B_GOOD["change"])
+    keys = ["order.shipping.country"]
+    assert weakened(cand, cand, keys) == []
+    no_rules = dict(cand, **{PAY: cand[PAY].replace(PREPAID_RULE, "depends_on: [order-intake]\n")})
+    assert any("rules" in p for p in weakened(cand, no_rules, keys))
+    # 규칙 when 이 쓰는 input 을 지움
+    no_method = dict(cand, **{PAY: cand[PAY].replace(", order.payment_method]", "]")})
+    assert any("order.payment_method" in p for p in weakened(cand, no_method, keys))
+    # 의도 scope 의 하위 값(order.shipping.country)이 쓰는 input 을 지움
+    no_shipping = dict(cand, **{INTAKE: cand[INTAKE].replace(", order.shipping]", "]")})
+    assert any("order.shipping" in p for p in weakened(cand, no_shipping, keys))
+    # 조건이 쓰지 않는 input 을 지운 것은 약화가 아니다.
+    no_total = dict(cand, **{PAY: cand[PAY].replace("order.total, ", "")})
+    assert weakened(cand, no_total, keys) == []
+
+
+def test_weakened_compares_rules_by_when_only():
+    """계획 2.10 V3-7: 규칙을 지우거나 when 을 바꾸면 약화이고, then·reason 만 바꾸면 아니다."""
+    cand = apply_changes(apply_changes(B_BASE, B_OWNER), B_GOOD["change"])
+    assert rule_whens(cand[PAY]) == ["order.payment_method != 'prepaid'"]
+    # reason·then 만 바꾼 규칙은 when 이 그대로라 약화가 아니다.
+    reworded = dict(cand, **{PAY: cand[PAY].replace("PREPAID_ONLY", "OWNER_POLICY")})
+    assert weakened(cand, reworded, []) == []
+    rejected = dict(cand, **{PAY: cand[PAY].replace("then: hold", "then: reject")})
+    assert weakened(cand, rejected, []) == []
+    # when 의 앞뒤 공백 차이와 규칙 순서는 보지 않는다.
+    prepaid = "  - when: \"order.payment_method != 'prepaid'\"\n"
+    prepaid += "    then: hold\n    reason: PREPAID_ONLY\n"
+    high = '  - when: " order.total >= 100000 "\n    then: hold\n    reason: HIGH_AMOUNT\n'
+    two = dict(cand, **{PAY: cand[PAY].replace(prepaid, prepaid + high)})
+    swapped = dict(cand, **{PAY: cand[PAY].replace(prepaid, high + prepaid)})
+    assert rule_whens(swapped[PAY]) == [
+        "order.total >= 100000",
+        "order.payment_method != 'prepaid'",
+    ]
+    assert weakened(two, swapped, []) == []
+    # when 을 바꾸면 약화다. 규칙 수가 같아도 원래 조건이 사라졌다.
+    narrowed = dict(cand, **{PAY: cand[PAY].replace("!= 'prepaid'", "== 'card'")})
+    assert weakened(cand, narrowed, []) == [
+        "payment 의 rules when [\"order.payment_method != 'prepaid'\"] 를 지우거나 바꿨습니다"
+    ]
+    # 두 규칙 가운데 하나를 지워도 약화다.
+    assert any("order.total >= 100000" in p for p in weakened(two, cand, []))
+
+
+def test_weakened_counts_a_removed_input_even_if_another_input_still_covers_the_key():
+    """계획 2.10 V3-7: 조건이 쓰는 키를 덮던 input 을 지우면 다른 input 이 덮어도 약화다."""
+    cand = apply_changes(B_BASE, B_OWNER)
+    both_inputs = ", order.shipping, order.shipping.country]"
+    both = dict(cand, **{INTAKE: cand[INTAKE].replace(", order.shipping]", both_inputs)})
+    keys = ["order.shipping.country"]
+    narrower = dict(both, **{INTAKE: both[INTAKE].replace("order.shipping, ", "")})
+    assert "order.shipping.country]" in narrower[INTAKE]
+    assert weakened(both, narrower, keys) == [
+        "order-intake 의 input order.shipping 를 지웠습니다(조건이 쓰는 값)"
+    ]
+    # 하위 값만 받던 input 을 지워도, 넓은 input 이 남아 있어도 약화다.
+    wider = dict(both, **{INTAKE: both[INTAKE].replace(", order.shipping.country]", "]")})
+    assert weakened(both, wider, keys) == [
+        "order-intake 의 input order.shipping.country 를 지웠습니다(조건이 쓰는 값)"
+    ]
+    # 의도가 없는 값(keys 가 비고 규칙도 없음)이면 같은 삭제도 약화가 아니다.
+    assert weakened(both, narrower, []) == []
+
+
+def test_intent_case_accepts_a_candidate_that_only_rewords_an_owner_rule():
+    """담당자가 넣은 규칙의 reason·then 만 바꾼 후보는 약화가 아니라 합격안으로 센다(V3-7)."""
+    owner_rule = [{"file": PAY, "from": "depends_on: [order-intake]\n", "to": PREPAID_RULE}]
+    case = load_case(
+        {
+            "id": "B-01",
+            "group": "B",
+            "title": "선입금 규칙",
+            "set": "dev",
+            "run": "auto",
+            "change": owner_rule,
+            "intent": B_INTENT,
+            "answer": {
+                "status": ["EVALUATED"],
+                "proposal": ["proposed"],
+                "root_cause": ["payment"],
+                "root_cause_kind": "incomplete_edit",
+                "fixable": True,
+                "rule_skills": ["order-intake", "payment"],
+            },
+        },
+        "B-01.yaml",
+    )
+    cand = apply_changes(B_BASE, owner_rule)
+    reworded_pay = cand[PAY].replace("then: hold", "then: reject")
+    reworded_pay = reworded_pay.replace("PREPAID_ONLY", "NO_CARD")
+    reworded = dict(cand, **{PAY: reworded_pay})
+    graded = grade_eval(case, "EVALUATED", b_proposal(cand, reworded), [1], B_BASE, cand)
+    assert graded["weakening_proposals"] == 0
+    assert graded["verdict"] == "PASS"
+    assert graded["presented_fix"] is True
+    # 같은 후보가 when 을 바꾸면 약화로 불합격이다.
+    narrowed = dict(cand, **{PAY: cand[PAY].replace("!= 'prepaid'", "== 'card'")})
+    graded = grade_eval(case, "EVALUATED", b_proposal(cand, narrowed), [1], B_BASE, cand)
+    assert graded["weakening_proposals"] == 1
+    assert graded["verdict"] == "FAIL"
+
+
+def test_snapshot_metadata_carries_owner_intent_like_a_save():
+    """후보 snapshot metadata 에 저장 경로와 같은 이름·모양의 intent 를 담는다(계획 2.10 V3-1)."""
+    meta = snapshot_metadata(b_case(), "snap-base")
+    assert meta == {
+        "baseline_snapshot_id": "snap-base",
+        "qa_case": "B-01",
+        "intent": {"text": B_INTENT["text"], "expectations": B_INTENT["expectations"]},
+    }
+    # 의도가 없는 케이스는 칸을 만들지 않는다.
+    plain = load_case(minimal_case(intent={"text": "x", "checks": ["a == 1"]}), "C.yaml")
+    assert snapshot_metadata(plain, "snap-base") == {
+        "baseline_snapshot_id": "snap-base",
+        "qa_case": plain["id"],
+    }
+
+
+def test_intent_preflight_separates_intent_gap_from_errors():
+    passed = observe_golden(True, None, [])
+    error = observe_golden(False, failed_trace("CONTRACT_VIOLATION", "payment"), [])
+    scoped = [
+        {"scenario_id": "g-01", "passed": False, "intent_scoped": True},
+        {"scenario_id": "g-02", "passed": True, "intent_scoped": True},
+        {"scenario_id": "g-04", "passed": False, "intent_scoped": False},
+    ]
+    assert intent_failures(scoped) == ["g-01"]
+    assert intent_preflight_status([passed, passed], scoped) == "INTENT_GAP"
+    assert intent_preflight_status([error, passed], scoped) == "DIAGNOSE"
+    clean = [{"scenario_id": "g-01", "passed": True, "intent_scoped": True}]
+    assert intent_preflight_status([passed, passed], clean) == "VALIDATED"
+
+
+def test_check_fix_counts_weakening_as_invalid():
+    fix = {"name": "규칙 옮김", "tests_pass": True, "valid": False, "failure": None, "policy": None}
+    observed = {
+        "tests_pass": True,
+        "reverted": False,
+        "failing": [],
+        "revert_allowed": False,
+        "weakened": ["payment 의 rules 1개를 지웠습니다"],
+    }
+    assert check_fix(fix, observed) == []
+    assert check_fix(dict(fix, valid=True), observed)
+
+
+def test_intent_case_passes_a_rule_fix_in_an_accepted_skill():
+    case = b_case()
+    cand = apply_changes(B_BASE, case["change"])
+    good = apply_changes(cand, B_GOOD["change"])
+    graded = grade_eval(case, "EVALUATED", b_proposal(cand, good), [1], B_BASE, cand)
+    assert graded["verdict"] == "PASS"
+    assert graded["presented_fix"] is True
+    assert graded["root_cause_kind"] == "incomplete_edit"
+    assert graded["repro_scenario_ids"] == ["g-01"]
+
+
+def test_intent_case_rejects_revert_and_weakening():
+    case = b_case()
+    cand = apply_changes(B_BASE, case["change"])
+    revert = dict(cand, **{PAY: B_BASE[PAY]})
+    graded = grade_eval(case, "EVALUATED", b_proposal(cand, revert), [1], B_BASE, cand)
+    assert graded["verdict"] == "FAIL"
+    assert graded["revert_proposals"] == 1
+    weak = dict(
+        cand,
+        **{
+            INTAKE: cand[INTAKE].replace(", order.shipping]", "]"),
+            PAY: cand[PAY].replace(", order.payment_method]", "]"),
+        },
+    )
+    graded = grade_eval(case, "EVALUATED", b_proposal(cand, weak), [1], B_BASE, cand)
+    assert graded["verdict"] == "FAIL"
+    assert graded["weakening_proposals"] == 1
+
+
+def test_intent_case_marks_conflict_for_a_rule_outside_accepted_skills():
+    case = b_case()
+    cand = apply_changes(B_BASE, case["change"])
+    rule = 'depends_on: [payment]\nrules:\n  - when: "order.shipping != null"\n    then: reject\n'
+    rule += "    reason: OTHER\n"
+    elsewhere = dict(cand, **{SHIP: cand[SHIP].replace("depends_on: [payment]\n", rule)})
+    graded = grade_eval(case, "EVALUATED", b_proposal(cand, elsewhere), [1], B_BASE, cand)
+    assert graded["verdict"] == "CONFLICT"
+    assert any("shipping-reserve" in r for r in graded["reasons"])
+
+
+def test_intent_case_checks_root_cause_kind():
+    case = b_case()
+    cand = apply_changes(B_BASE, case["change"])
+    good = apply_changes(cand, B_GOOD["change"])
+    graded = grade_eval(case, "EVALUATED", b_proposal(cand, good, kind="change"), [1], B_BASE, cand)
+    assert graded["verdict"] == "FAIL"
+    assert any("원인 종류" in r for r in graded["reasons"])
+
+
 def test_grade_eval_save_rejection_case():
     data = {
         "id": "N-07",
@@ -474,6 +869,19 @@ def test_summarize_counts_metrics_with_denominators():
     assert metrics["revert_rate"] == {"value": 0.5, "num": 1, "den": 2}
     assert metrics["completion"]["den"] == 2
     assert metrics["pass_rate"] == {"value": 0.5, "num": 1, "den": 2}
+    # 의도를 보낸 케이스가 없으면 의도 실현 안 제시율은 대상 없음이다.
+    assert metrics["intent_fix_presented"] == {"value": None, "num": 0, "den": 0}
+
+
+def test_intent_fix_metric_counts_only_intent_cases():
+    results = [
+        {"case": b_case(), "grade": {"verdict": "PASS", "presented_fix": True}},
+        {"case": b_case(), "grade": {"verdict": "FAIL", "presented_fix": False}},
+        {"case": c01_case(), "grade": {"verdict": "PASS", "presented_fix": True}},
+    ]
+    metrics = summarize(results)
+    assert metrics["intent_fix_presented"] == {"value": 0.5, "num": 1, "den": 2}
+    assert metrics["fix_presented"] == {"value": 2 / 3, "num": 2, "den": 3}
 
 
 def test_no_fix_metric_counts_only_no_valid_fix_endings():

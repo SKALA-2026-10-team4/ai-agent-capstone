@@ -24,6 +24,9 @@ order_agent:
   g-01: {result: pass}
   g-02: {result: pass}
   g-03: {result: pass}
+  g-04: {result: pass}
+  g-05: {result: pass}
+  g-06: {result: pass}
 
 answer:
   status: [INTENT_VIOLATION]

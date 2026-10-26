@@ -11,16 +11,24 @@
 // candidates slot(고른 후보의 patch 비교)을 연다.
 // 이 key 값은 service/src/main/java/com/capstone4/skillops/proposal/ProposalDocumentWriter.java 가
 // 절에 붙이는 key 와 같아야 하므로 그쪽을 바꾸면 여기도 고친다.
+// candidates 를 넘기면 후보 카드 제목 아래에 그 후보의 경고 꼬리표
+// (frontend/src/components/CandidateTags.vue)를 붙인다. 종류 이름은 service 가 쓴 카드 제목에 이미
+// 있으므로 뺀다. 본문은 service 가 쓴 글 그대로 두고, 꼬리표만 Agent 원본 제안서의 후보 칸
+// (is_revert, weakens_contract)에서 읽는다.
+import CandidateTags from './CandidateTags.vue'
 import ProposalFacts from './ProposalFacts.vue'
 
 // selectedNo 는 지금 고른 후보 번호이며 그 후보 카드를 강조한다.
 // canSelect 가 false 면 후보를 고를 수 없다. ProposalView 는 canSelect 를 넘기지 않으므로
-// 지금은 기본값 true 로 쓴다.
-defineProps({
+// 지금은 기본값 true 로 쓴다. candidates 는 Agent 원본 제안서의 후보 목록이다.
+const props = defineProps({
   document: { type: Object, required: true },
   selectedNo: { type: Number, default: null },
   canSelect: { type: Boolean, default: true },
+  candidates: { type: Array, default: () => [] },
 })
+// 후보 번호로 원본 후보를 찾는다. 없으면 null 이라 꼬리표를 그리지 않는다.
+const candidateOf = (no) => props.candidates.find((c) => c.candidate_no === no) ?? null
 // 후보 카드(parts)나 '후보 n번 고르기' 버튼을 누르면 select 이벤트로
 // 그 후보 번호(candidate_no)를 올려 보낸다. ProposalView 가 받아 selectedNo 를 바꾼다.
 defineEmits(['select'])
@@ -45,6 +53,7 @@ defineEmits(['select'])
           @click="canSelect && $emit('select', part.candidate_no)"
         >
           <h3>{{ part.heading }}</h3>
+          <CandidateTags :candidate="candidateOf(part.candidate_no)" :show-kind="false" />
           <p v-for="(text, j) in part.paragraphs" :key="`q${j}`" class="para">{{ text }}</p>
           <ProposalFacts v-if="part.facts.length" :facts="part.facts" stop-click />
           <button
@@ -121,6 +130,6 @@ blockquote {
 }
 
 .part h3 {
-  margin: 0;
+  margin: 0 0 4px;
 }
 </style>

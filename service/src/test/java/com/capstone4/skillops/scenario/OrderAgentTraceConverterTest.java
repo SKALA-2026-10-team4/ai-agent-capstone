@@ -145,11 +145,43 @@ class OrderAgentTraceConverterTest {
                 event(2, "SKILL_FINISHED", "order-intake", Map.of("step_no", 1, "status", "ok", "output", Map.of())),
                 event(3, "EXECUTION_ERROR", null, Map.of("category", "TIMEOUT"))));
 
-        assertThat(OrderAgentTraceConverter.toOutcome("r_x", trace).steps()).singleElement().satisfies(step -> {
+        RunOutcome outcome = OrderAgentTraceConverter.toOutcome("r_x", trace);
+        assertThat(outcome.steps()).singleElement().satisfies(step -> {
             assertThat(step.skill()).isEqualTo("order-intake");
             assertThat(step.status()).isEqualTo("ok");
             assertThat(step.error()).isNull();
         });
+        assertThat(outcome.error()).isEqualTo("TIMEOUT");
+    }
+
+    /**
+     * D2: skill 이 붙지 않은 flow 단위 오류(INCOMPLETE_FLOW, UNKNOWN_SKILL, INVALID_FLOW)도 오류 category 가 떨어진 이유 맨 앞에 남는다.
+     * 진단 Agent 의 _reproduce_failure 가 reason 에 원래 category 가 있는지 보기 때문이다. failures[].skill 은 모르는 그대로 null 이다.
+     */
+    @Test
+    void skilllessFlowErrorKeepsItsCategoryInTheReason() {
+        for (String category : List.of("INCOMPLETE_FLOW", "UNKNOWN_SKILL", "INVALID_FLOW")) {
+            Map<String, Object> trace = Map.of("final_status", "FAILED", "events", List.of(
+                    event(1, "EXECUTION_ERROR", null, Map.of("category", category, "message", "흐름을 시작할 수 없습니다"))));
+
+            RunOutcome outcome = OrderAgentTraceConverter.toOutcome("r_x", trace);
+            GradeResult grade = new ScenarioGrader().grade(Expectation.of(TestFixtures.g01().expect()), List.of(), outcome);
+
+            assertThat(outcome.steps()).as(category).isEmpty();
+            assertThat(outcome.error()).as(category).isEqualTo(category + ": 흐름을 시작할 수 없습니다");
+            assertThat(grade.skill()).as(category).isNull();
+            assertThat(grade.reasons().getFirst()).as(category).isEqualTo("실행 오류: " + category + ": 흐름을 시작할 수 없습니다");
+        }
+    }
+
+    /** skill 이 붙은 오류는 지금처럼 그 단계에 붙고 RunOutcome.error 는 비어 있다. */
+    @Test
+    void stepErrorLeavesRunErrorEmpty() {
+        RunOutcome outcome = OrderAgentTraceConverter.toOutcome("r_x", Map.of("final_status", "FAILED", "events", List.of(
+                event(1, "EXECUTION_ERROR", "payment", Map.of("category", "CONTRACT_VIOLATION")))));
+
+        assertThat(outcome.error()).isNull();
+        assertThat(outcome.steps()).singleElement().satisfies(step -> assertThat(step.error()).isEqualTo("CONTRACT_VIOLATION"));
     }
 
     @Test

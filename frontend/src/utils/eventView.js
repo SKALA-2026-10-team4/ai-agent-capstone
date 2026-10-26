@@ -84,6 +84,10 @@ export function formatValue(key, value) {
 export const fieldsOf = (obj) =>
   Object.entries(obj ?? {}).map(([k, v]) => ({ label: keyLabel(k), value: formatValue(k, v) }))
 
+// 실행 규칙의 결정(then)을 문장 끝말로 바꾼다. reject 는 거절, hold 와 그 밖의 값은 보류다.
+// 주문 Agent 는 hold 면 주문을 HOLD, reject 면 REJECTED 로 끝낸다.
+const ruleVerb = (then) => (then === 'reject' ? '거절했다' : '보류했다')
+
 // 모델 원래 응답(raw_response)을 JSON 으로 읽는다. JSON 이 아니면 null 이다.
 function parseModel(raw) {
   try {
@@ -102,7 +106,7 @@ function parseModel(raw) {
 //
 // 표에 없는 종류는 종류 이름이 그대로 라벨과 제목이 된다.
 // frontend/unit/eventView.test.js 와 frontend/unit/eventKinds.test.js 가
-// 종류 수(23)와 문장을 고정하므로 표를 바꾸면 두 테스트도 고친다.
+// 종류 수(24)와 문장을 고정하므로 표를 바꾸면 두 테스트도 고친다.
 const EVENT_KINDS = {
   EXECUTION_STARTED: {
     label: '실행 시작',
@@ -185,15 +189,32 @@ const EVENT_KINDS = {
       fields: fieldsOf(d.input),
     }),
   },
+  // 단계의 실행 규칙(SKILL.md 의 rules) 하나가 맞아 도구를 부르지 않고 주문을 멈췄다. 주문 Agent 가
+  // 단계 입력 검사 직후에 남기고, 뒤이어 재고 해제 도구 이벤트, SKILL_FINISHED(business_stop),
+  // BUSINESS_STOP 이 온다(docs/plans/2026-10-26-behavior-edit-root-fix.md 2.2 절). rule_index 는
+  // 0부터 센 규칙 번호라 화면에는 1을 더해 보여 준다.
+  RULE_MATCHED: {
+    label: '업무 규칙 적용',
+    describe: (d) => ({
+      title: `규칙 ${d.reason} 에 걸려 ${ruleVerb(d.then)}`,
+      note: d.rule_index != null ? `${d.rule_index + 1}번째 규칙 · 업무 도구를 부르지 않았다` : '업무 도구를 부르지 않았다',
+      fields: [
+        { label: '조건', value: d.when },
+        { label: '결정', value: d.then },
+      ],
+    }),
+  },
   // status 가 error 면 오류로, business_stop 이 참이면 업무 규칙에 따른
-  // 멈춤으로, 그 밖에는 정상 완료로 쓴다. 걸린 시간이 없으면 note 는 null 이다.
+  // 멈춤으로, 그 밖에는 정상 완료로 쓴다. 실행 규칙으로 멈췄으면(rule_reason) 그 코드를 제목 끝에
+  // 붙인다. 걸린 시간이 없으면 note 는 null 이다.
   SKILL_FINISHED: {
     label: '단계 끝',
     describe: (d) => {
       const time = d.duration_ms != null ? `${d.duration_ms} ms` : null
       if (d.status === 'error') return { title: `${d.step_no}단계가 오류로 끝났다: ${d.category}`, note: time, fields: fieldsOf(d.output) }
       if (d.business_stop) {
-        return { title: `${d.step_no}단계에서 업무 규칙대로 멈췄다: ${d.final_status}`, note: time, fields: fieldsOf(d.output) }
+        const rule = d.rule_reason ? ` (규칙 ${d.rule_reason})` : ''
+        return { title: `${d.step_no}단계에서 업무 규칙대로 멈췄다: ${d.final_status}${rule}`, note: time, fields: fieldsOf(d.output) }
       }
       return { title: `${d.step_no}단계를 마쳤다`, note: time, fields: fieldsOf(d.output) }
     },
@@ -237,11 +258,16 @@ const EVENT_KINDS = {
     describe: (d) => ({ title: '다음 단계로 넘긴 값', fields: fieldsOf(d.declared_output) }),
   },
   // REJECTED 는 재고 부족 같은 정상 거절로, 그 밖의 상태는 결제 거절 같은 정상 보류로 설명한다.
+  // data 에 실행 규칙 코드(rule_reason)가 있으면 그 규칙에 따른 멈춤으로 설명한다.
   BUSINESS_STOP: {
     label: '정상 업무 종료',
     describe: (d) => ({
       title: `업무 규칙대로 멈췄다: ${d.final_status}`,
-      note: d.final_status === 'REJECTED' ? '재고 부족 등 정상적인 거절' : '결제 거절 등 정상적인 보류',
+      note: d.rule_reason
+        ? `실행 규칙 ${d.rule_reason} 에 따른 ${d.final_status === 'REJECTED' ? '거절' : '보류'}`
+        : d.final_status === 'REJECTED'
+          ? '재고 부족 등 정상적인 거절'
+          : '결제 거절 등 정상적인 보류',
       fields: [],
     }),
   },

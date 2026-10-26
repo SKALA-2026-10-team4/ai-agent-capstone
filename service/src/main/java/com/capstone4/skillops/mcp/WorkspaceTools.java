@@ -7,6 +7,7 @@ import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.stereotype.Component;
 
+import com.capstone4.skillops.scenario.IntentExpectation;
 import com.capstone4.skillops.scenario.ScenarioRunner;
 import com.capstone4.skillops.workspace.WorkspaceService;
 import com.capstone4.skillops.workspace.WorkspaceService.PatchInput;
@@ -80,7 +81,7 @@ public class WorkspaceTools {
      * patches 항목의 키(skill, base_version, patch)는 WorkspaceService.PatchInput 의 @JsonNaming 이 snake_case 로 읽는다.
      * Agent 쪽에서는 skillops-agent/skillops_agent/nodes.py 의 _ablate_change 가 바뀐 덩어리 하나를 되돌리는 수정을,
      * _verify_candidate 가 후보 수정안 전체를 넣는다. 원문과 맞지 않는 수정은 INVALID_INPUT 오류가 되고,
-     * _verify_candidate 는 그 후보를 탈락시킨 뒤 다음 후보로 넘어간다.
+     * _verify_candidate 는 그 후보를 탈락시킨 뒤 다음 후보로 넘어간다. run_scenarios 를 이미 돌린 연습 공간은 WORKSPACE_FROZEN 이다.
      */
     @McpTool(name = "apply_patch", description = """
             연습 공간의 SKILL.md 에 수정 내용(unified diff)을 넣고, 고친 뒤 skill 사이의 연결이 끊긴 곳이 있는지 알려 준다.
@@ -88,14 +89,19 @@ public class WorkspaceTools {
             patch 는 diff_skill 이 돌려준 덩어리별 diff 를 그대로 넣거나 같은 형식으로 만든다. '---', '+++' 머리줄은 없어도 된다.
             base_version 은 연습 공간 안 그 skill 의 시작 버전(create_workspace 의 skill_versions)과 같아야 한다.
             끊긴 연결이 있어도 수정은 들어간다. 판단은 부른 쪽이 한다. 고치면 SKILL.md 맨 위 칸을 읽을 수 없게 되는 수정은 거부한다.
+            run_scenarios 를 한 번이라도 돌린 연습 공간은 고정되어 code WORKSPACE_FROZEN 으로 거부한다. 수정을 더 넣으려면 새 연습 공간을 만든다.
             돌려주는 값: {workspace_id, changed_skills:[{skill, version}], broken_links:[{skill, missing_input}],
             dependency_violations:[{skill, missing_dependency}], metadata_errors:[{skill, field, code, message}],
             flow_errors:[{skill, code, reason, message}]}.
             version 은 시작 버전 + 그 skill 에 수정이 들어간 횟수다.
             입력 공급·선행 순서 검사를 통과하려면 broken_links 와 dependency_violations 가 모두 비어 있어야 한다.
-            metadata_errors 는 전체 workspace의 name/version/owner/description/본문과 실행용 YAML 형식 오류다.
+            metadata_errors 는 전체 workspace의 name/version/owner/description/본문과 실행용 YAML 형식 오류, 실행 규칙 rules 의 형식 오류다.
+            rules 형식 오류는 field rules, code INVALID_SKILL_FORMAT 이다(목록 0~10개, 항목마다 when/then/reason 만,
+            when 은 조건 문법 v2, then 은 hold 또는 reject, reason 은 [A-Z][A-Z0-9_]{0,39}, flow skill 에는 둘 수 없음).
             필수 정보 오류가 있어도 기존 입력 거부 조건에 걸리지 않으면 patch는 저장된다. 후보 합격에는 metadata_errors도 비어야 한다.
             flow_errors 는 중복 단계, 12단계 초과, 잘못된 단계 이름, 없는/읽을 수 없는 단계, 중첩 flow, 불완전한 분석을 알린다.
+            rules 의 when 이 쓰는 값 이름이 그 단계의 inputs(같은 이름이나 그 아래 경로)에 없으면
+            code CONTRACT_VIOLATION, reason RULE_KEY_NOT_INPUT 이다. 예약 키 order.final_status, order.shipments 도 inputs 에 있어야 한다.
             구조 오류가 있어도 기존 입력 거부 조건에 걸리지 않으면 저장한다. 후보 합격에는 flow_errors도 비어야 한다.
             진단용 그래프는 그대로 유지하며 이 검사만으로 실제 실행 성공을 보장하지 않는다.
             실패하면 isError=true 와 {code, message, retryable, upstream_status, snapshot_id} 를 돌려준다.""")
@@ -108,7 +114,8 @@ public class WorkspaceTools {
 
     /**
      * ⑨ run_scenarios 도구다. 연습 공간의 skill 로 시험 주문을 모의 실행하고 기대 결과와 비교해 채점한다.
-     * 다섯 입력을 그대로 ScenarioRunner.run 에 넘긴다. 입력 검사와 repeat 기본값, 범위는 그쪽이 정한다.
+     * 여섯 입력을 그대로 ScenarioRunner.run 에 넘긴다. 입력 검사와 repeat 기본값, 범위, 의도 채점 규칙은 그쪽이 정한다.
+     * intent_expectations 항목은 {scope, checks} 이며 service/src/main/java/com/capstone4/skillops/scenario/IntentExpectation.java 로 읽는다.
      * Agent 의 노드는 skillops-agent/skillops_agent/nodes.py 의 _run_scenarios 로만 이 도구를 부르고, 결과는
      * skillops-agent/skillops_agent/contracts.py 의 validate_report 가 검사한다. Agent 는 재현 주문을 replay_run_ids 가
      * 아니라 scenario_ids 에 f-&lt;execution_id&gt; 로 넣는다.
@@ -117,17 +124,27 @@ public class WorkspaceTools {
             연습 공간의 skill 로 시험 주문을 모의 실행하고 기대 결과와 비교해 채점한다.
             같은 주문을 repeat 번(기본 2) 돌려 모두 통과해야 합격이다. 실제 결제·배송은 일어나지 않는다.
             scenario_ids 와 replay_run_ids 가운데 하나는 넣어야 한다.
-            재현 주문은 주문 Agent 에서 실패했던 실제 주문을 다시 돌리는 것이다. 오류(FAILED)로 멈추지 않으면 합격이다.
+            기준 주문은 서비스가 켜질 때 읽은 기준 주문 폴더의 g-NN 이다. 주문 Agent 용 폴더(scenarios/order-agent)는 g-01~g-06,
+            간이 실행기 기본 폴더(scenarios)는 g-01 하나다. 없는 번호는 있는 번호 목록과 함께 INVALID_INPUT 이다.
+            재현 주문은 주문 Agent 에서 실패했던 실제 주문을 다시 돌리는 것이다. 오류(FAILED)로 멈추지 않고 최종 상태가 있으면 합격이다.
             scenario_ids 에 f-<execution_id> 로 넣거나, replay_run_ids 에 execution_id(UUID) 또는 run_id(r_ + 32자리)로 넣는다.
             재현 주문은 skillops.flow-runner=harness 일 때만 된다. 이때는 연습 공간을 snapshot_id 로 만들어야 주문 Agent 에서 돌릴 수 있다.
+            확인 조건은 조건 문법 v2 한 줄이다(==, !=, in, >, >=, <, <=. 숫자 비교의 오른쪽은 숫자만).
+            확인 조건 문맥은 단계의 받은 값·내놓은 값에 예약 키 order.final_status(최종 상태), order.shipments(배송 건수)를 더한 것이다.
+            intent_expectations 는 담당자 의도의 기대 결과 [{scope, checks}] 0~10개다. checks 는 1~10개다.
+            scope 는 시험 주문의 처음 값(order.payment_method, order.customer, order.shipping.country, order.shipping.express,
+            order.total=상품 단가 x 수량의 합)으로 평가한다. scope 가 null 이면 그 checks 를 모든 주문에 더한다.
+            scope 에 맞는 기준 주문은 파일의 기대 결과 대신 맞는 checks 와 불변식(FAILED 아님, 최종 상태 있음)으로 채점하고 intent_scoped=true 다.
+            재현 주문은 불변식에 맞는 checks 를 더한다. extra_checks 는 언제나 모든 주문에 붙는다.
+            처음 시험을 시작하면 연습 공간이 고정되어 이후 apply_patch 는 WORKSPACE_FROZEN 이다.
             돌려주는 값: {workspace_id, all_passed, results:[{scenario_id, replay_of_run_id, passed, run_ids:[run_id],
-            failures:[{run_id, skill, reason}]}]}. results 는 scenario_ids, replay_run_ids 순서다.
+            failures:[{run_id, skill, reason}], intent_scoped}]}. results 는 scenario_ids, replay_run_ids 순서다.
             재현 주문의 scenario_id 는 f-<execution_id>, replay_of_run_id 는 넣은 실행 번호다. 기준 주문이면 replay_of_run_id 는 null 이다.
             실패하면 isError=true 와 {code, message, retryable, upstream_status, snapshot_id} 를 돌려준다.""")
     public CallToolResult runScenarios(
             @McpToolParam(description = "create_workspace 가 돌려준 연습 공간 번호") String workspace_id,
             @McpToolParam(required = false,
-                    description = "돌릴 시험 주문 번호 목록. 기준 주문은 g-01~g-06, 재현 주문은 f-<execution_id>")
+                    description = "돌릴 시험 주문 번호 목록. 기준 주문은 기준 주문 폴더의 g-NN(주문 Agent 용 g-01~g-06), 재현 주문은 f-<execution_id>")
             List<String> scenario_ids,
             @McpToolParam(required = false,
                     description = "재현할 실패 실행 번호 목록. execution_id(UUID) 또는 run_id(r_ + 32자리 16진수)")
@@ -135,8 +152,12 @@ public class WorkspaceTools {
             @McpToolParam(required = false,
                     description = "이번 시험에만 모든 주문에 덧붙이는 확인 조건. 예: inventory.예약가능수량 != null")
             List<String> extra_checks,
+            @McpToolParam(required = false,
+                    description = "담당자 의도의 기대 결과 목록(0~10개). 항목마다 {scope: 조건 한 줄 또는 null, checks: 확인 조건 1~10개}. "
+                            + "예: {scope: \"order.payment_method == 'card'\", checks: [\"order.final_status in ['HOLD', 'REJECTED']\"]}")
+            List<IntentExpectation> intent_expectations,
             @McpToolParam(required = false, description = "같은 주문을 돌릴 횟수(1~5, 기본 2)") Integer repeat) {
-        return WorkspaceToolResults.run(
-                () -> scenarioRunner.run(workspace_id, scenario_ids, replay_run_ids, extra_checks, repeat));
+        return WorkspaceToolResults.run(() -> scenarioRunner.run(workspace_id, scenario_ids, replay_run_ids, extra_checks,
+                intent_expectations, repeat));
     }
 }

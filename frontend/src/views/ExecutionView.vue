@@ -182,6 +182,7 @@ const statusOf = (id) => run.value?.bySkill[id]?.status ?? 'skipped'
             <span class="name">{{ id }}</span>
             <small>
               {{ RUN_LABEL[statusOf(id)] }}
+              <template v-if="run.bySkill[id]?.rule"> · 규칙 {{ run.bySkill[id].rule.reason }}</template>
               <template v-if="run.bySkill[id]?.duration_ms != null"> · {{ run.bySkill[id].duration_ms }} ms</template>
             </small>
           </button>
