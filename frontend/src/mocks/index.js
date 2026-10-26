@@ -304,8 +304,10 @@ async function execute(order, snapshot) {
   ev('MODEL_RESPONSE', null, { raw_response: JSON.stringify({ skill: ENTRY_SKILL }), input_tokens: null, output_tokens: null })
   ev('SKILL_SELECTED', null, { raw_name: ENTRY_SKILL, resolved_skill_id: null })
   ev('SKILL_RESOLVED', null, { raw_name: ENTRY_SKILL, resolved_skill_id: ENTRY_SKILL })
+  // 진입 Skill 을 읽지 못하면 SKILL_LOADED 를 남기지 않고 아래에서 그 오류로 끝낸다.
+  // 서버 OrderHarness 도 이 Skill 을 load 한 뒤에야 SKILL_LOADED 를 남긴다.
   const flow = skills.find((s) => s.skill_id === ENTRY_SKILL)
-  ev('SKILL_LOADED', ENTRY_SKILL, { path: flow.path, version: flow.version, hash: flow.file_hash })
+  if (flow && !flow.error) ev('SKILL_LOADED', ENTRY_SKILL, { path: flow.path, version: flow.version, hash: flow.file_hash })
 
   // 정적 계약 검사다. 진입 Skill 의 steps 순서로 buildGraph 를 부른다.
   const orderSteps = flowSteps(skills)
@@ -325,14 +327,42 @@ async function execute(order, snapshot) {
     ev('EXECUTION_ERROR', details.skill_id ?? null, { category, ...details })
   }
 
-  // 읽지 못한 Skill 이 있으면 그 오류로, 계약 위반이 있으면 CONTRACT_VIOLATION 으로 실패한다.
-  // 단계 자리에 흐름 Skill 이 오면(NESTED_FLOW_NOT_SUPPORTED) 서버처럼 계약 위반으로 본다.
+  // 서버 SkillLoader 와 같은 순서로 막는다. 진입 Skill 을 읽지 못함, 실행 순서 구조
+  // 오류(INVALID_FLOW), 단계 Skill 을 읽지 못함, 계약 위반(CONTRACT_VIOLATION: 실행 규칙 조건 키 RULE_KEY_NOT_INPUT 과
+  // 입력·선행 단계 누락을 단계 순서대로) 순이다. 단계 자리에
+  // 흐름 Skill 이 오면(NESTED_FLOW_NOT_SUPPORTED) 서버처럼 계약 위반으로 본다.
   const unreadable = graph.nodes.find((n) => n.parse_error)
   const violation = graph.missing[0]
-  const ruleViolation = flowRuleProblems(skills)[0]
+  const ruleProblems = flowRuleProblems(skills)
+  const ruleViolation = ruleProblems[0]
+  // 서버 validateFlow 는 단계 순서대로 실행 규칙 조건 키(requireRuleKeysDeclared)를 먼저 보고 입력 공급
+  // (validateInputs)을 본다. 그래서 더 앞 단계의 문제를, 같은 단계면 실행 규칙 문제를 먼저 쓴다.
+  const stepAt = (id) => orderSteps.indexOf(id)
+  const ruleFirst = ruleViolation && (!violation || stepAt(ruleViolation.skill_id) <= stepAt(violation.skill_id))
   step('INTAKE', 'SUCCESS', null, '주문 접수 완료')
-  if (unreadable) {
+  if (!flow || flow.error) {
+    // 진입 Skill 은 steps 에 없어 그래프 노드가 되지 않으므로 여기서 따로 본다.
+    fail(flow ? flow.error : 'UNKNOWN_SKILL', {})
+  } else if (graph.flow_errors.length) {
+    // validateFlow 가 단계를 하나도 읽기 전에 거절하는 경우다(빈 순서, 12단계 초과, 중복 단계).
+    // 서버는 details 없이 INVALID_FLOW 만 던지므로 여기서도 비워 둔다.
+    fail('INVALID_FLOW', {})
+  } else if (unreadable) {
     fail(unreadable.parse_error === 'NESTED_FLOW_NOT_SUPPORTED' ? 'CONTRACT_VIOLATION' : unreadable.parse_error, {})
+  } else if (ruleFirst) {
+    // 실행 규칙의 조건 키가 그 단계의 선언 input 이 아니면 업무 도구 실행 전에 막는다. details 는 서버
+    // SkillLoader.requireRuleKeysDeclared 와 같은 모양이고, rule_keys 에는 그 단계의 선언하지 않은 키를 모두 담는다.
+    const ruleKeys = [...new Set(ruleProblems.filter((r) => r.skill_id === ruleViolation.skill_id).map((r) => r.key))]
+    step(STEP_TYPE[ruleViolation.skill_id] ?? 'RECOVERY', 'FAILED', 'CONTRACT_VIOLATION', '주문 처리 중 오류가 발생했습니다.')
+    fail('CONTRACT_VIOLATION', {
+      skill_id: ruleViolation.skill_id,
+      phase: 'static_validation',
+      reason: 'RULE_KEY_NOT_INPUT',
+      missing_inputs: [],
+      missing_dependencies: [],
+      rule_keys: ruleKeys,
+      message: `실행 규칙 조건의 값 이름이 Skill의 선언 입력이 아닙니다: ${ruleKeys.join(', ')}`,
+    })
   } else if (violation) {
     // 정적 계약 검사에서 막혔으므로 업무 도구는 하나도 실행하지 않고,
     // 첫 위반 단계의 처리 단계만 FAILED 로 남긴다.
@@ -343,15 +373,6 @@ async function execute(order, snapshot) {
       missing_inputs: violation.missing_inputs,
       missing_dependencies: violation.missing_dependencies,
       message: 'Skill에 필요한 입력 또는 선행 단계가 충족되지 않았습니다.',
-    })
-  } else if (ruleViolation) {
-    // 실행 규칙의 조건 키가 그 단계의 선언 input 이 아니면 업무 도구 실행 전에 막는다.
-    step(STEP_TYPE[ruleViolation.skill_id] ?? 'RECOVERY', 'FAILED', 'CONTRACT_VIOLATION', '주문 처리 중 오류가 발생했습니다.')
-    fail('CONTRACT_VIOLATION', {
-      skill_id: ruleViolation.skill_id,
-      phase: 'static_validation',
-      reason: 'RULE_KEY_NOT_INPUT',
-      message: `실행 규칙 조건의 값 이름 ${ruleViolation.key} 가 Skill 의 선언 입력이 아닙니다.`,
     })
   } else {
     // 검사를 통과하면 steps 순서대로 단계를 실행한다.
