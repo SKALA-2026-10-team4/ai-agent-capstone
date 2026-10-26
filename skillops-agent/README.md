@@ -14,6 +14,11 @@ uv run scripts/mcp_smoke.py              # service(8080) 가 떠 있을 때: MCP
 - 모델: `gpt-5.4-mini` (`SKILLOPS_MODEL` 로 변경). gpt-5 계열은 온도를 받지 않아 같은 입력에도 결과가 달라질 수 있다.
 - 진단 파이프라인 설명은 `docs/skillops-design.md` 3절에 있고, 단계 순서는 `skillops_agent/graph.py` 의 `FLOW` 가 정한다. `main.py` 의 `/diagnose` 에서 시작한다.
 
+## LangSmith 로 보기
+
+- 실행 기록: 루트 `.env` 에 `LANGSMITH_TRACING=true` 와 `LANGSMITH_API_KEY`(smith.langchain.com 에서 발급)를 넣는다. 그 뒤 `/diagnose`, `scripts/run_real_llm.py`, `scripts/run_trigger.py` 가 돌 때마다 노드별 입출력, LLM 호출(프롬프트·응답·토큰), 걸린 시간이 `LANGSMITH_PROJECT`(기본 `skillops-agent`) 프로젝트에 쌓인다. 코드 변경은 없다. SKILL.md 내용·프롬프트·평가셋이 LangSmith 클라우드로 가므로 필요할 때만 켠다. pytest 는 `tests/conftest.py` 가 끈다.
+- 그래프 구조: `uv run langgraph dev` 를 실행하면 LangGraph Studio 가 브라우저에 열린다. `langgraph.json` 이 회귀 진단(`diagnose`)과 호출 진단(`trigger`) 그래프를 등록하며, 둘 다 `skillops_agent/studio.py` 에서 저장소 없이 compile 한 것이다. Studio 에서 `diagnose` 를 돌리려면 service(:8080)가 떠 있거나 `SKILLOPS_USE_STUB_MCP=true` 여야 한다.
+
 ## 수정안 RAG 데이터
 
 수정안 생성에 넣을 참고 자료를 `rag/rag_data.json` 에 둔다. 항목 모양은 팀 RAG 실험의 TSG 설계(도구 계약 + skill 이름으로 조회 + 판단 기준)를 따른다. 사실 데이터는 사람이 쓰지 않고 자동으로 만든다.
